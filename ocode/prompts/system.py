@@ -402,6 +402,7 @@ def build_system_prompt(
     model: str,
     project_context: str | None = None,
     memory_index: str | None = None,
+    skills_catalog: str | None = None,
     model_modelfile_system: str | None = None,
     lean: bool = False,
     disabled_sections: list[str] | None = None,
@@ -435,6 +436,9 @@ def build_system_prompt(
 
     env = collect_environment(workspace, model)
     parts.append(env.render())
+
+    if skills_catalog:
+        parts.append(skills_catalog.strip())
 
     if project_context:
         parts.append(

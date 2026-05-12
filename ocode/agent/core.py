@@ -225,11 +225,21 @@ class Agent:
         except Exception as e:
             ui.info(f"memory load failed: {e}")
 
+        skills_catalog: str | None = None
+        try:
+            from ..skills.progressive_disclosure import build_catalog
+            skills_catalog = build_catalog(self.workspace) or None
+            if skills_catalog:
+                ui.info(f"loaded skills catalog ({len(skills_catalog)} bytes)")
+        except Exception as e:
+            ui.info(f"skills catalog load failed: {e}")
+
         return build_system_prompt(
             workspace=self.workspace,
             model=self.model,
             project_context=project_context,
             memory_index=memory_index,
+            skills_catalog=skills_catalog,
             model_modelfile_system=model_system,
             lean=self.cfg.lean_prompt,
             disabled_sections=self.cfg.disabled_prompt_sections,
