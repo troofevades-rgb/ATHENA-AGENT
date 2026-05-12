@@ -232,6 +232,63 @@ def test_fork_thread_is_daemon(parent_agent: Agent, monkeypatch: pytest.MonkeyPa
     assert seen.get("name") == "ocode-fork"
 
 
+def test_fork_quiet_false_lets_output_through(
+    parent_agent: Agent, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """quiet=False skips the redirect_stdout context manager entirely."""
+    original_chat = FakeClient.chat
+
+    def chat_with_print(self, *args, **kwargs):
+        print("VISIBLE_FORK_OUTPUT")
+        yield from original_chat(self, *args, **kwargs)
+
+    FakeClient.chat = chat_with_print
+    try:
+        parent_agent.fork(
+            enabled_toolsets=["core"],
+            system_addendum="",
+            quiet=False,
+        )
+    finally:
+        FakeClient.chat = original_chat
+
+    assert "VISIBLE_FORK_OUTPUT" in capsys.readouterr().out
+
+
+def test_fork_with_shared_client(parent_agent: Agent) -> None:
+    """auxiliary_client=False shares the parent's HTTP client (saves sockets)."""
+    parent_agent.fork(
+        enabled_toolsets=["core"],
+        system_addendum="",
+        auxiliary_client=False,
+    )
+    # FakeClient counts: parent + child constructed by Agent.__init__ (then
+    # closed and replaced). The child's observations land on the parent's
+    # client instance.
+    assert parent_agent.client.observations, "parent client should have seen the fork's chat()"
+
+
+def test_fork_seeds_conversation_history(parent_agent: Agent) -> None:
+    """conversation_history replaces child.messages[1:] but preserves the
+    system message at messages[0]."""
+    history = [
+        {"role": "user", "content": "prior question"},
+        {"role": "assistant", "content": "prior answer"},
+    ]
+    parent_agent.fork(
+        enabled_toolsets=["core"],
+        system_addendum="addendum",
+        conversation_history=history,
+    )
+    fork_client = FakeClient.instances[-1]
+    seen = fork_client.observations[0]["messages"]
+    # Layout: [system, prior user, prior assistant, current user prompt ("")]
+    assert seen[0]["role"] == "system"
+    assert "addendum" in seen[0]["content"]
+    assert seen[1] == history[0]
+    assert seen[2] == history[1]
+
+
 def test_fork_thread_does_not_block_main_process_exit(
     parent_agent: Agent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
