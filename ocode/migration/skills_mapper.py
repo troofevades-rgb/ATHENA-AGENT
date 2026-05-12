@@ -160,11 +160,13 @@ def _resolve_destination(
     is_archived: bool,
     report: Report,
     hermes_path: Path,
+    dry_run: bool,
 ) -> tuple[Path, str] | None:
     """Return (dest_path, mode) where mode is 'imported' or 'conflict_renamed',
     or None if the existing destination is a prior migration (skip)."""
     target_root = base / ".archive" if is_archived else base
-    target_root.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        target_root.mkdir(parents=True, exist_ok=True)
     candidate = target_root / name
     if candidate.exists():
         origin = _existing_origin(candidate / "SKILL.md")
@@ -233,6 +235,7 @@ def import_skills(
             is_archived=is_archived,
             report=report,
             hermes_path=hermes_path,
+            dry_run=dry_run,
         )
         if resolved is None:
             continue

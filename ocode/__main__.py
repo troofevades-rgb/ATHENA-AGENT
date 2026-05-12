@@ -195,7 +195,18 @@ def _handle_slash(agent: Agent, line: str) -> bool:
     return True
 
 
+_SUBCOMMANDS = {
+    "import-from-hermes": "ocode.cli.import_hermes",
+}
+
+
 def main() -> int:
+    # Subcommands short-circuit the interactive parser. argv[1] is the verb.
+    if len(sys.argv) >= 2 and sys.argv[1] in _SUBCOMMANDS:
+        import importlib
+        mod = importlib.import_module(_SUBCOMMANDS[sys.argv[1]])
+        return mod.main(sys.argv[2:])
+
     ap = argparse.ArgumentParser(prog="ocode", description="Local Claude Code on Ollama")
     ap.add_argument("-m", "--model", help="Ollama model tag")
     ap.add_argument("-p", "--prompt", help="One-shot prompt; runs and exits")
