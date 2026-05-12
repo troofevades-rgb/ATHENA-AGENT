@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import hooks, tools, ui
+from .safety.approval_callback import get_approval_callback
 from .config import Config
 from .ollama_client import OllamaClient
 from .prompts import build_system_prompt
@@ -422,7 +423,7 @@ class Agent:
             if not allowed:
                 preview = args.get("command") or json.dumps(args)
                 ui.console.print(f"[yellow]command:[/] [white]{preview}[/]")
-                if not ui.confirm("Run this?", default=False):
+                if get_approval_callback()(name, args) != "allow":
                     result = "DENIED by user"
                     self._record_tool_result(call, name, result)
                     return
