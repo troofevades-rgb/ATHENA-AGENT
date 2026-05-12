@@ -56,3 +56,34 @@ def test_warns_when_no_mcp_json(
     translate_mcp(hermes_source, ocode_dest, report=migration_report)
     warnings = migration_report.entries.get("mcp_warning", [])
     assert any(w.get("reason") == "no_mcp_json" for w in warnings)
+
+
+def test_records_error_on_malformed_json(
+    hermes_source: Path, ocode_dest: Path, migration_report
+) -> None:
+    (hermes_source / "mcp.json").write_text("{ not json", encoding="utf-8")
+    translate_mcp(hermes_source, ocode_dest, report=migration_report)
+    assert migration_report.count("mcp_error") == 1
+    assert not (ocode_dest / "mcp.json").exists()
+
+
+def test_records_error_when_servers_not_mapping(
+    hermes_source: Path, ocode_dest: Path, migration_report
+) -> None:
+    _write_mcp(hermes_source, {"mcpServers": ["not", "a", "dict"]})
+    translate_mcp(hermes_source, ocode_dest, report=migration_report)
+    errors = migration_report.entries.get("mcp_error", [])
+    assert any("not a mapping" in e.get("error", "") for e in errors)
+
+
+def test_non_dict_server_entry_skipped(
+    hermes_source: Path, ocode_dest: Path, migration_report
+) -> None:
+    _write_mcp(hermes_source, {"mcpServers": {
+        "ok": {"command": "x"},
+        "weird": "not a dict",
+    }})
+    translate_mcp(hermes_source, ocode_dest, report=migration_report)
+    out = json.loads((ocode_dest / "mcp.json").read_text(encoding="utf-8"))
+    assert out["mcpServers"]["ok"]["command"] == "x"
+    assert out["mcpServers"]["weird"] == "not a dict"
