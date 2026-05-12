@@ -40,7 +40,13 @@ class Config:
     # (Bash, Write to existing files, etc.). Replaces the old auto_approve_bash.
     auto_approve_tools: bool = False
     context_window: int = 32768
-    # Tools the user has globally disabled (by name)
+    # Toolsets advertised to the model. None means "all registered toolsets"
+    # (legacy behavior). An explicit list scopes the registry — used by forks
+    # to give sub-agents a narrow capability surface.
+    enabled_toolsets: list[str] | None = None
+    # Tools the user has globally disabled (by name). Deprecated in favor of
+    # enabled_toolsets but kept for one transitional release; intersects with
+    # enabled_toolsets when both are set.
     disabled_tools: list[str] = field(default_factory=list)
     # Max bytes to include from a single file read
     max_file_read: int = 256_000

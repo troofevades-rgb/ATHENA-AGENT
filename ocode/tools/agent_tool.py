@@ -1,8 +1,9 @@
 """Sub-agent dispatch — Claude Code's `Agent` tool.
 
-A sub-agent is a fresh ocode Agent instance run on a scoped tool set with
-its own system prompt. It runs the user-provided prompt to completion and
-returns its final assistant message as a string.
+A sub-agent is spawned by calling :py:meth:`Agent.fork` on the live parent
+agent. The fork inherits the parent's runtime (model, ollama host) but runs on
+a daemon thread with a scoped tool set, an injected system addendum, and the
+``AUTO_DENY`` approval callback so it cannot deadlock waiting on a prompt.
 
 Available subagent types:
 - general-purpose: full tool set
@@ -12,14 +13,28 @@ Available subagent types:
 from __future__ import annotations
 from typing import Any
 
-from .registry import tool, _REGISTRY, Tool
+from .registry import _REGISTRY, _TOOLSETS, tool
 from .. import ui
 
 
-SUBAGENT_TYPES = {
+# Read-only scope shared by Explore and Plan. Tool *names* (not toolsets)
+# because the "file" toolset includes Write/Edit, which read-only forks should
+# not see.
+_READONLY_TOOL_NAMES: set[str] = {
+    "Read", "read_file",
+    "Glob", "glob",
+    "Grep", "grep",
+    "WebFetch", "web_fetch",
+    "WebSearch", "web_search",
+    "list_dir",
+}
+
+
+SUBAGENT_TYPES: dict[str, dict[str, Any]] = {
     "general-purpose": {
         "description": "General-purpose agent for complex multi-step research and tasks. Has access to the full tool set.",
-        "scope": None,  # None = all tools
+        "enabled_toolsets": None,  # None → all registered toolsets
+        "disabled_tools": None,
         "system_addendum": (
             "You are a sub-agent. Run the task to completion and return a single "
             "concise final message summarizing what you did and what you found. "
@@ -28,14 +43,8 @@ SUBAGENT_TYPES = {
     },
     "Explore": {
         "description": "Read-only search agent for locating code, files, and answering 'where is X' questions.",
-        "scope": {
-            "Read", "read_file",
-            "Glob", "glob",
-            "Grep", "grep",
-            "WebFetch", "web_fetch",
-            "WebSearch", "web_search",
-            "list_dir",
-        },
+        "enabled_toolsets": ["file", "web"],
+        "disabled_tools": "readonly",  # sentinel: subtract everything not in _READONLY_TOOL_NAMES
         "system_addendum": (
             "You are an Explore sub-agent. You have READ-ONLY tools. Locate code, "
             "files, or symbols and report findings concisely. Do not propose edits "
@@ -44,14 +53,8 @@ SUBAGENT_TYPES = {
     },
     "Plan": {
         "description": "Planning agent that produces a step-by-step implementation plan without making changes.",
-        "scope": {
-            "Read", "read_file",
-            "Glob", "glob",
-            "Grep", "grep",
-            "WebFetch", "web_fetch",
-            "WebSearch", "web_search",
-            "list_dir",
-        },
+        "enabled_toolsets": ["file", "web"],
+        "disabled_tools": "readonly",
         "system_addendum": (
             "You are a Plan sub-agent. You have READ-ONLY tools. Investigate enough "
             "to produce a concrete implementation plan: which files to touch, what to "
@@ -61,11 +64,22 @@ SUBAGENT_TYPES = {
 }
 
 
-def _make_agent_factory():
-    """Lazy import to avoid circular import (agent.py imports tools/, tools/ imports agent)."""
-    from ..agent import Agent
-    from ..config import Config
-    return Agent, Config
+def _resolve_disabled(spec_disabled: Any, enabled: list[str] | None) -> list[str] | None:
+    """Translate a SUBAGENT_TYPES disabled_tools spec to a concrete list."""
+    if spec_disabled is None:
+        return None
+    if spec_disabled == "readonly":
+        # Subtract anything in the candidate toolsets that isn't read-only.
+        if enabled is None:
+            candidates = set(_REGISTRY.keys())
+        else:
+            candidates: set[str] = set()
+            for ts in enabled:
+                candidates |= _TOOLSETS.get(ts, set())
+        return sorted(candidates - _READONLY_TOOL_NAMES)
+    if isinstance(spec_disabled, (list, tuple, set)):
+        return list(spec_disabled)
+    return None
 
 
 @tool(
@@ -99,53 +113,31 @@ def Agent(description: str, prompt: str, subagent_type: str = "general-purpose")
     if not spec:
         return f"ERROR: unknown subagent_type {subagent_type!r}"
 
-    AgentCls, ConfigCls = _make_agent_factory()
+    # Lazy to avoid circular import at module load.
+    from ..agent import get_current_agent
 
-    # Inherit the parent agent's runtime context. We rely on file_ops._WORKSPACE
-    # being set, since the parent has already configured it.
-    from . import file_ops
-    workspace = file_ops._WORKSPACE
+    parent = get_current_agent()
+    if parent is None:
+        return "ERROR: Agent tool can only be called from within a running agent turn"
 
-    # Construct a config with disabled_tools set to anything outside the scope.
-    cfg = ConfigCls()
-    if spec["scope"] is not None:
-        all_names = list(_REGISTRY.keys())
-        cfg.disabled_tools = [n for n in all_names if n not in spec["scope"]]
-    # Sub-agents always auto-approve their tools — they shouldn't pause for input.
-    cfg.auto_approve_tools = True
-    # Lean prompt for sub-agents to keep their context tight.
-    cfg.lean_prompt = True
-
-    # Inherit model/host from the live parent agent — load_config() would miss
-    # --model CLI flags and /model overrides made mid-session.
-    from .. import agent as agent_mod
-    parent = agent_mod._CURRENT_AGENT
-    if parent is not None:
-        cfg.model = parent.model
-        cfg.ollama_host = parent.cfg.ollama_host
-    else:
-        from ..config import load_config
-        parent_cfg = load_config()
-        cfg.model = parent_cfg.model
-        cfg.ollama_host = parent_cfg.ollama_host
+    enabled = spec["enabled_toolsets"]
+    if enabled is None:
+        # General-purpose: enumerate all toolsets so fork() always receives a list.
+        enabled = sorted(_TOOLSETS.keys())
+    disabled = _resolve_disabled(spec["disabled_tools"], spec["enabled_toolsets"])
 
     ui.info(f"spawning sub-agent: {subagent_type} — {description}")
-    sub = None
     try:
-        sub = AgentCls(cfg, workspace)
-        # Inject the addendum into the system prompt
-        sub.messages[0]["content"] += "\n\n" + spec["system_addendum"]
-        sub.run_turn(prompt)
-        # Return the last assistant message as the result
-        for m in reversed(sub.messages):
-            if m.get("role") == "assistant":
-                return m.get("content", "") or "(empty)"
-        return "(no assistant response)"
+        result = parent.fork(
+            enabled_toolsets=enabled,
+            disabled_tools=disabled,
+            system_addendum=spec["system_addendum"],
+            user_prompt=prompt,
+            quiet=False,  # surface tool calls in the parent's terminal
+        )
     except Exception as e:
         return f"ERROR running sub-agent: {e}"
-    finally:
-        if sub is not None:
-            try:
-                sub.close()
-            except Exception:
-                pass
+
+    if result.error:
+        return f"ERROR running sub-agent: {result.error}"
+    return result.final_response or "(no assistant response)"

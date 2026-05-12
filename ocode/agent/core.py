@@ -1,5 +1,6 @@
 """Agent loop: ferry messages between user, Ollama, and tools until done."""
 from __future__ import annotations
+import contextvars
 import json
 import re
 import threading
@@ -8,11 +9,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from . import hooks, tools, ui
-from .safety.approval_callback import get_approval_callback
-from .config import Config
-from .ollama_client import OllamaClient
-from .prompts import build_system_prompt
+from .. import hooks, tools, ui
+from ..safety.approval_callback import get_approval_callback
+from ..config import Config
+from ..ollama_client import OllamaClient
+from ..prompts import build_system_prompt
 
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.S)
@@ -38,11 +39,17 @@ def _coerce_arg(v: str) -> Any:
 _MAX_DOCUMENT_BYTES = 32_000
 
 
-# The agent currently running a turn. Sub-tools (e.g. agent_tool.py) read this
-# to inherit the live model / ollama_host from the parent — `load_config()`
-# would lose CLI flags and `/model` overrides. Saved/restored around run_turn so
-# nested sub-agents see their immediate parent.
-_CURRENT_AGENT: "Agent | None" = None
+# ContextVar so a fork running on its own thread can register itself as the
+# current parent for any grand-children it spawns, without clobbering the
+# foreground agent on the main thread.
+_current_agent: contextvars.ContextVar["Agent | None"] = contextvars.ContextVar(
+    "ocode_current_agent", default=None
+)
+
+
+def get_current_agent() -> "Agent | None":
+    """Return the Agent whose run_turn is currently active on this context, or None."""
+    return _current_agent.get()
 
 
 def _normalize_tool_call(obj: Any) -> list[dict]:
@@ -205,7 +212,7 @@ class Agent:
 
         memory_index: str | None = None
         try:
-            from .memory import load_memory_index
+            from ..memory import load_memory_index
             memory_index = load_memory_index(self.workspace)
             if memory_index:
                 if len(memory_index) > _MAX_DOCUMENT_BYTES:
@@ -237,13 +244,11 @@ class Agent:
     def run_turn(self, user_input: str) -> None:
         """Run one user turn to completion (model may call tools several times)."""
         with self._turn_lock:
-            global _CURRENT_AGENT
-            prev_agent = _CURRENT_AGENT
-            _CURRENT_AGENT = self
+            token = _current_agent.set(self)
             try:
                 self._run_turn_inner(user_input)
             finally:
-                _CURRENT_AGENT = prev_agent
+                _current_agent.reset(token)
 
     def _run_turn_inner(self, user_input: str) -> None:
         # UserPromptSubmit hook — can cancel the turn
@@ -338,7 +343,10 @@ class Agent:
             for chunk in self.client.chat(
                 model=self.model,
                 messages=self.messages,
-                tools=tools.ollama_schema(disabled=self.cfg.disabled_tools),
+                tools=tools.ollama_schema(
+                    enabled_toolsets=self.cfg.enabled_toolsets,
+                    disabled=self.cfg.disabled_tools,
+                ),
                 num_ctx=self.cfg.context_window,
             ):
                 if first and (chunk.content or chunk.tool_calls):
@@ -400,7 +408,7 @@ class Agent:
         self.stats.tool_calls += 1
 
         # Plan-mode gate: only read-only tools are allowed
-        from .tools import plan as plan_mod
+        from ..tools import plan as plan_mod
         if plan_mod.is_plan_mode() and name not in plan_mod.PLAN_MODE_ALLOWED:
             denied = (
                 f"BLOCKED: tool {name!r} is not allowed in plan mode. "
@@ -472,3 +480,13 @@ class Agent:
 
     def close(self) -> None:
         self.client.close()
+
+
+# Bind fork() as an Agent method. Done at module load so `Agent(...).fork(...)`
+# works without circular-import gymnastics in callers.
+from .fork import fork as _fork_impl  # noqa: E402
+
+def _agent_fork(self, **kwargs):
+    return _fork_impl(self, **kwargs)
+
+Agent.fork = _agent_fork
