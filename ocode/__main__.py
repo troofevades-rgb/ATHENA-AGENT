@@ -199,6 +199,7 @@ _SUBCOMMANDS = {
     "import-from-hermes": "ocode.cli.import_hermes",
     "reindex": "ocode.cli.reindex",
     "sessions": "ocode.cli.sessions",
+    "curator": "ocode.cli.curator",
 }
 
 
