@@ -7,6 +7,7 @@ OCODE.md instructions and saved sessions keep working.
 from __future__ import annotations
 from pathlib import Path
 
+from .delta_lint import lint_after_write
 from .registry import tool
 
 # Set by agent at startup so all paths are resolved relative to the project root.
@@ -131,6 +132,13 @@ def Write(file_path: str = "", content: str = "", **legacy) -> str:
     p.parent.mkdir(parents=True, exist_ok=True)
     existed = p.exists()
     p.write_text(content, encoding="utf-8")
+    lint_err = lint_after_write(p, content)
+    if lint_err:
+        return (
+            f"{'overwrote' if existed else 'created'} {p} ({len(content)} bytes) "
+            f"but failed validation: {lint_err}. "
+            "Fix the syntax and re-call Write."
+        )
     return f"{'overwrote' if existed else 'created'} {p} ({len(content)} bytes)"
 
 
@@ -190,6 +198,13 @@ def Edit(
         new_text = text.replace(old_string, new_string, 1)
         replacements = 1
     p.write_text(new_text, encoding="utf-8")
+    lint_err = lint_after_write(p, new_text)
+    if lint_err:
+        return (
+            f"edited {p}: replaced {replacements} occurrence(s) "
+            f"but failed validation: {lint_err}. "
+            "Fix the syntax and re-call Edit."
+        )
     return f"edited {p}: replaced {replacements} occurrence(s) ({len(old_string)} -> {len(new_string)} chars each)"
 
 
