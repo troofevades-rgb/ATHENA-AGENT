@@ -63,6 +63,7 @@ END;
 
 CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace);
+CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
 """
 
 

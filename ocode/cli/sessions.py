@@ -59,6 +59,16 @@ def _cmd_list(args, store: SessionStore) -> int:
 
 
 def _cmd_browse(args, store: SessionStore) -> int:
+    # Show fork lineage at the top so the user knows what they're inside of.
+    children = store.children(args.session_id)
+    if children:
+        print(f"Session {args.session_id}")
+        for child in children:
+            ws = child.workspace or "-"
+            started = child.started_at.strftime("%Y-%m-%d %H:%M") if child.started_at else "?"
+            print(f"  └─ fork {child.session_id} ({started}, ws={ws})")
+        print()
+
     count = 0
     shown = 0
     for i, msg in enumerate(store.load(args.session_id)):
@@ -76,7 +86,7 @@ def _cmd_browse(args, store: SessionStore) -> int:
         print(content)
         print()
         shown += 1
-    if count == 0:
+    if count == 0 and not children:
         print(f"(no messages from turn {args.from_turn} onward; check `ocode sessions list`)")
     return 0
 
