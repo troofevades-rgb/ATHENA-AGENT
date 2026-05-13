@@ -197,6 +197,7 @@ def _handle_slash(agent: Agent, line: str) -> bool:
 
 _SUBCOMMANDS = {
     "import-from-hermes": "ocode.cli.import_hermes",
+    "reindex": "ocode.cli.reindex",
 }
 
 
