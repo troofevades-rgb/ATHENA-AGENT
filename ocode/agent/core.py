@@ -227,8 +227,43 @@ class Agent:
                 ui.warn(f"session store unavailable: {e}")
                 self.session_store = None
                 self.session_id = None
+        # Run lifecycle transitions + (gated) curator at real session starts.
+        # Forks skip both: session_store is inherited from parent, parent
+        # already ran them, and a fork doing it again would race.
+        if session_store is None and cfg.profile:
+            self._run_session_start_hooks()
         # Build initial system message
         self.messages.append({"role": "system", "content": self._build_system()})
+
+    def _run_session_start_hooks(self) -> None:
+        """Lifecycle transitions + curator-spawn at session start.
+
+        Both are best-effort; the foreground REPL must never crash because
+        a background loop misbehaved.
+        """
+        try:
+            from ..skills.state_machine_runner import run_lifecycle
+            run_lifecycle(self.workspace)
+        except Exception as e:
+            ui.info(f"lifecycle pass skipped: {e}")
+
+        try:
+            from ..curator.orchestrator import maybe_run_curator
+            import threading
+
+            def _spawn():
+                try:
+                    maybe_run_curator(self)
+                except Exception as e:
+                    ui.info(f"curator run failed: {e}")
+
+            threading.Thread(
+                target=_spawn,
+                daemon=True,
+                name=f"curator-{(self.session_id or 'init')[:8]}",
+            ).start()
+        except Exception as e:
+            ui.info(f"curator could not start: {e}")
 
     def _build_system(self) -> str:
         # Modelfile SYSTEM (persona); Ollama drops it when we send our own
