@@ -34,6 +34,11 @@
 - ocode/commands/        slash-command handlers (/loop, /compact, /resume,
                          /plan, /init, /memory, /review). Renamed from
                          ocode/skills/ in Phase 1.
+- ocode/sessions/        per-profile session persistence
+  - jsonl.py             append-only JSONL primitives (truth-of-record)
+  - sqlite_index.py      SQLite FTS5 mirror (schema + search)
+  - store.py             SessionStore facade + UUIDv7 session IDs
+  - reindex.py           rebuild sessions.db from JSONL files
 - ocode/migration/       one-way Hermes → ocode v2 importer
   - hermes_import.py     orchestrator
   - skills_mapper.py     skills + .archive/
@@ -48,6 +53,7 @@
   - registry.py          toolset-scoped registry; tools declare a `toolset`
                          and optional `check_fn` for capability-based gating
   - skill_tools.py       skills_list, skill_view, skill_manage (toolset=skills)
+  - recall_tools.py      search_sessions (toolset=recall)
   - agent_tool.py        sub-agent dispatch (thin wrapper around `Agent.fork()`)
 - ocode/mcp/             MCP stdio integration
 
@@ -69,3 +75,5 @@
 - `ocode -p "<prompt>"` — one-shot prompt
 - `ocode import-from-hermes --source PATH --dest PATH [--dry-run]` —
   migrate a Hermes home into ocode v2
+- `ocode sessions {list,browse,search,purge}` — inspect prior sessions
+- `ocode reindex [--profile NAME]` — rebuild the session FTS5 index from JSONL

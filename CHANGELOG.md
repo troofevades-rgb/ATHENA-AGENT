@@ -15,9 +15,18 @@
 - skills_list, skill_view, skill_manage tools (Phase 1)
 - ocode import-from-hermes for Hermes Agent migration (Phase 1)
 - Progressive disclosure of skill catalog in system prompt (Phase 1)
+- SessionStore with JSONL persistence and SQLite FTS5 mirror (Phase 2)
+- SearchSessions tool for recall (Phase 2)
+- ocode sessions {list,browse,search,purge} CLI (Phase 2)
+- ocode reindex command for rebuilding the session FTS5 index (Phase 2)
+- Per-profile root at ~/.ocode/profiles/<profile>/ (Phase 2)
 
 ### Changed
 - Sub-agent dispatch tool now calls Agent.fork() under the hood
 - ocode/agent.py split into ocode/agent/{core,fork}.py
 - ocode/skills/ (slash-command handlers) renamed to ocode/commands/ to free
   the name for the new file-based skill format
+- Agent.run_turn now persists every user / assistant / tool message to the
+  session store (JSONL + SQLite FTS5)
+- Hermes sessions_importer drives SessionStore so imports land in
+  `ocode sessions list` and FTS5 search
