@@ -155,11 +155,21 @@ class Stats:
 
 
 class Agent:
-    def __init__(self, cfg: Config, workspace: Path, model: str | None = None):
+    def __init__(
+        self,
+        cfg: Config,
+        workspace: Path,
+        model: str | None = None,
+        *,
+        session_store: SessionStore | None = None,
+        parent_session_id: str | None = None,
+        client: OllamaClient | None = None,
+    ):
         self.cfg = cfg
         self.workspace = workspace.resolve()
         self.model = model or cfg.model
-        self.client = OllamaClient(cfg.ollama_host)
+        self.client = client if client is not None else OllamaClient(cfg.ollama_host)
+        self._owns_client = client is None  # only close() the client if we built it
         self.messages: list[dict[str, Any]] = []
         self.stats = Stats()
         # Cache for Modelfile SYSTEM keyed by model name; avoids re-fetching
@@ -174,19 +184,40 @@ class Agent:
         tools.shell.set_max_output(cfg.max_bash_output)
         # Load hooks from user + workspace settings.json
         hooks.load_hooks(self.workspace)
-        # Open a SessionStore and start a new session. Disable via
-        # cfg.profile == "" so forks can skip session persistence cheaply.
+        # Session lineage. Three modes:
+        #   1. session_store passed (fork path) → use it for a new child session
+        #      tagged with parent_session_id.
+        #   2. cfg.profile set (normal startup) → open our own store.
+        #   3. cfg.profile == "" → no session persistence (deliberate opt-out).
+        self.parent_session_id = parent_session_id
         self.session_store: SessionStore | None = None
         self.session_id: str | None = None
-        if cfg.profile:
+        self._owns_session_store = False
+        if session_store is not None:
+            self.session_store = session_store
+            self.session_id = new_session_id()
+            try:
+                self.session_store.open_session(SessionMeta(
+                    session_id=self.session_id,
+                    profile=cfg.profile or "default",
+                    model=self.model,
+                    workspace=str(self.workspace),
+                    parent_session_id=parent_session_id,
+                ))
+            except Exception as e:
+                ui.warn(f"session store open failed: {e}")
+                self.session_id = None
+        elif cfg.profile:
             try:
                 self.session_store = SessionStore(_profile_dir(cfg.profile))
+                self._owns_session_store = True
                 self.session_id = new_session_id()
                 self.session_store.open_session(SessionMeta(
                     session_id=self.session_id,
                     profile=cfg.profile,
                     model=self.model,
                     workspace=str(self.workspace),
+                    parent_session_id=parent_session_id,
                 ))
             except Exception as e:
                 ui.warn(f"session store unavailable: {e}")
@@ -520,17 +551,58 @@ class Agent:
         except Exception as e:  # pragma: no cover — defensive
             ui.info(f"session append failed (continuing): {e}")
 
+    # -- introspection helpers used by Agent.fork() ---------------------
+
+    def last_assistant_message(self) -> str:
+        """Return the most recent assistant message's content (or empty string)."""
+        for m in reversed(self.messages):
+            if m.get("role") == "assistant":
+                content = m.get("content")
+                if isinstance(content, list):
+                    return " ".join(
+                        c.get("text", "") for c in content if isinstance(c, dict)
+                    )
+                return content or ""
+        return ""
+
+    def tool_call_trace(self) -> list[dict[str, Any]]:
+        """Flat list of every tool call this agent has made so far."""
+        out: list[dict[str, Any]] = []
+        for m in self.messages:
+            if m.get("role") == "assistant":
+                out.extend(m.get("tool_calls") or [])
+        return out
+
+    def run_until_done(self, user_prompt: str = "", *, max_iterations: int | None = None) -> None:
+        """Run a single user turn to completion (loops internally over tool
+        rounds). ``max_iterations``, when given, overrides ``cfg.max_turn_steps``
+        for this call only — used by ``Agent.fork`` to cap fork loop length."""
+        if max_iterations is not None:
+            saved = self.cfg.max_turn_steps
+            self.cfg.max_turn_steps = max_iterations
+            try:
+                self.run_turn(user_prompt)
+            finally:
+                self.cfg.max_turn_steps = saved
+        else:
+            self.run_turn(user_prompt)
+
     def close(self) -> None:
-        self.client.close()
+        if self._owns_client:
+            try:
+                self.client.close()
+            except Exception:
+                pass
         if self.session_store is not None and self.session_id is not None:
             try:
                 self.session_store.close_session(self.session_id)
             except Exception:
                 pass
-            try:
-                self.session_store.close()
-            except Exception:
-                pass
+            if self._owns_session_store:
+                try:
+                    self.session_store.close()
+                except Exception:
+                    pass
 
 
 # Bind fork() as an Agent method. Done at module load so `Agent(...).fork(...)`

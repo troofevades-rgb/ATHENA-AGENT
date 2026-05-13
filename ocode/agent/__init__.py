@@ -6,6 +6,6 @@ dispatch, background review (Phase 5), and the curator (Phase 6).
 """
 from . import fork as _fork_module  # noqa: F401 — keep submodule importable as ocode.agent.fork
 from .core import Agent, get_current_agent
-from .fork import ForkResult
+from .fork import ForkAction, ForkResult
 
-__all__ = ["Agent", "ForkResult", "get_current_agent"]
+__all__ = ["Agent", "ForkAction", "ForkResult", "get_current_agent"]

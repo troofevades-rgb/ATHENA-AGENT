@@ -1,32 +1,41 @@
-"""Agent.fork() — the foundational primitive for sub-agents, background review,
-and the curator. Lives at the agent layer, not in tools/.
+"""Agent.fork() — the daemon-thread sub-agent primitive.
 
 A fork is a fresh ``Agent`` instance run on a daemon thread with:
 
-- a scoped tool set (``enabled_toolsets``),
+- a scoped tool set (``enabled_toolsets``) plus optional per-name disables,
 - an injected ``system_addendum`` describing what the fork should do,
-- a ``write_origin`` ContextVar bound for the duration of the fork's work,
-- the ``AUTO_DENY`` approval callback so the fork cannot deadlock on a
-  confirmation prompt it has no way to satisfy.
+- a write-origin ContextVar bound for the duration of the work,
+- the ``AUTO_DENY`` approval callback so confirmation prompts can't deadlock,
+- an isolated provider client (so the parent's connection pool / KV cache
+  is undisturbed), and
+- a child session in the parent's ``SessionStore`` with ``parent_session_id``
+  set, so ``ocode sessions browse`` shows the fork tree.
 
-The signature additions vs. the Phase 0 design doc (``user_prompt`` and
-``disabled_tools``) are deliberate. ``user_prompt`` lets the sub-agent dispatch
-tool keep its existing semantics — the user's brief flows in as a user message
-without a synthetic empty turn. ``disabled_tools`` is a per-call override of the
-inherited config so callers (notably the ``Agent`` tool's read-only Explore /
-Plan scopes) can subtract specific tool names from the chosen toolsets without
-pre-mutating the parent's config.
+Stdout and stderr captured by the fork's thread are surfaced via
+:class:`ForkResult` so callers can inspect them after the join.
+
+Two signature additions vs. the design doc:
+
+- ``user_prompt: str = ""`` lets sub-agent dispatch pass the user's brief as
+  a normal user message without synthesizing an empty turn.
+- ``disabled_tools: list[str] | None = None`` lets callers subtract specific
+  tool names within the chosen toolsets (the Explore / Plan sub-agents need
+  this — the ``"file"`` toolset includes Write / Edit).
 """
 from __future__ import annotations
 
 import contextlib
 import dataclasses
-import os
+import io
+import json
+import logging
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 from ..provenance import (
+    BACKGROUND_REVIEW,
     reset_current_write_origin,
     set_current_write_origin,
 )
@@ -35,29 +44,39 @@ from ..safety.approval_callback import (
     reset_approval_callback,
     set_approval_callback,
 )
+from .auxiliary_client import build_auxiliary_client
 
 if TYPE_CHECKING:
     from .core import Agent
 
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ForkAction:
+    """A structured action record extracted from a tool result.
+
+    Tools that return ``{"success": true, "target": ..., "action": ...}`` JSON
+    (notably ``skill_manage``) produce one of these per call. The parent agent
+    uses ``ForkResult.actions`` to summarize what a background review or
+    curator fork did without re-reading every tool message.
+    """
+    action: str           # "created" | "updated" | "deleted" | "patched" | "pin" | ...
+    target: str           # "skill" | "memory" | "file"
+    name: str
+    detail: str | None = None
+
 
 @dataclass
 class ForkResult:
-    """Outcome of a fork. ``final_response`` is the last assistant message text;
-    ``tool_calls`` is the flat list of every tool call the fork made;
-    ``actions`` is reserved for a future, higher-level summary of side effects
-    (e.g. files created / updated) and is left empty in Phase 0; ``error`` is
-    populated if the fork raised before producing a final response.
-    """
     final_response: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    actions: list[str] = field(default_factory=list)
+    actions: list[ForkAction] = field(default_factory=list)
+    stdout: str = ""
+    stderr: str = ""
     error: str | None = None
-
-
-def _devnull():
-    """A file object that swallows writes, suitable for redirect_stdout."""
-    # os.devnull is a path string ('nul' on Windows, '/dev/null' on POSIX).
-    return open(os.devnull, "w", encoding="utf-8")
+    duration_s: float = 0.0
+    child_session_id: str | None = None
 
 
 def fork(
@@ -68,40 +87,45 @@ def fork(
     user_prompt: str = "",
     conversation_history: list[dict] | None = None,
     max_iterations: int = 16,
-    write_origin: str = "background_review",
+    write_origin: str = BACKGROUND_REVIEW,
     auxiliary_client: bool = True,
     quiet: bool = True,
     disabled_tools: list[str] | None = None,
 ) -> ForkResult:
-    """Spawn a forked Agent on a daemon thread. See module docstring."""
-    # 1. Build child Config inheriting from parent.
+    """Spawn a forked Agent on a daemon thread."""
+    start = time.monotonic()
+
+    # 1. Build child Config inheriting from parent. cfg.profile is preserved
+    #    so the child session lands under the same profile root as the
+    #    parent — we share the parent's SessionStore object below.
     child_cfg = dataclasses.replace(
         self.cfg,
         enabled_toolsets=list(enabled_toolsets),
         disabled_tools=list(disabled_tools) if disabled_tools is not None else list(self.cfg.disabled_tools),
-        auto_approve_tools=True,        # forks never block on prompts
-        lean_prompt=True,               # keep fork context tight
-        max_turn_steps=max_iterations,  # cap fork loop length
-        profile="",                     # forks don't open a session of their own
+        auto_approve_tools=True,
+        lean_prompt=True,
+        max_turn_steps=max_iterations,
     )
 
-    # Defer the Agent construction import to runtime — fork is bound to Agent
-    # at module load, so a top-level import here would circle back through core.
+    # 2. Construct child agent — defer import so module load order is safe.
     from .core import Agent, _current_agent
+    client = build_auxiliary_client(self) if auxiliary_client else self.client
+    child = Agent(
+        child_cfg,
+        self.workspace,
+        model=self.model,
+        client=client,
+        session_store=self.session_store,
+        parent_session_id=self.session_id,
+    )
+    # If we built an auxiliary client, the child owns it (close on shutdown).
+    # If we passed the parent's client, the child does NOT own it.
+    child._owns_client = auxiliary_client
 
-    # 2. Construct child agent. Always pass model so cfg.model isn't lost; if
-    #    auxiliary_client=False, share the parent's HTTP client to save
-    #    sockets (default is a fresh one for true isolation).
-    child = Agent(child_cfg, self.workspace, model=self.model)
-    if not auxiliary_client:
-        try:
-            child.client.close()
-        except Exception:
-            pass
-        child.client = self.client
+    result = ForkResult(final_response="", child_session_id=child.session_id)
 
     try:
-        # 3. Inject system addendum (preserve messages[0] as the system prompt).
+        # 3. Inject system_addendum (preserve messages[0] as the system prompt).
         if system_addendum:
             child.messages[0]["content"] = (
                 child.messages[0]["content"].rstrip() + "\n\n" + system_addendum
@@ -111,52 +135,85 @@ def fork(
         if conversation_history is not None:
             child.messages = [child.messages[0], *conversation_history]
 
-        result = ForkResult(final_response="")
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
 
         def _runner() -> None:
             origin_token = set_current_write_origin(write_origin)
             approval_token = set_approval_callback(AUTO_DENY)
             agent_token = _current_agent.set(child)
-            sink = _devnull() if quiet else None
             try:
-                if sink is not None:
-                    with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-                        child.run_turn(user_prompt)
-                else:
-                    child.run_turn(user_prompt)
-            except Exception as exc:  # pragma: no cover — defensive
+                cm = contextlib.ExitStack()
+                if quiet:
+                    cm.enter_context(contextlib.redirect_stdout(stdout_buf))
+                    cm.enter_context(contextlib.redirect_stderr(stderr_buf))
+                with cm:
+                    child.run_until_done(user_prompt, max_iterations=max_iterations)
+            except Exception as exc:
+                logger.exception("fork failed")
                 result.error = f"{type(exc).__name__}: {exc}"
             finally:
                 _current_agent.reset(agent_token)
                 reset_approval_callback(approval_token)
                 reset_current_write_origin(origin_token)
-                if sink is not None:
-                    try:
-                        sink.close()
-                    except Exception:
-                        pass
 
-        t = threading.Thread(target=_runner, daemon=True, name="ocode-fork")
+        t = threading.Thread(
+            target=_runner,
+            daemon=True,
+            name=f"ocode-fork-{(child.session_id or 'anon')[:8]}",
+        )
         t.start()
         t.join()
 
-        # 5. Gather results from child.messages.
-        final_text = ""
-        tool_calls: list[dict[str, Any]] = []
-        for msg in child.messages:
-            role = msg.get("role")
-            if role == "assistant":
-                tcs = msg.get("tool_calls") or []
-                tool_calls.extend(tcs)
-                content = msg.get("content") or ""
-                if content:
-                    final_text = content
-        if not result.final_response:
-            result.final_response = final_text
-        result.tool_calls = tool_calls
+        # 5. Gather results from child state.
+        result.final_response = child.last_assistant_message()
+        result.tool_calls = child.tool_call_trace()
+        result.actions = _extract_actions(child.messages)
+        result.stdout = stdout_buf.getvalue()
+        result.stderr = stderr_buf.getvalue()
         return result
     finally:
         try:
             child.close()
         except Exception:
             pass
+        result.duration_s = time.monotonic() - start
+
+
+def _extract_actions(messages: list[dict[str, Any]]) -> list[ForkAction]:
+    """Walk tool result messages, extract structured ``ForkAction`` records.
+
+    Tools that opt into the shape ``{"success": bool, "target": ...,
+    "action": ..., "skill_name"|"memory_name"|"path": ...}`` yield one record
+    per successful call. Free-form text tool results are skipped silently
+    rather than failing — only structured results are summarizable.
+    """
+    actions: list[ForkAction] = []
+    for m in messages:
+        if m.get("role") != "tool":
+            continue
+        content = m.get("content", "")
+        if not isinstance(content, str) or not content.startswith("{"):
+            continue
+        try:
+            parsed = json.loads(content)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        if not parsed.get("success"):
+            continue
+        if "action" not in parsed:
+            continue
+        actions.append(ForkAction(
+            action=str(parsed.get("action") or ""),
+            target=str(parsed.get("target") or "unknown"),
+            name=str(
+                parsed.get("skill_name")
+                or parsed.get("memory_name")
+                or parsed.get("path")
+                or ""
+            ),
+            detail=parsed.get("message"),
+        ))
+    return actions
