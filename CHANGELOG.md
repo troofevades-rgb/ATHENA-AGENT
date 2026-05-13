@@ -20,6 +20,10 @@
 - ocode sessions {list,browse,search,purge} CLI (Phase 2)
 - ocode reindex command for rebuilding the session FTS5 index (Phase 2)
 - Per-profile root at ~/.ocode/profiles/<profile>/ (Phase 2)
+- Complete Agent.fork() with auxiliary client and stdout/stderr capture (Phase 3)
+- Post-write delta lint for .py / .pyi / .json / .yaml / .yml / .toml (Phase 3)
+- ForkResult.actions extracted from structured tool results (Phase 3)
+- Parent/child session lineage with fork-tree CLI browse (Phase 3)
 
 ### Changed
 - Sub-agent dispatch tool now calls Agent.fork() under the hood
