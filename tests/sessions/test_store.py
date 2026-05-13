@@ -175,3 +175,40 @@ def test_search_returns_empty_when_no_match(store: SessionStore) -> None:
     store.open_session(meta)
     store.append_turn(meta.session_id, {"role": "user", "content": "hello"})
     assert store.search("nonexistent_term_zzz") == []
+
+
+# -- child / parent lineage ----------------------------------------------
+
+
+def test_child_sessions_have_parent_id(store: SessionStore) -> None:
+    parent = _meta("parent")
+    child = _meta("child", parent_session_id="parent")
+    store.open_session(parent)
+    store.open_session(child)
+    listed = store.list_sessions()
+    by_id = {m.session_id: m for m in listed}
+    assert by_id["child"].parent_session_id == "parent"
+    assert by_id["parent"].parent_session_id is None
+
+
+def test_children_query_returns_forks(store: SessionStore) -> None:
+    parent = _meta("parent2")
+    a = _meta("fork-a", parent_session_id="parent2")
+    b = _meta("fork-b", parent_session_id="parent2")
+    other = _meta("other")  # unrelated
+    store.open_session(parent)
+    store.open_session(a)
+    store.open_session(b)
+    store.open_session(other)
+    kids = store.children("parent2")
+    ids = {m.session_id for m in kids}
+    assert ids == {"fork-a", "fork-b"}
+
+
+def test_children_persists_in_meta_json(store: SessionStore, profile_dir: Path) -> None:
+    """parent_session_id round-trips through the meta.json sidecar."""
+    store.open_session(_meta("p"))
+    store.open_session(_meta("c", parent_session_id="p"))
+    sidecar = profile_dir / "sessions" / "c.meta.json"
+    data = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert data["parent_session_id"] == "p"

@@ -183,6 +183,30 @@ class SessionStore:
     def load(self, session_id: str) -> Iterator[dict[str, Any]]:
         yield from jsonl.read_jsonl(self.sessions_dir / f"{session_id}.jsonl")
 
+    def children(self, session_id: str) -> list[SessionMeta]:
+        """Return every session whose ``parent_session_id`` is ``session_id``,
+        ordered by ``started_at`` ascending so the tree displays chronologically."""
+        rows = self._db.execute(
+            "SELECT session_id, profile, model, provider, workspace, "
+            "parent_session_id, started_at, ended_at, tags FROM sessions "
+            "WHERE parent_session_id = ? ORDER BY started_at ASC",
+            (session_id,),
+        ).fetchall()
+        return [
+            SessionMeta(
+                session_id=r[0],
+                profile=r[1],
+                model=r[2],
+                provider=r[3],
+                workspace=r[4],
+                parent_session_id=r[5],
+                started_at=_parse_iso(r[6]),
+                ended_at=_parse_iso(r[7]) if r[7] else None,
+                tags=json.loads(r[8] or "[]"),
+            )
+            for r in rows
+        ]
+
     def search(
         self,
         query: str,
