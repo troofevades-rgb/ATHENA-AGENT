@@ -20,7 +20,6 @@ htmlcov/
 
 # ocode runtime data
 .ocode/
-sessions/
 
 # Editor / OS
 .vscode/
