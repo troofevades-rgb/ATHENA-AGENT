@@ -60,14 +60,12 @@ def skill_create(
     The frontmatter's ``name`` is forced to ``name``. ``write_origin``
     defaults to the current context's write origin if not specified;
     ``created_at`` and ``last_activity_at`` default to now.
+
+    The serialized SKILL.md is validated *before* the directory is created
+    so a malformed frontmatter doesn't leave an empty dir on disk.
     """
     if _existing(name, workspace) is not None:
         raise SkillExistsError(f"skill {name!r} already exists")
-
-    base = _target_base(workspace)
-    base.mkdir(parents=True, exist_ok=True)
-    skill_dir = base / name
-    skill_dir.mkdir()
 
     now = datetime.now(timezone.utc)
     fm_dict = dict(frontmatter_dict)
@@ -78,9 +76,14 @@ def skill_create(
     fm_dict.setdefault("last_activity_at", now)
 
     fm = _build_frontmatter(fm_dict)
-    (skill_dir / "SKILL.md").write_text(
-        serialize_frontmatter(fm, body), encoding="utf-8"
-    )
+    serialized = serialize_frontmatter(fm, body)
+    _validate_skill_md(serialized)
+
+    base = _target_base(workspace)
+    base.mkdir(parents=True, exist_ok=True)
+    skill_dir = base / name
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(serialized, encoding="utf-8")
     loader.invalidate(name, workspace)
     return skill_dir
 
@@ -97,6 +100,9 @@ def skill_patch(
     ``last_activity_at`` is set to now unless the current origin is
     ``system`` (so internal lifecycle moves don't masquerade as user
     activity).
+
+    The new SKILL.md is validated *before* it overwrites the old one; if
+    validation fails the existing file is untouched.
     """
     skill_dir = _existing(name, workspace)
     if skill_dir is None:
@@ -113,9 +119,10 @@ def skill_patch(
 
     new_fm = _build_frontmatter(updated)
     new_body = existing_body if body is None else body
-    skill_md.write_text(
-        serialize_frontmatter(new_fm, new_body), encoding="utf-8"
-    )
+    serialized = serialize_frontmatter(new_fm, new_body)
+    _validate_skill_md(serialized)
+
+    skill_md.write_text(serialized, encoding="utf-8")
     loader.invalidate(name, workspace)
     return skill_dir
 
@@ -166,8 +173,9 @@ def skill_write_file(
 ) -> Path:
     """Write a support file under <skill_dir>/{references,templates,scripts}/.
 
-    Rejects absolute paths, ``..`` segments, and anything outside the three
-    allowed subdirs.
+    Rejects absolute paths, ``..`` segments, anything outside the three
+    allowed subdirs, and content that fails ``lint_after_write`` for its
+    extension (the file is NOT written when the lint fails).
     """
     if not file_path:
         raise ValueError("file_path must not be empty")
@@ -186,6 +194,11 @@ def skill_write_file(
         raise SkillNotFoundError(f"no skill named {skill_name!r}")
 
     target = skill_dir / Path(*parts)
+    from ..tools.delta_lint import lint_after_write
+    lint_err = lint_after_write(target, content)
+    if lint_err:
+        raise ValueError(f"content failed validation: {lint_err}")
+
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return target
@@ -200,6 +213,28 @@ def skill_view(name: str, workspace: Path | None = None) -> str | None:
 
 
 # -- internal helpers ----------------------------------------------------
+
+
+def _validate_skill_md(serialized: str) -> None:
+    """Lint the YAML frontmatter block of a SKILL.md *before* it lands.
+
+    Catches the case where serialize_frontmatter emitted something the
+    parser would later reject — should never trip in practice because
+    serialize_frontmatter does its own validation, but the explicit gate
+    means a partial write can never leave malformed YAML on disk.
+    """
+    if not serialized.startswith("---"):
+        raise ValueError("SKILL.md is missing the leading frontmatter block")
+    # Extract just the YAML block between the first pair of `---` lines.
+    body = serialized[3:]
+    end = body.find("\n---")
+    if end < 0:
+        raise ValueError("SKILL.md frontmatter block is not closed")
+    fm_block = body[:end]
+    from ..tools.delta_lint import lint_after_write
+    lint_err = lint_after_write(Path("frontmatter.yaml"), fm_block)
+    if lint_err:
+        raise ValueError(f"SKILL.md frontmatter failed validation: {lint_err}")
 
 
 def _frontmatter_to_dict(fm: SkillFrontmatter) -> dict[str, Any]:
