@@ -11,9 +11,10 @@ from typing import Any
 
 from .. import hooks, tools, ui
 from ..safety.approval_callback import get_approval_callback
-from ..config import Config
+from ..config import Config, profile_dir as _profile_dir
 from ..ollama_client import OllamaClient
 from ..prompts import build_system_prompt
+from ..sessions.store import SessionMeta, SessionStore, new_session_id
 
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.S)
@@ -173,6 +174,24 @@ class Agent:
         tools.shell.set_max_output(cfg.max_bash_output)
         # Load hooks from user + workspace settings.json
         hooks.load_hooks(self.workspace)
+        # Open a SessionStore and start a new session. Disable via
+        # cfg.profile == "" so forks can skip session persistence cheaply.
+        self.session_store: SessionStore | None = None
+        self.session_id: str | None = None
+        if cfg.profile:
+            try:
+                self.session_store = SessionStore(_profile_dir(cfg.profile))
+                self.session_id = new_session_id()
+                self.session_store.open_session(SessionMeta(
+                    session_id=self.session_id,
+                    profile=cfg.profile,
+                    model=self.model,
+                    workspace=str(self.workspace),
+                ))
+            except Exception as e:
+                ui.warn(f"session store unavailable: {e}")
+                self.session_store = None
+                self.session_id = None
         # Build initial system message
         self.messages.append({"role": "system", "content": self._build_system()})
 
@@ -266,7 +285,9 @@ class Agent:
         if not allow:
             ui.error(f"prompt cancelled by hook: {msg}")
             return
-        self.messages.append({"role": "user", "content": user_input})
+        user_msg = {"role": "user", "content": user_input}
+        self.messages.append(user_msg)
+        self._persist_message(user_msg)
         self.stats.turns += 1
 
         # Loop until the model produces a final assistant message with no tool calls.
@@ -285,6 +306,7 @@ class Agent:
             if tool_calls:
                 assistant_msg["tool_calls"] = tool_calls
             self.messages.append(assistant_msg)
+            self._persist_message(assistant_msg)
 
             if interrupted:
                 # The stream was cut mid-flight. If the model had emitted tool_calls
@@ -487,9 +509,28 @@ class Agent:
         if "id" in call:
             msg["tool_call_id"] = call["id"]
         self.messages.append(msg)
+        self._persist_message(msg)
+
+    def _persist_message(self, message: dict[str, Any]) -> None:
+        """Append the message to the session store if one is active."""
+        if self.session_store is None or self.session_id is None:
+            return
+        try:
+            self.session_store.append_turn(self.session_id, message)
+        except Exception as e:  # pragma: no cover — defensive
+            ui.info(f"session append failed (continuing): {e}")
 
     def close(self) -> None:
         self.client.close()
+        if self.session_store is not None and self.session_id is not None:
+            try:
+                self.session_store.close_session(self.session_id)
+            except Exception:
+                pass
+            try:
+                self.session_store.close()
+            except Exception:
+                pass
 
 
 # Bind fork() as an Agent method. Done at module load so `Agent(...).fork(...)`

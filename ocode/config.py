@@ -13,8 +13,13 @@ else:
 
 CONFIG_DIR = Path.home() / ".ocode"
 CONFIG_PATH = CONFIG_DIR / "config.toml"
-SESSIONS_DIR = CONFIG_DIR / "sessions"
+SESSIONS_DIR = CONFIG_DIR / "sessions"  # legacy flat dir; new code uses profile_dir
 USER_MCP_PATH = CONFIG_DIR / "mcp.json"
+
+
+def profile_dir(profile: str = "default", home: Path | None = None) -> Path:
+    """Return the on-disk root for ``profile`` (``~/.ocode/profiles/<profile>``)."""
+    return (home or CONFIG_DIR) / "profiles" / profile
 
 
 def mcp_config_paths(workspace: Path) -> list[Path]:
@@ -36,6 +41,11 @@ def mcp_config_paths(workspace: Path) -> list[Path]:
 class Config:
     model: str = "qwen2.5-coder:14b"
     ollama_host: str = "http://127.0.0.1:11434"
+    # Profile name under ~/.ocode/profiles/<profile>/. Sessions, memory, and
+    # per-profile config live here. Multiple profiles let a user keep work
+    # contexts (default / personal / client-foo) separated without juggling
+    # OCODE_HOME values.
+    profile: str = "default"
     # Skip the per-tool confirmation prompt for tools that opt into it
     # (Bash, Write to existing files, etc.). Replaces the old auto_approve_bash.
     auto_approve_tools: bool = False

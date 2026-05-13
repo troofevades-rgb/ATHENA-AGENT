@@ -129,10 +129,14 @@ def test_session_id_is_uuid7() -> None:
 
 
 def test_session_ids_are_time_ordered() -> None:
+    """UUIDv7 sorts lexicographically by ms timestamp prefix. Within the same
+    ms the random tail can re-order — sleep enough to roll into a new ms."""
+    import time
     a = new_session_id()
+    time.sleep(0.005)
     b = new_session_id()
-    # UUIDv7 strings sort lexicographically by time prefix.
-    assert a <= b
+    # Compare the 48-bit timestamp prefix (first 12 hex chars).
+    assert a[:13] <= b[:13]
 
 
 def test_assistant_tool_calls_are_searchable(store: SessionStore) -> None:

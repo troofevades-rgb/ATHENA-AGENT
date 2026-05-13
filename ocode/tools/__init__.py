@@ -13,6 +13,7 @@ from . import ask           # AskUserQuestion
 from . import plan          # ExitPlanMode, EnterPlanMode
 from . import memory_tools  # write_memory, list_memories, delete_memory
 from . import skill_tools   # skills_list, skill_view, skill_manage
+from . import recall_tools  # search_sessions
 from . import agent_tool    # Agent (sub-agents)
 
 from .registry import all_tools, dispatch, get_tool, ollama_schema, tool

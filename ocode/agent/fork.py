@@ -82,6 +82,7 @@ def fork(
         auto_approve_tools=True,        # forks never block on prompts
         lean_prompt=True,               # keep fork context tight
         max_turn_steps=max_iterations,  # cap fork loop length
+        profile="",                     # forks don't open a session of their own
     )
 
     # Defer the Agent construction import to runtime — fork is bound to Agent
