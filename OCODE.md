@@ -13,7 +13,11 @@
 - ocode/agent/           agent subpackage
   - core.py              `Agent` class and the main run-turn loop
   - fork.py              `Agent.fork()` — daemon-thread sub-agents (used by
-                         the `Agent` tool, background review, and the curator)
+                         the `Agent` tool, background review, and the curator).
+                         Captures stdout/stderr to ForkResult.{stdout,stderr};
+                         extracts structured actions from tool results; binds
+                         AUTO_DENY and write_origin for the fork's thread.
+  - auxiliary_client.py  per-fork client factory (avoids sharing parent's KV cache)
 - ocode/provenance.py    write-origin ContextVar (foreground / background_review
                          / curator / migration / system) — every tool call runs
                          under a known origin
@@ -54,6 +58,7 @@
                          and optional `check_fn` for capability-based gating
   - skill_tools.py       skills_list, skill_view, skill_manage (toolset=skills)
   - recall_tools.py      search_sessions (toolset=recall)
+  - delta_lint.py        post-write syntax check for .py/.pyi/.json/.yaml/.yml/.toml
   - agent_tool.py        sub-agent dispatch (thin wrapper around `Agent.fork()`)
 - ocode/mcp/             MCP stdio integration
 
