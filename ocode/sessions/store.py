@@ -183,6 +183,35 @@ class SessionStore:
     def load(self, session_id: str) -> Iterator[dict[str, Any]]:
         yield from jsonl.read_jsonl(self.sessions_dir / f"{session_id}.jsonl")
 
+    def most_recent_other_session(self, *, exclude: str | None) -> SessionMeta | None:
+        """Return the most recently *ended* session other than ``exclude``.
+
+        Used by the curator's idle gate: if the user closed another session
+        in the last N hours, skip this run. Open sessions (ended_at IS NULL)
+        are ignored so an unclosed parent doesn't postpone the curator
+        indefinitely.
+        """
+        sql = (
+            "SELECT session_id, profile, model, provider, workspace, "
+            "parent_session_id, started_at, ended_at, tags FROM sessions "
+            "WHERE ended_at IS NOT NULL AND session_id != ? "
+            "ORDER BY ended_at DESC LIMIT 1"
+        )
+        row = self._db.execute(sql, (exclude or "",)).fetchone()
+        if row is None:
+            return None
+        return SessionMeta(
+            session_id=row[0],
+            profile=row[1],
+            model=row[2],
+            provider=row[3],
+            workspace=row[4],
+            parent_session_id=row[5],
+            started_at=_parse_iso(row[6]),
+            ended_at=_parse_iso(row[7]),
+            tags=json.loads(row[8] or "[]"),
+        )
+
     def children(self, session_id: str) -> list[SessionMeta]:
         """Return every session whose ``parent_session_id`` is ``session_id``,
         ordered by ``started_at`` ascending so the tree displays chronologically."""
