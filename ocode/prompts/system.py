@@ -404,6 +404,7 @@ def build_system_prompt(
     memory_index: str | None = None,
     skills_catalog: str | None = None,
     model_modelfile_system: str | None = None,
+    goal: str | None = None,
     lean: bool = False,
     disabled_sections: list[str] | None = None,
 ) -> str:
@@ -415,6 +416,8 @@ def build_system_prompt(
       3. Environment block
       4. Project context (OCODE.md)
       5. Memory index (MEMORY.md)
+      6. /goal invariant (Phase 6) — last so the model sees it as the
+         most recent / most authoritative instruction.
 
     If `lean` is true, only the LEAN_KEEP sections are considered before
     `disabled_sections` is applied. `disabled_sections` always wins.
@@ -451,5 +454,9 @@ def build_system_prompt(
             "# MEMORY.md (auto-loaded index of long-term memory)\n"
             f"{memory_index.strip()}"
         )
+
+    if goal:
+        from ..goal.invariant import format_for_system_prompt
+        parts.append(format_for_system_prompt(goal))
 
     return "\n\n".join(parts)

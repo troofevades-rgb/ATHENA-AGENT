@@ -199,6 +199,10 @@ class Agent:
         # the next prompt. Populated by ocode.review.orchestrator after each
         # review fork completes.
         self.last_review_summary: dict | None = None
+        # Persistent /goal invariant. Loaded from <profile_dir>/goal.txt at
+        # session start and re-injected into the system prompt on every
+        # rebuild. Mutated by the /goal slash command via Agent.reload_goal().
+        self.goal: str | None = self._load_goal()
         if session_store is not None:
             self.session_store = session_store
             self.session_id = new_session_id()
@@ -370,9 +374,34 @@ class Agent:
             memory_index=memory_index,
             skills_catalog=skills_catalog,
             model_modelfile_system=model_system,
+            goal=self.goal,
             lean=self.cfg.lean_prompt,
             disabled_sections=self.cfg.disabled_prompt_sections,
         )
+
+    def _profile_dir(self) -> Path:
+        return _profile_dir(self.cfg.profile or "default")
+
+    def _load_goal(self) -> str | None:
+        """Read the persisted goal for this profile. Defensive: any read
+        error returns None so a missing goal doesn't break agent startup.
+        """
+        try:
+            from ..goal.invariant import get_goal
+            return get_goal(self._profile_dir())
+        except Exception:
+            return None
+
+    def reload_goal(self) -> None:
+        """Re-read the persisted goal and rebuild the system prompt in place.
+        Called by the /goal slash command after set/clear.
+        """
+        self.goal = self._load_goal()
+        if self.messages and self.messages[0].get("role") == "system":
+            self.messages[0] = {
+                "role": "system",
+                "content": self._build_system(),
+            }
 
     def reset(self) -> None:
         """Wipe history but keep the system prompt."""

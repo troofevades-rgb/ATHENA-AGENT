@@ -53,6 +53,7 @@ SLASH_HELP = """\
 /steer MSG           queue MSG; delivered before your next prompt
 /steer clear         drop every pending steer for this session
 /queue               list pending steers
+/goal [MSG|show|clear]  set, show, or clear the persistent invariant
 /hooks               list configured hooks
 /exit                quit
 """
