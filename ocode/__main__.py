@@ -200,6 +200,7 @@ _SUBCOMMANDS = {
     "reindex": "ocode.cli.reindex",
     "sessions": "ocode.cli.sessions",
     "curator": "ocode.cli.curator",
+    "plugins": "ocode.cli.plugins",
 }
 
 

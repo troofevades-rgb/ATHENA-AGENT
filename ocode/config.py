@@ -1,9 +1,11 @@
 """Configuration loading. Reads ~/.ocode/config.toml; falls back to defaults."""
 from __future__ import annotations
+import json
 import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -15,6 +17,8 @@ CONFIG_DIR = Path.home() / ".ocode"
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 SESSIONS_DIR = CONFIG_DIR / "sessions"  # legacy flat dir; new code uses profile_dir
 USER_MCP_PATH = CONFIG_DIR / "mcp.json"
+# Machine-managed plugin enable state; ocode plugins {enable,disable} writes here.
+PLUGINS_STATE_PATH = CONFIG_DIR / "plugins_state.json"
 
 
 def profile_dir(profile: str = "default", home: Path | None = None) -> Path:
@@ -92,6 +96,10 @@ class Config:
     bash_allowlist: list[str] = field(default_factory=list)
     # Hard cap on tool-call rounds per user turn. Stops runaway loops.
     max_turn_steps: int = 25
+    # Plugin configuration. ``plugins["enabled"]`` is a {plugin_name: bool}
+    # override map maintained by ``ocode plugins enable|disable``. Per-plugin
+    # config slices live under ``plugins[<plugin_name>]``.
+    plugins: dict[str, Any] = field(default_factory=dict)
 
 
 def load_config() -> Config:
@@ -112,9 +120,45 @@ def load_config() -> Config:
         for k, v in data.items():
             if hasattr(cfg, k):
                 setattr(cfg, k, v)
+    # Merge plugin enable state from the machine-managed sidecar file.
+    cfg.plugins = _merge_plugin_state(cfg.plugins)
     # Env overrides
     if env := os.environ.get("OCODE_MODEL"):
         cfg.model = env
     if env := os.environ.get("OLLAMA_HOST"):
         cfg.ollama_host = env if env.startswith("http") else f"http://{env}"
     return cfg
+
+
+def load_plugin_state() -> dict[str, Any]:
+    """Read ~/.ocode/plugins_state.json. Returns an empty dict on missing/malformed."""
+    if not PLUGINS_STATE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(PLUGINS_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_plugin_state(state: dict[str, Any]) -> None:
+    """Persist plugin state. Caller owns merge semantics."""
+    PLUGINS_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLUGINS_STATE_PATH.write_text(
+        json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def _merge_plugin_state(plugins_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Overlay plugins_state.json onto plugin config from config.toml."""
+    state = load_plugin_state()
+    if not state:
+        return plugins_cfg
+    merged = dict(plugins_cfg)
+    state_enabled = state.get("enabled")
+    if isinstance(state_enabled, dict):
+        existing_enabled = merged.get("enabled")
+        if not isinstance(existing_enabled, dict):
+            existing_enabled = {}
+        merged["enabled"] = {**existing_enabled, **state_enabled}
+    return merged

@@ -1,0 +1,5 @@
+[plugin]
+name = "shell_audit"
+version = "0.1.0"
+description = "Append every shell tool call to a per-session audit log."
+enabled_by_default = false
