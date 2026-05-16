@@ -12,9 +12,10 @@ from typing import Any
 from .. import hooks, tools, ui
 from ..safety.approval_callback import get_approval_callback
 from ..config import Config, profile_dir as _profile_dir
-from ..ollama_client import OllamaClient
 from ..plugins.hooks import HookDispatcher
 from ..prompts import build_system_prompt
+from ..providers import Provider
+from ..providers.ollama import OllamaProvider
 from ..sessions.store import SessionMeta, SessionStore, new_session_id
 
 
@@ -164,14 +165,23 @@ class Agent:
         *,
         session_store: SessionStore | None = None,
         parent_session_id: str | None = None,
-        client: OllamaClient | None = None,
+        client: Provider | None = None,
+        provider: Provider | None = None,
         plugin_hooks: HookDispatcher | None = None,
     ):
         self.cfg = cfg
         self.workspace = workspace.resolve()
         self.model = model or cfg.model
-        self.client = client if client is not None else OllamaClient(cfg.ollama_host)
-        self._owns_client = client is None  # only close() the client if we built it
+        # Phase 8: the canonical attribute is now ``self.provider``. ``client``
+        # is preserved as an alias (and as a constructor kwarg) for one
+        # transitional release — existing call sites and tests that pass
+        # ``client=`` keep working unchanged.
+        passed = provider if provider is not None else client
+        self.provider: Provider = (
+            passed if passed is not None else OllamaProvider(cfg.ollama_host)
+        )
+        self.client = self.provider  # back-compat alias
+        self._owns_client = passed is None
         self.messages: list[dict[str, Any]] = []
         self.stats = Stats()
         # Cache for Modelfile SYSTEM keyed by model name; avoids re-fetching
@@ -317,7 +327,7 @@ class Agent:
         else:
             ms = ""
             try:
-                info = self.client.show_model(self.model)
+                info = self.provider.show_model(self.model)
                 ms = (info.get("system") or "").strip()
                 if ms:
                     ui.info(f"inherited SYSTEM from {self.model} ({len(ms)} chars)")
@@ -527,10 +537,16 @@ class Agent:
         })
 
     def _stream_one(self) -> tuple[str, list[dict[str, Any]], dict[str, Any] | None]:
-        """One model turn. Streams text to stdout, returns (text, tool_calls, final_chunk)."""
+        """One model turn. Streams text to stdout, returns (text, tool_calls, usage).
+
+        ``usage`` is the Ollama-flavored dict the caller already knows how to
+        read — ``prompt_eval_count`` / ``eval_count`` / ``eval_duration`` for
+        Ollama; the same keys with zeros (and tokens from the provider's
+        ``usage`` chunk) for other providers.
+        """
         text_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
-        final: dict[str, Any] | None = None
+        usage: dict[str, Any] | None = None
 
         # Spinner during the silent first-token wait (partial-offload models can
         # take 5-30s before the first chunk). Stop it the moment any chunk lands.
@@ -538,7 +554,7 @@ class Agent:
         status.start()
         first = True
         try:
-            for chunk in self.client.chat(
+            for chunk in self.provider.stream_chat(
                 model=self.model,
                 messages=self.messages,
                 tools=tools.ollama_schema(
@@ -547,47 +563,59 @@ class Agent:
                 ),
                 num_ctx=self.cfg.context_window,
             ):
-                if first and (chunk.content or chunk.tool_calls):
+                if first and chunk.kind in ("content", "tool_call"):
                     status.stop()
                     ui.console.print("[bold #00ff00]▌[/] ", end="")
                     first = False
-                if chunk.content:
-                    ui.console.print(chunk.content, end="", soft_wrap=True, highlight=False)
-                    text_parts.append(chunk.content)
-                if chunk.tool_calls:
-                    tool_calls.extend(chunk.tool_calls)
-                if chunk.done:
-                    final = chunk.raw
+                if chunk.kind == "content":
+                    text = chunk.payload or ""
+                    if text:
+                        ui.console.print(text, end="", soft_wrap=True, highlight=False)
+                        text_parts.append(text)
+                elif chunk.kind == "tool_call":
+                    p = chunk.payload or {}
+                    tool_calls.append({
+                        "function": {
+                            "name": p.get("name", ""),
+                            "arguments": p.get("arguments", {}),
+                        },
+                        **({"id": p["id"]} if p.get("id") else {}),
+                    })
+                elif chunk.kind == "usage":
+                    usage = dict(chunk.payload or {})
+                # "end" chunk is informational; loop falls through naturally.
         except KeyboardInterrupt:
             if first:
                 status.stop()
             ui.console.print()
             ui.warn("interrupted")
-            # Signal interruption to run_turn via a sentinel on raw_done.
+            # Signal interruption to run_turn via a sentinel on the usage dict.
             return "".join(text_parts), tool_calls, {"_interrupted": True}
         except Exception as e:
             if first:
                 status.stop()
             ui.console.print()
-            ui.error(f"ollama error: {e}")
+            ui.error(f"provider error: {e}")
             return "".join(text_parts), [], None
         finally:
             # Tool-only or empty responses never trip the in-loop stop().
             if first:
                 status.stop()
         ui.console.print()  # newline after the streamed reply
-        if final:
-            ui.stream_stats(final)
+        if usage:
+            ui.stream_stats(usage)
         text = "".join(text_parts)
         # Recovery: if the model emitted tool-call JSON as content instead of
-        # using Ollama's tool_calls field, parse it out and treat as tool calls.
+        # using the provider's native tool_calls field, parse it out and treat
+        # as tool calls. (Phase 9 will move per-provider parsing into the
+        # provider's parse_tool_calls method.)
         if not tool_calls and text.strip():
             residual, recovered = _extract_text_tool_calls(text)
             if recovered:
                 tool_calls = recovered
                 text = residual
                 ui.info(f"recovered {len(recovered)} tool call(s) from content")
-        return text, tool_calls, final
+        return text, tool_calls, usage
 
     def _handle_tool_call(self, call: dict[str, Any]) -> None:
         fn = call.get("function", {}) or {}

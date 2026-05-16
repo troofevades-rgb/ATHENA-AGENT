@@ -69,18 +69,18 @@ def test_agent_pops_steer_before_user_prompt(monkeypatch: pytest.MonkeyPatch, tm
     from ocode.agent import Agent
     from ocode.config import Config
 
-    # Patch OllamaClient so Agent.__init__ doesn't try a real HTTP call.
+    # Patch OllamaProvider so Agent.__init__ doesn't try a real HTTP call.
     class _NullClient:
         def __init__(self, *a, **k): pass
         def list_models(self): return []
         def show_model(self, model): return {}
-        def chat(self, *a, **k):
+        def stream_chat(self, *, model, messages, tools=None, **kwargs):
             if False:
                 yield
         def close(self): pass
 
     import ocode.agent.core as core_mod
-    monkeypatch.setattr(core_mod, "OllamaClient", _NullClient)
+    monkeypatch.setattr(core_mod, "OllamaProvider", _NullClient)
 
     # Isolate ~/.ocode so SessionStore writes go to tmp_path:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -116,13 +116,13 @@ def test_agent_handles_empty_queue_silently(monkeypatch: pytest.MonkeyPatch, tmp
         def __init__(self, *a, **k): pass
         def list_models(self): return []
         def show_model(self, m): return {}
-        def chat(self, *a, **k):
+        def stream_chat(self, *, model, messages, tools=None, **kwargs):
             if False:
                 yield
         def close(self): pass
 
     import ocode.agent.core as core_mod
-    monkeypatch.setattr(core_mod, "OllamaClient", _NullClient)
+    monkeypatch.setattr(core_mod, "OllamaProvider", _NullClient)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))

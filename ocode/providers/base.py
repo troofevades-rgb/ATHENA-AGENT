@@ -106,6 +106,21 @@ class Provider(ABC):
     def supports_streaming(self, model: str) -> bool:
         return True
 
+    # ---- Discovery (Ollama-flavored; safe defaults for hosted providers) ----
+
+    def list_models(self) -> list[str]:
+        """Return locally / remotely available model names. Hosted providers
+        may not implement this; default is empty."""
+        return []
+
+    def show_model(self, model: str) -> dict[str, Any]:
+        """Return model metadata. The ``system`` key, if present, is the
+        baked-in Modelfile SYSTEM directive (Ollama-only concept). Default
+        is empty for providers without an equivalent — the agent already
+        handles a missing key gracefully.
+        """
+        return {}
+
     # ---- Lifecycle ----
 
     def close(self) -> None:

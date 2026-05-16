@@ -16,7 +16,7 @@ import ocode.agent.core as core_mod
 from ocode.agent import Agent, ForkAction, ForkResult
 from ocode.agent import auxiliary_client as aux_mod
 from ocode.config import Config
-from ocode.ollama_client import ChatChunk
+from ocode.providers import StreamChunk
 from ocode.provenance import (
     BACKGROUND_REVIEW,
     CURATOR,
@@ -34,14 +34,16 @@ from ocode.safety.approval_callback import (
 
 
 class FakeClient:
-    """Captures the state of contextvars at the moment chat() is invoked.
+    """Captures the state of contextvars at the moment stream_chat() is invoked.
 
-    Class-level instances list lets tests inspect every client built across
-    parent and child agents.
+    Phase 8 surface: implements the Provider Protocol (stream_chat yielding
+    StreamChunks, show_model, list_models, close). Constructor signature is
+    ``(host=..., timeout=..., response=...)`` so the OllamaProvider call site
+    keeps working.
     """
     instances: list["FakeClient"] = []
 
-    def __init__(self, host: str, timeout: float = 600.0, response: str = "hello from fork") -> None:
+    def __init__(self, host: str = "", timeout: float = 600.0, response: str = "hello from fork") -> None:
         self.host = host
         self.response = response
         self.observations: list[dict[str, Any]] = []
@@ -55,12 +57,15 @@ class FakeClient:
     def list_models(self) -> list[str]:
         return []
 
-    def chat(
+    def stream_chat(
         self,
+        *,
         model: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
-        num_ctx: int | None = None,
+        temperature: float = 0.7,
+        max_tokens: int | None = None,
+        **kwargs: Any,
     ):
         self.tool_payloads.append(tools)
         self.observations.append({
@@ -70,12 +75,13 @@ class FakeClient:
             "messages": list(messages),
             "tools": tools,
         })
-        yield ChatChunk(
-            content=self.response,
-            tool_calls=None,
-            done=True,
-            raw={"prompt_eval_count": 1, "eval_count": 2},
-        )
+        if self.response:
+            yield StreamChunk("content", self.response)
+        yield StreamChunk("usage", {
+            "prompt_tokens": 1, "completion_tokens": 2,
+            "prompt_eval_count": 1, "eval_count": 2, "eval_duration": 0,
+        })
+        yield StreamChunk("end", {"reason": "stop"})
 
     def close(self) -> None:
         self.closed = True
@@ -84,8 +90,8 @@ class FakeClient:
 @pytest.fixture
 def fake_client(monkeypatch: pytest.MonkeyPatch) -> type[FakeClient]:
     FakeClient.instances = []
-    monkeypatch.setattr(core_mod, "OllamaClient", FakeClient)
-    monkeypatch.setattr(aux_mod, "OllamaClient", FakeClient)
+    monkeypatch.setattr(core_mod, "OllamaProvider", FakeClient)
+    monkeypatch.setattr(aux_mod, "OllamaProvider", FakeClient)
     return FakeClient
 
 
@@ -209,7 +215,7 @@ def test_fork_stdout_captured_in_quiet_mode(
 ) -> None:
     """quiet=True redirects stdout/stderr to StringIO buffers and surfaces
     them via ForkResult.stdout / stderr — they do NOT print."""
-    original_chat = FakeClient.chat
+    original_chat = FakeClient.stream_chat
 
     def chat_with_print(self, *args, **kwargs):
         print("FORK_OUTPUT_LINE")
@@ -217,7 +223,7 @@ def test_fork_stdout_captured_in_quiet_mode(
         print("FORK_ERROR_LINE", file=_sys.stderr)
         yield from original_chat(self, *args, **kwargs)
 
-    FakeClient.chat = chat_with_print
+    FakeClient.stream_chat = chat_with_print
     try:
         result = parent_agent.fork(
             enabled_toolsets=["core"],
@@ -225,7 +231,7 @@ def test_fork_stdout_captured_in_quiet_mode(
             quiet=True,
         )
     finally:
-        FakeClient.chat = original_chat
+        FakeClient.stream_chat = original_chat
 
     assert "FORK_OUTPUT_LINE" not in capsys.readouterr().out
     assert "FORK_OUTPUT_LINE" in result.stdout
@@ -234,18 +240,18 @@ def test_fork_stdout_captured_in_quiet_mode(
 def test_fork_stderr_captured_in_quiet_mode(parent_agent: Agent) -> None:
     """Surfaces stderr separately so the parent can inspect warnings without
     polluting the user's terminal."""
-    original_chat = FakeClient.chat
+    original_chat = FakeClient.stream_chat
 
     def chat_with_stderr(self, *args, **kwargs):
         import sys
         print("FORK_STDERR_WARNING", file=sys.stderr)
         yield from original_chat(self, *args, **kwargs)
 
-    FakeClient.chat = chat_with_stderr
+    FakeClient.stream_chat = chat_with_stderr
     try:
         result = parent_agent.fork(enabled_toolsets=["core"], system_addendum="")
     finally:
-        FakeClient.chat = original_chat
+        FakeClient.stream_chat = original_chat
     assert "FORK_STDERR_WARNING" in result.stderr
 
 
@@ -253,13 +259,13 @@ def test_fork_quiet_false_lets_output_through(
     parent_agent: Agent, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """quiet=False skips the redirect — output flows to the real stdout."""
-    original_chat = FakeClient.chat
+    original_chat = FakeClient.stream_chat
 
     def chat_with_print(self, *args, **kwargs):
         print("VISIBLE_FORK_OUTPUT")
         yield from original_chat(self, *args, **kwargs)
 
-    FakeClient.chat = chat_with_print
+    FakeClient.stream_chat = chat_with_print
     try:
         parent_agent.fork(
             enabled_toolsets=["core"],
@@ -267,7 +273,7 @@ def test_fork_quiet_false_lets_output_through(
             quiet=False,
         )
     finally:
-        FakeClient.chat = original_chat
+        FakeClient.stream_chat = original_chat
 
     assert "VISIBLE_FORK_OUTPUT" in capsys.readouterr().out
 
@@ -287,12 +293,12 @@ def test_fork_exception_recorded_in_error_field(parent_agent: Agent) -> None:
         raise RuntimeError("simulated provider failure")
         yield  # pragma: no cover — required for generator function shape
 
-    original = FakeClient.chat
-    FakeClient.chat = bad_chat
+    original = FakeClient.stream_chat
+    FakeClient.stream_chat = bad_chat
     try:
         result = parent_agent.fork(enabled_toolsets=["core"], system_addendum="")
     finally:
-        FakeClient.chat = original
+        FakeClient.stream_chat = original
     # The fork's loop catches provider errors and prints a warning; the run
     # still completes with no assistant message.
     assert result.final_response == ""

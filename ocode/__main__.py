@@ -82,7 +82,7 @@ def _handle_slash(agent: Agent, line: str) -> bool:
 
     elif cmd == "models":
         try:
-            names = agent.client.list_models()
+            names = agent.provider.list_models()
         except Exception as e:
             ui.error(f"could not list models: {e}")
             return True
@@ -250,7 +250,7 @@ def main() -> int:
 
     # Sanity: verify Ollama is reachable
     try:
-        models = agent.client.list_models()
+        models = agent.provider.list_models()
         if not _model_pulled(agent.model, models) and models:
             ui.warn(f"model '{agent.model}' not pulled; available: {', '.join(models[:6])}…")
             ui.warn(f"run:  ollama pull {agent.model}")
