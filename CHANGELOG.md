@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- APScheduler-backed cron with `agent` and `watchdog` modes (Phase 6)
+- Cron output delivery to `log`, `file:<path>`, or `gateway://...` (gateway stub until Phase 10) (Phase 6)
+- `/steer` and `/queue` in-flight redirection — synthetic user messages drained before each prompt, FIFO order (Phase 6)
+- `/goal` Ralph-loop invariant persisted at `<profile_dir>/goal.txt` and injected at the end of every system prompt rebuild (Phase 6)
+- `ocode cron {add,list,remove,enable,disable,run-now,logs,daemon}` CLI (Phase 6)
+- `GLOBAL_STEER_QUEUE` thread-safe singleton for cross-thread steer pushes (Phase 6)
 - Plugin API with lifecycle hooks (Phase 5)
 - `MemoryProvider` ABC; `BuiltinFileProvider` as default (Phase 5)
 - Bundled `shell_audit` plugin (Phase 5)
@@ -38,6 +44,9 @@
 - ocode curator {run, status, pause, resume, inspect-last} CLI (Phase 4)
 
 ### Changed
+- `apscheduler>=3.10` + `sqlalchemy>=2.0` added as runtime dependencies (Phase 6)
+- Agent loop drains pending steers via `_inject_pending_steers()` before each user prompt (Phase 6)
+- `build_system_prompt` accepts an optional `goal` parameter and appends the invariant block last (Phase 6)
 - `ocode/memory.py` refactored into the `ocode/memory/` package; legacy workspace-keyed API preserved (Phase 5)
 - Agent loop fires plugin lifecycle hooks (`on_session_start`, `on_user_message`, `pre_tool_call`, `post_tool_call`, `on_assistant_message`, `on_session_end`); the existing settings.json hook system in `ocode/hooks.py` is unchanged and runs alongside (Phase 5)
 - Sub-agent dispatch tool now calls Agent.fork() under the hood

@@ -104,6 +104,24 @@ def test_agent_job_records_error_on_exception(monkeypatch, store: JobStore):
     assert store.get(job.id).last_status == "error"
 
 
+def test_run_agent_job_by_id_executes(patched_agent, store: JobStore):
+    """APScheduler entry point: re-loads job from store and runs it."""
+    from ocode.cron.runner import run_agent_job_by_id
+    job = CronJob(cron_expr="* * * * *", mode="agent", prompt="hello")
+    store.upsert(job)
+    run_agent_job_by_id(job.id, jobs_db_path=store.db_path)
+    assert patched_agent.last_instance.received_prompt == "hello"
+    assert store.get(job.id).last_status == "success"
+
+
+def test_run_agent_job_by_id_missing_id_is_silent(store: JobStore, caplog):
+    import logging
+    from ocode.cron.runner import run_agent_job_by_id
+    with caplog.at_level(logging.WARNING):
+        run_agent_job_by_id("nope", jobs_db_path=store.db_path)
+    assert any("not found" in r.message for r in caplog.records)
+
+
 def test_agent_job_with_no_prompt_or_skill_errors_cleanly(store: JobStore):
     """Constructing the CronJob is rejected at the dataclass level — but
     if one slips through (e.g. legacy data), the runner returns an error

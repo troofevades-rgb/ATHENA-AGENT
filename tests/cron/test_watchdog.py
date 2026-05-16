@@ -98,6 +98,26 @@ def test_missing_script_marks_error(store: JobStore):
     assert result["status"] == "error"
 
 
+def test_run_watchdog_job_by_id_executes(store: JobStore, tmp_path: Path):
+    """The APScheduler entry point: re-loads the job from the store and runs it."""
+    from ocode.cron.watchdog import run_watchdog_job_by_id
+    job = _job(f'{sys.executable} -c "print(\'by_id\')"')
+    store.upsert(job)
+    # Run via the by-id path; uses the explicit jobs_db_path override.
+    run_watchdog_job_by_id(job.id, jobs_db_path=store.db_path)
+    fetched = store.get(job.id)
+    assert fetched.last_status == "success"
+
+
+def test_run_watchdog_job_by_id_missing_id_is_silent(store: JobStore, caplog):
+    """If APScheduler fires a job whose metadata was deleted, log + skip."""
+    import logging
+    from ocode.cron.watchdog import run_watchdog_job_by_id
+    with caplog.at_level(logging.WARNING):
+        run_watchdog_job_by_id("nonexistent-id", jobs_db_path=store.db_path)
+    assert any("not found" in r.message for r in caplog.records)
+
+
 def test_output_is_truncated(store: JobStore, monkeypatch):
     """Large stdout is truncated at the configured cap, not unbounded."""
     import ocode.cron.watchdog as wd
