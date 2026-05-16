@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Added
+- Trajectory extraction + auto-classifier (`good` / `bad` / `preference_pair` / `unreviewed`) (Phase 7)
+- SFT and DPO dataset construction in JSONL with the qwen-coder chat template (Phase 7)
+- Interactive trajectory review TUI with resume; labels persist to `<profile_dir>/labels/<session_id>.json` (Phase 7)
+- Training runner wrapping `transform/scripts/train_lora.py` + new `train_dpo.py` (Phase 7)
+- `transform/scripts/train_dpo.py` companion to the existing LoRA script (Phase 7)
+- Ollama deployment helpers — Modelfile write + `ollama create`, `ollama list` parsing, model switch (Phase 7)
+- `ocode train {review,build-dataset,run,status}` — closed training loop CLI (Phase 7)
+- `ocode model {list,switch,info}` (Phase 7)
+- `~/.ocode/training_state.json` records every training run for `ocode train status` (Phase 7)
+- `[project.optional-dependencies.train]` extras group (trl, peft, transformers, datasets, accelerate, bitsandbytes) (Phase 7)
 - APScheduler-backed cron with `agent` and `watchdog` modes (Phase 6)
 - Cron output delivery to `log`, `file:<path>`, or `gateway://...` (gateway stub until Phase 10) (Phase 6)
 - `/steer` and `/queue` in-flight redirection — synthetic user messages drained before each prompt, FIFO order (Phase 6)
@@ -44,6 +54,7 @@
 - ocode curator {run, status, pause, resume, inspect-last} CLI (Phase 4)
 
 ### Changed
+- `tomli-w>=1.0` added as a runtime dep (used by `ocode model switch`) (Phase 7)
 - `apscheduler>=3.10` + `sqlalchemy>=2.0` added as runtime dependencies (Phase 6)
 - Agent loop drains pending steers via `_inject_pending_steers()` before each user prompt (Phase 6)
 - `build_system_prompt` accepts an optional `goal` parameter and appends the invariant block last (Phase 6)
