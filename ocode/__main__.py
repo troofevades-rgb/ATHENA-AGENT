@@ -206,6 +206,7 @@ _SUBCOMMANDS = {
     "curator": "ocode.cli.curator",
     "plugins": "ocode.cli.plugins",
     "cron": "ocode.cli.cron",
+    "model": "ocode.cli.model",
 }
 
 
