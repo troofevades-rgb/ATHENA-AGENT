@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Added
+- Plugin API with lifecycle hooks (Phase 5)
+- `MemoryProvider` ABC; `BuiltinFileProvider` as default (Phase 5)
+- Bundled `shell_audit` plugin (Phase 5)
+- `ocode plugins {list,enable,disable,info}` CLI (Phase 5)
+- `Config.plugins` field + `~/.ocode/plugins_state.json` for machine-managed enable state (Phase 5)
 - Toolset-scoped tool registry (Phase 0)
 - ContextVar provenance tracking (Phase 0)
 - Agent.fork() as a core primitive (Phase 0)
@@ -33,6 +38,8 @@
 - ocode curator {run, status, pause, resume, inspect-last} CLI (Phase 4)
 
 ### Changed
+- `ocode/memory.py` refactored into the `ocode/memory/` package; legacy workspace-keyed API preserved (Phase 5)
+- Agent loop fires plugin lifecycle hooks (`on_session_start`, `on_user_message`, `pre_tool_call`, `post_tool_call`, `on_assistant_message`, `on_session_end`); the existing settings.json hook system in `ocode/hooks.py` is unchanged and runs alongside (Phase 5)
 - Sub-agent dispatch tool now calls Agent.fork() under the hood
 - ocode/agent.py split into ocode/agent/{core,fork}.py
 - ocode/skills/ (slash-command handlers) renamed to ocode/commands/ to free
