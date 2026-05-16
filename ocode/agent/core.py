@@ -13,6 +13,7 @@ from .. import hooks, tools, ui
 from ..safety.approval_callback import get_approval_callback
 from ..config import Config, profile_dir as _profile_dir
 from ..ollama_client import OllamaClient
+from ..plugins.hooks import HookDispatcher
 from ..prompts import build_system_prompt
 from ..sessions.store import SessionMeta, SessionStore, new_session_id
 
@@ -164,6 +165,7 @@ class Agent:
         session_store: SessionStore | None = None,
         parent_session_id: str | None = None,
         client: OllamaClient | None = None,
+        plugin_hooks: HookDispatcher | None = None,
     ):
         self.cfg = cfg
         self.workspace = workspace.resolve()
@@ -232,8 +234,46 @@ class Agent:
         # already ran them, and a fork doing it again would race.
         if session_store is None and cfg.profile:
             self._run_session_start_hooks()
+        # Plugin hooks. Foreground agents construct the dispatcher by
+        # discovering+loading plugins; forks inherit an empty dispatcher by
+        # default (callers can pass plugin_hooks explicitly to share parent's).
+        # A broken plugin layer must never break the agent — wrap construction.
+        if plugin_hooks is not None:
+            self.plugin_hooks = plugin_hooks
+        elif session_store is None and cfg.profile:
+            self.plugin_hooks = self._build_plugin_hooks()
+        else:
+            self.plugin_hooks = HookDispatcher(plugins=[])
+        # Fire on_session_start once the session_id exists.
+        if self.session_id is not None:
+            self.plugin_hooks.on_session_start(
+                self.session_id, cfg.profile or "default"
+            )
         # Build initial system message
         self.messages.append({"role": "system", "content": self._build_system()})
+
+    def _build_plugin_hooks(self) -> HookDispatcher:
+        """Discover + load enabled plugins. Best-effort; a load failure must
+        never break agent startup, so the result on error is an empty
+        dispatcher.
+        """
+        try:
+            from ..plugins.discovery import discover
+            from ..plugins.loader import load_plugins
+            manifests = discover()
+            cfg_dict = {
+                "plugins": getattr(self.cfg, "plugins", {}) or {},
+            }
+            instances = load_plugins(manifests, config=cfg_dict)
+            if instances:
+                ui.info(
+                    f"loaded {len(instances)} plugin(s): "
+                    f"{', '.join(p.name for p in instances)}"
+                )
+            return HookDispatcher(plugins=instances)
+        except Exception as e:
+            ui.info(f"plugin load failed: {e}")
+            return HookDispatcher(plugins=[])
 
     def _run_session_start_hooks(self) -> None:
         """Lifecycle transitions + curator-spawn at session start.
@@ -355,6 +395,10 @@ class Agent:
         if not allow:
             ui.error(f"prompt cancelled by hook: {msg}")
             return
+        # Plugin chain: each plugin sees the output of the prior one. A
+        # plugin returning None is a pass-through. The chained result is
+        # what lands in history and goes to the model.
+        user_input = self.plugin_hooks.on_user_message(user_input)
         user_msg = {"role": "user", "content": user_input}
         self.messages.append(user_msg)
         self._persist_message(user_msg)
@@ -393,6 +437,10 @@ class Agent:
                 return
 
             if not tool_calls:
+                # Plugin observation — fire on the final assistant message
+                # only (intermediate tool-calling rounds aren't surfaced).
+                if assistant_text:
+                    self.plugin_hooks.on_assistant_message(assistant_text)
                 self._fire_stop("completed")
                 self._maybe_fire_review()
                 return
@@ -561,6 +609,14 @@ class Agent:
             ui.warn(blocked)
             return
 
+        # Plugin veto: first plugin to return False from pre_tool_call blocks.
+        plugin_allow, blocker = self.plugin_hooks.pre_tool_call(name, args)
+        if not plugin_allow:
+            blocked = f"BLOCKED by plugin {blocker!r}"
+            self._record_tool_result(call, name, blocked)
+            ui.warn(blocked)
+            return
+
         # Show diffs for Write/write_file before they happen
         if name in ("Write", "write_file"):
             self._preview_write(args)
@@ -570,6 +626,8 @@ class Agent:
 
         # PostToolUse hook is informational only
         hooks.fire("PostToolUse", tool_name=name, payload={"tool_args": args, "result": result})
+        # Plugin observation; cannot affect control flow.
+        self.plugin_hooks.post_tool_call(name, args, result)
 
         self._record_tool_result(call, name, result)
 
@@ -642,6 +700,17 @@ class Agent:
             self.run_turn(user_prompt)
 
     def close(self) -> None:
+        # Plugin lifecycle end. Always fires when a session_id exists,
+        # regardless of cleanup success below. The completed/interrupted
+        # distinction is a Phase 10 concern (the gateway tracks it); for
+        # now close() always reports completed=True.
+        if self.session_id is not None:
+            try:
+                self.plugin_hooks.on_session_end(
+                    self.session_id, completed=True, interrupted=False
+                )
+            except Exception:
+                pass
         if self._owns_client:
             try:
                 self.client.close()
