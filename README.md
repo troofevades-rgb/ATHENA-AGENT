@@ -7,11 +7,18 @@ A terminal-based agentic coding assistant that runs entirely against a local Oll
 - Native Ollama tool calling (no prompt-engineered fake function calls)
 - Streaming token output
 - File read / write / surgical edit via `str_replace`
-- Bash execution with per-call confirmation for destructive ops
+- Bash execution with per-call confirmation for destructive ops; works on Linux, macOS, and Windows (git-bash auto-detected)
 - Glob + ripgrep-style search
 - Project context loaded from `OCODE.md` (analogous to `CLAUDE.md`)
-- Slash commands: `/clear`, `/cost` (token usage), `/model`, `/tools`, `/help`, `/exit`
-- Session transcript saved to `~/.ocode/sessions/`
+- Slash commands: `/clear`, `/cost`, `/model`, `/tools`, `/help`, `/exit`, `/dump`, `/cwd`, `/loop`, `/compact`, `/resume`, `/memory`, `/plan`, `/review`, `/security-review`, `/init`, `/steer`, `/queue`, `/goal`
+- Session transcript saved to `~/.ocode/profiles/<profile>/sessions/` with SQLite FTS5 search
+- Sub-agent forks via `Agent.fork()` (daemon-thread; isolated provider client; auto-deny approval callback)
+- File-based skill system (agentskills.io standard), plus `import-from-hermes`
+- Per-turn background review and 7-day curator pass — autonomous memory/skill consolidation
+- Plugin system with lifecycle hooks (`ocode plugins list|enable|disable|info`)
+- APScheduler-backed cron with watchdog and agent modes (`ocode cron ...`)
+- In-flight redirection (`/steer`) and persistent invariant (`/goal`)
+- Closed training loop: review trajectories, build SFT+DPO datasets, train a new LoRA, register with Ollama (`ocode train review|build-dataset|run|status`, `ocode model switch`)
 - Rich terminal UI with diff rendering for edits
 
 ## Requirements
