@@ -200,6 +200,29 @@ def test_empty_dispatcher_is_safe():
     d.on_assistant_message("kept")
 
 
+def test_on_session_end_exception_caught(caplog):
+    """A plugin that raises in on_session_end must not break the dispatcher."""
+    raiser = _named("raiser", raises="on_session_end")
+    quiet = _named("quiet")
+    d = HookDispatcher([raiser, quiet])
+    with caplog.at_level(logging.ERROR):
+        d.on_session_end("s1", completed=True, interrupted=False)
+    # The later plugin still observes the end.
+    assert ("session_end", ("s1", True, False)) in quiet.events
+    assert any("raiser" in r.message for r in caplog.records)
+
+
+def test_on_assistant_message_exception_caught(caplog):
+    """A plugin that raises in on_assistant_message must not break later ones."""
+    raiser = _named("raiser", raises="on_assistant_message")
+    quiet = _named("quiet")
+    d = HookDispatcher([raiser, quiet])
+    with caplog.at_level(logging.ERROR):
+        d.on_assistant_message("hello")
+    assert ("assistant", ("hello",)) in quiet.events
+    assert any("raiser" in r.message for r in caplog.records)
+
+
 def test_tool_args_passed_to_plugins_are_copies():
     """A plugin must not be able to mutate the agent's tool_args dict."""
     class Mutator(Plugin):
