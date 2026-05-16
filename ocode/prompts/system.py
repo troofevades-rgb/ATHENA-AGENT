@@ -321,6 +321,25 @@ class EnvironmentInfo:
         )
 
 
+def _detect_shell() -> str:
+    """Report the shell the agent's Bash tool will actually invoke.
+
+    The Bash tool calls :func:`ocode.tools.shell._resolve_bash_executable`,
+    so this should mirror its decision: git-bash if found, the resolved
+    bash if any other is on PATH, else cmd.exe on Windows / $SHELL on POSIX.
+    """
+    if sys.platform == "win32":
+        try:
+            from ..tools.shell import _resolve_bash_executable
+            resolved = _resolve_bash_executable()
+        except Exception:
+            resolved = None
+        if resolved:
+            return resolved
+        return os.environ.get("ComSpec", "cmd.exe")
+    return os.environ.get("SHELL", "/bin/sh")
+
+
 def collect_environment(workspace: Path, model: str) -> EnvironmentInfo:
     is_git = False
     try:
@@ -353,7 +372,7 @@ def collect_environment(workspace: Path, model: str) -> EnvironmentInfo:
     except Exception:
         user = os.environ.get("USER", "unknown")
 
-    shell = os.environ.get("SHELL", "/bin/sh")
+    shell = _detect_shell()
     return EnvironmentInfo(
         cwd=workspace.resolve(),
         is_git=is_git,

@@ -1,8 +1,11 @@
 # Project: ocode
 
 ## Stack
-- Python 3.10+, httpx, rich, prompt_toolkit, pyyaml
+- Python 3.10+, httpx, rich, prompt_toolkit, pyyaml, tomli-w,
+  apscheduler, sqlalchemy
 - Talks to local Ollama at $OLLAMA_HOST (default http://localhost:11434)
+- Phase 7 training extras `pip install -e ".\[train\]"` — trl, peft,
+  transformers, datasets, accelerate, bitsandbytes (GPU only)
 
 ## Build/test
 - `pip install -e .` (already done in .venv)
@@ -36,8 +39,8 @@
                          prompt at session start
   - validation.py        validate_skill(dir) → list of error strings
 - ocode/commands/        slash-command handlers (/loop, /compact, /resume,
-                         /plan, /init, /memory, /review). Renamed from
-                         ocode/skills/ in Phase 1.
+                         /plan, /init, /memory, /review, /steer, /queue, /goal).
+                         Renamed from ocode/skills/ in Phase 1.
 - ocode/review/          per-turn background review
   - nudge.py             per-session counter, fires every N tool calls
   - orchestrator.py      maybe_fire_review — spawns daemon-thread fork
@@ -63,8 +66,69 @@
   - config_translator.py config.yaml → config.toml + credentials.json
   - mcp_translator.py    mcp.json (disables http/sse pending Phase 12)
   - report.py            REPORT.md + summary.json writer
-- ocode/cli/             non-REPL subcommands (import-from-hermes)
-- ocode/ollama_client.py thin /api/chat wrapper
+- ocode/cli/             non-REPL subcommands
+  - import_hermes.py     `ocode import-from-hermes` (Phase 1)
+  - sessions.py          `ocode sessions {list,browse,search,purge}` (Phase 2)
+  - reindex.py           `ocode reindex` (Phase 2)
+  - curator.py           `ocode curator {run,status,pause,resume,inspect-last}` (Phase 4)
+  - plugins.py           `ocode plugins {list,enable,disable,info}` (Phase 5)
+  - cron.py              `ocode cron {add,list,remove,enable,disable,run-now,logs,daemon}` (Phase 6)
+  - model.py             `ocode model {list,switch,info}` (Phase 7)
+  - train.py             `ocode train {review,build-dataset,run,status}` (Phase 7)
+- ocode/ollama_client.py thin /api/chat wrapper (provider abstraction lands in Phase 8)
+- ocode/plugins/         agentskills.io-style plugin format (Phase 5)
+  - base.py              `Plugin` ABC with lifecycle hooks (install / session
+                         start+end / pre+post tool call / user+assistant message)
+  - manifest.py          `plugin.toml` parser with name/version/depends_on
+  - discovery.py         walks ocode/plugins/bundled/ + ~/.ocode/plugins/
+  - loader.py            dynamic-import + topo-sort + first-time on_install track
+  - hooks.py             `HookDispatcher` — try/except per call, FIFO veto on
+                         pre_tool_call, chained on_user_message
+  - bundled/             plugins that ship in the package
+    - shell_audit/       JSONL log per session for every Bash tool call
+- ocode/memory/          persistent memory (Phase 5 made it a package)
+  - __init__.py          legacy workspace-keyed API (load_memory_index,
+                         list_memories, write_memory, delete_memory) — kept
+                         byte-for-byte; agent still uses this for the system
+                         prompt today
+  - store.py             profile-keyed facade over the active MemoryProvider;
+                         Phase 14 will migrate the legacy callers
+  - providers/base.py    `MemoryProvider` ABC + `MemoryEntry`
+  - providers/builtin_file.py
+                         Markdown-on-disk + SQLite ordering mirror under
+                         `<profile_dir>/memory/`; reconcile-on-read handles
+                         external edits
+- ocode/cron/            APScheduler-backed scheduled jobs (Phase 6)
+  - jobs.py              `CronJob` dataclass + SQLite-backed `JobStore` for
+                         metadata (separate from APScheduler's trigger store)
+  - scheduler.py         `CronScheduler` — start/stop + add/remove/enable/disable;
+                         re-registers every enabled job at start()
+  - watchdog.py          script-only execution path with 300s timeout + 8KB
+                         stdout/stderr cap
+  - runner.py            agent-mode: constructs a fresh Agent and runs one
+                         turn capped at 20 iterations
+  - delivery.py          routing: log | file:<path> | gateway://... (Phase 10)
+- ocode/steer/           in-flight redirect queue (Phase 6)
+  - queue.py             thread-safe per-session `SteerQueue`; module-level
+                         `GLOBAL_STEER_QUEUE` for cross-thread access (Phase 10
+                         gateway adapters will push to it)
+- ocode/goal/            Ralph-loop invariant (Phase 6)
+  - invariant.py         get/set/clear of `<profile_dir>/goal.txt`;
+                         format_for_system_prompt produces the block injected
+                         at the END of every system-prompt rebuild
+- ocode/transform/       closed training loop (Phase 7)
+  - classifier.py        `Trajectory` + `extract_trajectories` + conservative
+                         `auto_classify` (good / bad / preference_pair /
+                         unreviewed)
+  - dataset.py           build_sft_dataset / build_dpo_dataset / write_jsonl;
+                         qwen-coder chat template
+  - review.py            `ReviewSession` walks unreviewed trajectories;
+                         persists labels to <profile_dir>/labels/<session>.json
+  - runner.py            subprocess wrappers for transform/scripts/{train_lora,
+                         train_dpo,export_to_ollama}.py — uses each script's
+                         existing flag names
+  - deploy.py            Modelfile write + `ollama create` + switch_model
+                         (writes config.toml via tomli_w)
 - ocode/tools/           built-in model tools
   - registry.py          toolset-scoped registry; tools declare a `toolset`
                          and optional `check_fn` for capability-based gating
@@ -86,6 +150,18 @@
   live in the SKILL.md frontmatter; the file is the source of truth.
 - Migration writes always run under `write_origin="migration"` so the curator
   can identify imported content and leave it alone until it sees local activity.
+- Plugins (Phase 5) are directories under `ocode/plugins/bundled/` or
+  `~/.ocode/plugins/` with `plugin.toml` + `plugin.py`. Each plugin is a
+  subclass of `ocode.plugins.base.Plugin` overriding the lifecycle hooks
+  it cares about. The loader binds `name`/`version` from the manifest and
+  calls `on_install()` once, tracked in `~/.ocode/plugins_installed`.
+  Enable state lives in `~/.ocode/plugins_state.json` (machine-managed JSON);
+  `config.toml` stays hand-edited.
+- The agent loop fires plugin hooks on top of the legacy `ocode/hooks.py`
+  settings.json hook system — both run; settings hooks first, plugins second.
+- `/goal` is read at session start AND on every system-prompt rebuild
+  (after `/cwd`, `/clear`, `Agent.reload_goal()` etc.) so the invariant
+  is always re-injected.
 
 ## CLI
 - `ocode` — interactive REPL (default)
@@ -96,3 +172,15 @@
 - `ocode reindex [--profile NAME]` — rebuild the session FTS5 index from JSONL
 - `ocode curator run [--dry-run] [--force]` — run the umbrella consolidator now
 - `ocode curator {status,pause,resume,inspect-last}` — manage the curator
+- `ocode plugins {list,enable,disable,info}` — Phase 5 plugin management
+- `ocode cron {add,list,remove,enable,disable,run-now,logs,daemon}` — Phase 6
+  scheduled jobs (agent or watchdog mode)
+- `ocode model {list,switch,info}` — Phase 7 Ollama model management
+- `ocode train {review,build-dataset,run,status}` — Phase 7 closed training loop
+
+## Slash commands (Phase 6 additions)
+- `/steer <message>` — queue a redirect; delivered as a synthetic user
+  message before your next prompt. FIFO; `/queue` lists pending.
+- `/goal <msg|show|clear>` — set or clear the persistent invariant.
+  Stored at `<profile_dir>/goal.txt`; injected at the END of every
+  system-prompt rebuild.
