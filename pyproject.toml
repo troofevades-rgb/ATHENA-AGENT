@@ -21,6 +21,16 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
 ]
+# Heavy GPU-only deps for the closed training loop. Install with
+# ``pip install -e ".[train]"`` only on a workstation with CUDA.
+train = [
+    "trl>=0.11",
+    "peft>=0.11",
+    "transformers>=4.42",
+    "datasets>=2.20",
+    "accelerate>=0.30",
+    "bitsandbytes>=0.43",
+]
 
 [project.scripts]
 ocode = "ocode.__main__:main"
