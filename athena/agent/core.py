@@ -37,7 +37,7 @@ def _coerce_arg(v: str) -> Any:
     except json.JSONDecodeError:
         return s
 
-# Cap for OCODE.md / MEMORY.md when injecting into the system prompt. Anything
+# Cap for ATHENA.md / MEMORY.md when injecting into the system prompt. Anything
 # larger gets truncated with a notice so a runaway document can't blow context.
 _MAX_DOCUMENT_BYTES = 32_000
 
@@ -337,19 +337,25 @@ class Agent:
         model_system: str | None = ms or None
 
         project_context: str | None = None
-        ocode_md = self.workspace / "OCODE.md"
-        if ocode_md.exists():
+        # Look for ATHENA.md first; fall back to OCODE.md for projects that
+        # carried over the legacy filename. (The CLAUDE.md analog.)
+        project_md = self.workspace / "ATHENA.md"
+        if not project_md.exists():
+            legacy_md = self.workspace / "OCODE.md"
+            if legacy_md.exists():
+                project_md = legacy_md
+        if project_md.exists():
             try:
-                raw = ocode_md.read_text(encoding="utf-8")
+                raw = project_md.read_text(encoding="utf-8")
                 if len(raw) > _MAX_DOCUMENT_BYTES:
                     ui.warn(
-                        f"OCODE.md is {len(raw)} bytes; truncating to "
+                        f"{project_md.name} is {len(raw)} bytes; truncating to "
                         f"{_MAX_DOCUMENT_BYTES} for context safety"
                     )
                     project_context = raw[:_MAX_DOCUMENT_BYTES] + "\n\n[truncated]"
                 else:
                     project_context = raw
-                ui.info(f"loaded OCODE.md ({len(project_context)} bytes)")
+                ui.info(f"loaded {project_md.name} ({len(project_context)} bytes)")
             except OSError:
                 pass
 

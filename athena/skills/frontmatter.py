@@ -38,7 +38,7 @@ _MAX_DESCRIPTION_LEN = 1024
 _AGENTSKILLS_FIELDS = (
     "name", "description", "version", "license", "compatibility", "metadata",
 )
-_OCODE_FIELDS = (
+_ATHENA_FIELDS = (
     "state", "pinned", "write_origin",
     "created_at", "last_activity_at", "use_count", "parent_session_id",
 )
@@ -204,7 +204,7 @@ def serialize_frontmatter(fm: SkillFrontmatter, body: str) -> str:
     _validate_description(fm.description)
 
     ordered: list[tuple[str, Any]] = []
-    for group in (_AGENTSKILLS_FIELDS, _OCODE_FIELDS, _MIGRATION_FIELDS):
+    for group in (_AGENTSKILLS_FIELDS, _ATHENA_FIELDS, _MIGRATION_FIELDS):
         rows: list[tuple[str, Any]] = []
         for key in sorted(group):
             val = getattr(fm, key)

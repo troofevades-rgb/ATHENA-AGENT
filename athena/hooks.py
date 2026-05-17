@@ -143,7 +143,15 @@ def fire(event: str, *, tool_name: str = "", payload: dict[str, Any] | None = No
                 capture_output=True,
                 text=True,
                 timeout=30,
-                env={**os.environ, "OCODE_HOOK_EVENT": event, "OCODE_TOOL_NAME": tool_name},
+                env={
+                    **os.environ,
+                    "ATHENA_HOOK_EVENT": event,
+                    "ATHENA_TOOL_NAME": tool_name,
+                    # Legacy aliases for hook scripts written under the
+                    # ocode name — drop one release after the rename.
+                    "OCODE_HOOK_EVENT": event,
+                    "OCODE_TOOL_NAME": tool_name,
+                },
             )
         except subprocess.TimeoutExpired:
             ui.warn(f"hook {event} timed out: {hook.command!r}")

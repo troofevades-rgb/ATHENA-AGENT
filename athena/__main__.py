@@ -40,7 +40,7 @@ SLASH_HELP = """\
 /save [file]         save transcript (default: ~/.athena/sessions/<timestamp>.json)
 /dump                print the current system prompt (what the model sees)
 /cwd [path]          show or change workspace
-/init                generate OCODE.md from a workspace survey
+/init                generate ATHENA.md from a workspace survey
 /review [ref]        review pending changes (or a git ref)
 /security-review     security-focused review of pending changes
 /loop INTERVAL CMD   re-run a prompt or slash command on a timer
@@ -174,7 +174,7 @@ def _handle_slash(agent: Agent, line: str) -> bool:
                 agent.workspace = new
                 tools.file_ops.set_workspace(new, max_read=agent.cfg.max_file_read)
                 # Reload hooks for the new workspace, then rebuild the system
-                # prompt in place so OCODE.md / MEMORY.md reflect it. Conversation
+                # prompt in place so ATHENA.md / MEMORY.md reflect it. Conversation
                 # history is preserved; user can /clear if they want a reset.
                 from . import hooks as hooks_mod
                 hooks_mod.load_hooks(new)
