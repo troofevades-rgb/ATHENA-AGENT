@@ -30,6 +30,12 @@ gateway = [
     "aiogram>=3.0",
     "slack-sdk>=3.27",
     "discord.py>=2.4",
+    # Phase 11 additional platforms
+    "python-socketio[asyncio_client]>=5.10",  # BlueBubbles bridge speaks socket.io v4
+    "matrix-nio[e2e]>=0.24",
+    "aioimaplib>=2.0",
+    "aiosmtplib>=3.0",
+    "beautifulsoup4>=4.12",
 ]
 # Heavy GPU-only deps for the closed training loop. Install with
 # ``pip install -e ".[train]"`` only on a workstation with CUDA.
