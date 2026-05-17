@@ -1,0 +1,215 @@
+"""AnthropicProvider — SSE parsing, system hoisting, tool conversion."""
+from __future__ import annotations
+
+import json
+
+import httpx
+import pytest
+import respx
+
+from ocode.providers import StreamChunk, get_provider_class
+from ocode.providers.anthropic import AnthropicProvider
+
+
+def _sse(*events: dict) -> bytes:
+    """Serialize a sequence of Anthropic SSE events."""
+    return b"".join(
+        b"event: " + (e.get("type", "?").encode("utf-8")) + b"\n"
+        + b"data: " + json.dumps(e).encode("utf-8") + b"\n\n"
+        for e in events
+    )
+
+
+@pytest.fixture
+def provider():
+    p = AnthropicProvider(
+        api_key="sk-ant-test", base_url="https://api.anthropic.test/v1"
+    )
+    yield p
+    p.close()
+
+
+def test_registered_under_name_anthropic():
+    assert get_provider_class("anthropic") is AnthropicProvider
+
+
+def test_stream_chat_with_system_extracted_to_top_level_field(provider):
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=_sse(
+            {"type": "message_start", "message": {
+                "usage": {"input_tokens": 8, "output_tokens": 0}}},
+            {"type": "content_block_delta", "index": 0,
+             "delta": {"type": "text_delta", "text": "hi"}},
+            {"type": "message_delta", "delta": {"stop_reason": "end_turn"},
+             "usage": {"output_tokens": 1}},
+            {"type": "message_stop"},
+        ))
+
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+        list(provider.stream_chat(
+            model="claude-3-5-sonnet",
+            messages=[
+                {"role": "system", "content": "be terse"},
+                {"role": "user", "content": "hi"},
+            ],
+        ))
+    body = captured["body"]
+    assert body["system"] == "be terse"
+    # System message must NOT appear in messages.
+    assert all(m.get("role") != "system" for m in body["messages"])
+
+
+def test_stream_chat_yields_text_then_usage_then_end(provider):
+    sample = _sse(
+        {"type": "message_start", "message": {
+            "usage": {"input_tokens": 5, "output_tokens": 0}}},
+        {"type": "content_block_delta", "index": 0,
+         "delta": {"type": "text_delta", "text": "hello "}},
+        {"type": "content_block_delta", "index": 0,
+         "delta": {"type": "text_delta", "text": "world"}},
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"},
+         "usage": {"output_tokens": 3}},
+        {"type": "message_stop"},
+    )
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(
+            return_value=httpx.Response(200, content=sample)
+        )
+        chunks = list(provider.stream_chat(
+            model="claude-3-5-sonnet", messages=[{"role": "user", "content": "x"}]
+        ))
+    kinds = [c.kind for c in chunks]
+    assert kinds == ["content", "content", "usage", "end"]
+    assert chunks[-2].payload == {"prompt_tokens": 5, "completion_tokens": 3}
+    assert chunks[-1].payload == {"reason": "end_turn"}
+
+
+def test_tools_converted_to_anthropic_schema(provider):
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=_sse(
+            {"type": "message_start", "message": {"usage": {}}},
+            {"type": "message_stop"},
+        ))
+
+    openai_tools = [{
+        "type": "function",
+        "function": {
+            "name": "Read",
+            "description": "Read a file",
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}},
+        },
+    }]
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+        list(provider.stream_chat(
+            model="claude-3-5-sonnet",
+            messages=[{"role": "user", "content": "x"}],
+            tools=openai_tools,
+        ))
+    tools = captured["body"]["tools"]
+    assert tools[0]["name"] == "Read"
+    assert tools[0]["description"] == "Read a file"
+    # OpenAI's "parameters" → Anthropic's "input_schema".
+    assert "input_schema" in tools[0]
+    assert "parameters" not in tools[0]
+
+
+def test_tool_use_block_assembled_from_delta_stream(provider):
+    """Anthropic streams tool calls as start → input_json_deltas → stop.
+    The provider accumulates and emits one tool_call chunk."""
+    sample = _sse(
+        {"type": "message_start", "message": {"usage": {}}},
+        {"type": "content_block_start", "index": 0,
+         "content_block": {"type": "tool_use", "name": "Read", "id": "tu_1"}},
+        {"type": "content_block_delta", "index": 0,
+         "delta": {"type": "input_json_delta", "partial_json": '{"path":'}},
+        {"type": "content_block_delta", "index": 0,
+         "delta": {"type": "input_json_delta", "partial_json": ' "/tmp/x"}'}},
+        {"type": "content_block_stop", "index": 0},
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}},
+        {"type": "message_stop"},
+    )
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(
+            return_value=httpx.Response(200, content=sample)
+        )
+        chunks = list(provider.stream_chat(
+            model="claude-3-5-sonnet", messages=[{"role": "user", "content": "x"}]
+        ))
+    tool_chunks = [c for c in chunks if c.kind == "tool_call"]
+    assert len(tool_chunks) == 1
+    assert tool_chunks[0].payload["name"] == "Read"
+    assert tool_chunks[0].payload["id"] == "tu_1"
+    assert tool_chunks[0].payload["arguments"] == {"path": "/tmp/x"}
+
+
+def test_429_propagates_to_caller(provider):
+    """A 429 response surfaces as httpx.HTTPStatusError — the credential
+    pool (Prompt 8.5) is what catches and retries."""
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(
+            return_value=httpx.Response(429, json={"error": "rate limited"})
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            list(provider.stream_chat(
+                model="claude-3-5-sonnet",
+                messages=[{"role": "user", "content": "x"}],
+            ))
+
+
+def test_payload_includes_max_tokens_default(provider):
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, content=_sse(
+            {"type": "message_start", "message": {"usage": {}}},
+            {"type": "message_stop"},
+        ))
+
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+        list(provider.stream_chat(
+            model="claude-3-5-sonnet",
+            messages=[{"role": "user", "content": "x"}],
+        ))
+    # Anthropic REQUIRES max_tokens; the provider supplies a default.
+    assert captured["body"]["max_tokens"] > 0
+
+
+def test_anthropic_version_header_set():
+    p = AnthropicProvider(api_key="k", anthropic_version="2026-01-01")
+    try:
+        assert p._client.headers["anthropic-version"] == "2026-01-01"
+        assert p._client.headers["x-api-key"] == "k"
+    finally:
+        p.close()
+
+
+def test_malformed_sse_lines_skipped(provider):
+    """A non-JSON data line shouldn't crash the parser."""
+    body = (
+        b"event: ping\ndata: notjson\n\n"
+        b"event: message_start\ndata: " + json.dumps({
+            "type": "message_start", "message": {"usage": {}}
+        }).encode("utf-8") + b"\n\n"
+        b"event: message_stop\ndata: " + json.dumps({
+            "type": "message_stop"
+        }).encode("utf-8") + b"\n\n"
+    )
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(
+            return_value=httpx.Response(200, content=body)
+        )
+        chunks = list(provider.stream_chat(
+            model="claude-3-5-sonnet", messages=[{"role": "user", "content": "x"}]
+        ))
+    # Stream terminates cleanly despite the bad line.
+    assert chunks[-1].kind == "end"

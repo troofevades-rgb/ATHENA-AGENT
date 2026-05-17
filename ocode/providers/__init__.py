@@ -72,3 +72,13 @@ __all__ = [
     "list_providers",
     "unregister",
 ]
+
+
+# Side-effect imports: each module's ``@register_provider`` decorator runs
+# at import time so the registry is fully populated by the time anyone
+# calls ``get_provider_class``. Order doesn't matter — registration is
+# idempotent and keyed by ``name``.
+from . import ollama as _ollama  # noqa: E402,F401
+from . import anthropic as _anthropic  # noqa: E402,F401
+from . import openai as _openai  # noqa: E402,F401
+from . import google as _google  # noqa: E402,F401
