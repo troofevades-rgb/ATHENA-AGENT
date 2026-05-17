@@ -78,6 +78,29 @@ class CuratorConfig:
 
 
 @dataclass
+class GatewayConfig:
+    """Gateway daemon settings (Phase 10).
+
+    ``max_warm_agents`` bounds the in-memory agent pool — sessions
+    beyond the cap get evicted LRU-style and reload from JSONL the
+    next time their chat fires. Sized for a single-user gateway; bump
+    if running multi-tenant.
+
+    ``continuity`` toggles cross-platform user linking — when True,
+    the router consults ``gateway_user_links`` so the same human on
+    Telegram and Slack shares one session.
+
+    Per-platform credentials live under
+    ``[gateway.platforms.<name>]`` in config.toml — adapters read what
+    they need (bot tokens, app tokens, intents) directly from there,
+    keeping the dataclass platform-agnostic.
+    """
+    max_warm_agents: int = 50
+    continuity: bool = False
+    platforms: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Config:
     model: str = "qwen2.5-coder:14b"
     ollama_host: str = "http://127.0.0.1:11434"
@@ -88,6 +111,7 @@ class Config:
     profile: str = "default"
     review: ReviewConfig = field(default_factory=ReviewConfig)
     curator: CuratorConfig = field(default_factory=CuratorConfig)
+    gateway: GatewayConfig = field(default_factory=GatewayConfig)
     # Skip the per-tool confirmation prompt for tools that opt into it
     # (Bash, Write to existing files, etc.). Replaces the old auto_approve_bash.
     auto_approve_tools: bool = False
