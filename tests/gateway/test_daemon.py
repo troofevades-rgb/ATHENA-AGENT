@@ -279,3 +279,61 @@ async def test_default_pool_factory_raises_not_implemented(
     daemon = GatewayDaemon(isolated_cfg)
     with pytest.raises(NotImplementedError):
         await daemon.pool.get("some-session")
+
+
+# ---- Phase 10.3: approvals + continuity wired into daemon ------------
+
+
+async def test_daemon_constructs_approval_router_and_continuity(
+    isolated_cfg: Config,
+) -> None:
+    daemon = GatewayDaemon(isolated_cfg)
+    assert daemon.approvals is not None
+    assert daemon.continuity is not None
+    # Continuity manager wraps the same router instance.
+    assert daemon.continuity._router is daemon.router
+
+
+async def test_start_binds_loop_on_approval_router(
+    isolated_cfg: Config,
+) -> None:
+    """request_sync must be able to submit work once start() has run."""
+    daemon = GatewayDaemon(isolated_cfg)
+    daemon.register(_NoopAdapter(daemon))
+    assert daemon.approvals._loop is None
+    await daemon.start()
+    try:
+        loop = asyncio.get_running_loop()
+        assert daemon.approvals._loop is loop
+    finally:
+        await daemon.stop()
+
+
+async def test_stop_cancels_pending_approvals(isolated_cfg: Config) -> None:
+    """Shutting down must not leave worker threads blocked on
+    approval futures that will never resolve."""
+    daemon = GatewayDaemon(isolated_cfg)
+    daemon.register(_NoopAdapter(daemon))
+    await daemon.start()
+    try:
+        async def renderer(_req):
+            return None  # never resolves
+        daemon.approvals.set_renderer(renderer)
+
+        results: list[str] = []
+
+        async def one():
+            results.append(
+                await daemon.approvals.request_async(
+                    session_id="s", tool_name="Bash", tool_args={},
+                    timeout=30.0,
+                )
+            )
+
+        task = asyncio.create_task(one())
+        await asyncio.sleep(0.01)
+        assert daemon.approvals.pending_count == 1
+    finally:
+        await daemon.stop()
+    await task
+    assert results == ["deny"]

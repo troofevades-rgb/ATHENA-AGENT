@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 from ..config import Config, profile_dir
 from ..sessions.store import SessionStore
 from .agent_pool import AgentFactory, AgentPool
+from .approval_routing import ApprovalRouter
+from .continuity import ContinuityManager
 from .events import MessageEvent
 from .router import SessionRouter
 
@@ -91,6 +93,8 @@ class GatewayDaemon:
             agent_factory or _stub_agent_factory,
             max_size=gw.max_warm_agents,
         )
+        self.approvals = ApprovalRouter()
+        self.continuity = ContinuityManager(self.router)
         self._dispatch_command = command_dispatcher or _stub_dispatch
         self.adapters: list["GatewayAdapter"] = []
         self._adapter_tasks: list[asyncio.Task] = []
@@ -114,10 +118,16 @@ class GatewayDaemon:
 
     async def start(self) -> None:
         """Kick every registered adapter's ``start()`` as a background
-        task and return. Subsequent calls are no-ops."""
+        task and return. Subsequent calls are no-ops.
+
+        Binds the running event loop on the approval router so
+        :meth:`ApprovalRouter.request_sync` (called from the agent's
+        worker thread in Phase 10.8) has somewhere to submit work.
+        """
         if self._started:
             return
         self._started = True
+        self.approvals.bind_loop(asyncio.get_running_loop())
         for adapter in self.adapters:
             task = asyncio.create_task(
                 adapter.start(),
@@ -152,6 +162,10 @@ class GatewayDaemon:
                 task.cancel()
         self._adapter_tasks.clear()
 
+        # Deny every pending approval so any worker thread blocked on
+        # request_sync unwinds cleanly before pool.evict_all closes
+        # the agents holding those threads.
+        self.approvals.cancel_all()
         await self.pool.evict_all()
         self.router.close()
 
