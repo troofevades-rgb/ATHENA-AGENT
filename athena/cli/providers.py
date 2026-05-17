@@ -53,6 +53,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_rm.add_argument("provider")
     p_rm.add_argument("key_or_prefix")
 
+    p_models = sub.add_parser(
+        "models",
+        help="List models the configured key has access to on a provider.",
+    )
+    p_models.add_argument("provider")
+    p_models.add_argument("--limit", type=int, default=0,
+                          help="Truncate the list to N entries (0 = unlimited).")
+
     return ap
 
 
@@ -217,7 +225,9 @@ def _probe_provider(
 # providers test`` only. If a real ATHENA_PROVIDERS_TEST_MODEL env var
 # is set per-provider, that overrides.
 _SAMPLE_MODELS: dict[str, str] = {
-    "anthropic": "anthropic/claude-3-5-haiku-20241022",
+    # Names go stale fast — `athena providers models <name>` queries the
+    # live catalog if these break. Override with --model on `test`.
+    "anthropic": "anthropic/claude-haiku-4-5-20251001",
     "openai": "openai/gpt-4o-mini",
     "google": "gemini-1.5-flash",
     "openrouter": "openrouter/openai/gpt-4o-mini",
@@ -226,6 +236,50 @@ _SAMPLE_MODELS: dict[str, str] = {
 
 
 # ---- Entry point --------------------------------------------------------
+
+
+def _cmd_models(args) -> int:
+    """Query the provider's list-models endpoint and print every available id."""
+    pool = _open_pool(args)
+    cfg = load_config()
+    name = args.provider
+    registered = set(list_providers())
+    if name not in registered:
+        print(
+            f"error: {name!r} is not registered. "
+            f"Known: {', '.join(sorted(registered))}",
+            file=sys.stderr,
+        )
+        return 2
+
+    from ..providers.runtime_resolver import resolve_provider
+
+    # Pick any model that routes to this provider so we can build the
+    # provider instance with a credential. Hosted providers need the key
+    # for list-models too; openai_compat / ollama don't.
+    probe_model = _SAMPLE_MODELS.get(name) or cfg.model
+    try:
+        provider, _ = resolve_provider(probe_model, cfg, pool)
+    except Exception as e:
+        print(f"error: could not build {name} provider: {e}", file=sys.stderr)
+        return 2
+    try:
+        try:
+            models = provider.list_models()
+        except Exception as e:
+            print(f"error: list_models failed: {e}", file=sys.stderr)
+            return 1
+    finally:
+        provider.close()
+
+    if not models:
+        print(f"(no models returned for {name})")
+        return 0
+    if args.limit > 0:
+        models = models[: args.limit]
+    for m in sorted(models):
+        print(f"  {m}")
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -238,4 +292,6 @@ def main(argv: list[str]) -> int:
         return _cmd_add_key(args)
     if args.cmd == "remove-key":
         return _cmd_remove_key(args)
+    if args.cmd == "models":
+        return _cmd_models(args)
     return 2

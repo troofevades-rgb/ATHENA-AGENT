@@ -193,6 +193,46 @@ def test_anthropic_version_header_set():
         p.close()
 
 
+def test_list_models_returns_ids(provider):
+    """GET /v1/models returns {"data": [{id, type, ...}], "has_more": bool}."""
+    with respx.mock() as m:
+        m.get("https://api.anthropic.test/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "claude-haiku-4-5-20251001", "type": "model"},
+                    {"id": "claude-sonnet-4-7", "type": "model"},
+                    {"id": "claude-opus-4-7", "type": "model"},
+                ],
+                "has_more": False,
+            })
+        )
+        names = provider.list_models()
+    assert names == [
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-7",
+        "claude-opus-4-7",
+    ]
+
+
+def test_list_models_handles_empty(provider):
+    with respx.mock() as m:
+        m.get("https://api.anthropic.test/v1/models").mock(
+            return_value=httpx.Response(200, json={"data": [], "has_more": False})
+        )
+        assert provider.list_models() == []
+
+
+def test_list_models_propagates_auth_failure(provider):
+    with respx.mock() as m:
+        m.get("https://api.anthropic.test/v1/models").mock(
+            return_value=httpx.Response(
+                401, json={"error": {"type": "authentication_error"}},
+            )
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            provider.list_models()
+
+
 def test_malformed_sse_lines_skipped(provider):
     """A non-JSON data line shouldn't crash the parser."""
     body = (

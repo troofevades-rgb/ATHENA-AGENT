@@ -230,3 +230,29 @@ def test_api_key_header_set():
         assert p._client.headers["x-goog-api-key"] == "goog-12345"
     finally:
         p.close()
+
+
+def test_list_models_strips_models_prefix(provider):
+    """Gemini's /v1beta/models returns names as "models/<id>"; strip
+    the prefix so callers can pass results back to stream_chat directly."""
+    with respx.mock() as m:
+        m.get("https://gemini.test/v1beta/models").mock(
+            return_value=httpx.Response(200, json={
+                "models": [
+                    {"name": "models/gemini-1.5-pro", "version": "001"},
+                    {"name": "models/gemini-1.5-flash", "version": "001"},
+                    {"name": "models/embedding-001", "version": "001"},
+                ],
+            })
+        )
+        names = provider.list_models()
+    assert names == ["gemini-1.5-pro", "gemini-1.5-flash", "embedding-001"]
+
+
+def test_list_models_propagates_error(provider):
+    with respx.mock() as m:
+        m.get("https://gemini.test/v1beta/models").mock(
+            return_value=httpx.Response(403, json={"error": {"message": "denied"}})
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            provider.list_models()
