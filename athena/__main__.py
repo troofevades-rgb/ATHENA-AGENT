@@ -209,6 +209,7 @@ _SUBCOMMANDS = {
     "model": "athena.cli.model",
     "train": "athena.cli.train",
     "providers": "athena.cli.providers",
+    "gateway": "athena.cli.gateway",
 }
 
 

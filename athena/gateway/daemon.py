@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 
 from ..config import Config, profile_dir
 from ..sessions.store import SessionStore
+from . import registry
 from .agent_pool import AgentFactory, AgentPool
 from .approval_routing import ApprovalRouter
 from .continuity import ContinuityManager
@@ -128,6 +129,9 @@ class GatewayDaemon:
             return
         self._started = True
         self.approvals.bind_loop(asyncio.get_running_loop())
+        # Register before kicking adapters so cron jobs that fire
+        # during adapter startup can already find us.
+        registry.register(self)
         for adapter in self.adapters:
             task = asyncio.create_task(
                 adapter.start(),
@@ -168,6 +172,18 @@ class GatewayDaemon:
         self.approvals.cancel_all()
         await self.pool.evict_all()
         self.router.close()
+        registry.unregister(self)
+
+    # ---- outbound shortcuts ----
+
+    def adapter_for(self, platform: str) -> "GatewayAdapter | None":
+        """Return the registered adapter whose ``name`` matches
+        ``platform``, or ``None``. Used by the cron delivery layer to
+        route gateway:// targets to the right adapter."""
+        for adapter in self.adapters:
+            if adapter.name == platform:
+                return adapter
+        return None
 
     # ---- command dispatch ----
 
