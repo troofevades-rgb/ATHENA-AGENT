@@ -1,0 +1,1 @@
+<tool_call>{"name": "Read", "arguments": {bad json no quotes}}</tool_call>

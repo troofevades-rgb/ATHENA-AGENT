@@ -1,0 +1,2 @@
+I'll read that for you.
+<tool_call>{"name": "Read", "arguments": {"file_path": "/path/to/example"}}</tool_call>

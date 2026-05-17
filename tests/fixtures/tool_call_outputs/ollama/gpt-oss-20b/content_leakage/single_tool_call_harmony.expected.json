@@ -1,0 +1,10 @@
+{
+  "cleaned_content": "Reading that file now.",
+  "tool_calls": [
+    {
+      "name": "Read",
+      "arguments": {"file_path": "/etc/hostname"},
+      "id": ""
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "model": "gpt-4o-2024-08-06",
+  "message": {
+    "role": "assistant",
+    "content": null,
+    "tool_calls": [
+      {
+        "id": "call_abc123",
+        "type": "function",
+        "function": {
+          "name": "Read",
+          "arguments": "{\"file_path\": \"/path/to/example\"}"
+        }
+      }
+    ]
+  }
+}

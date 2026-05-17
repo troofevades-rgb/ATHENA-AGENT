@@ -1,0 +1,12 @@
+{
+  "model": "claude-sonnet-4-6",
+  "content": [
+    {"type": "text", "text": "I'll read that file for you."},
+    {
+      "type": "tool_use",
+      "id": "toolu_01ABCdef",
+      "name": "Read",
+      "input": {"file_path": "/path/to/example"}
+    }
+  ]
+}

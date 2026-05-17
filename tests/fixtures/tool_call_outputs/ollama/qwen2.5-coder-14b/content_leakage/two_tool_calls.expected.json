@@ -1,0 +1,15 @@
+{
+  "cleaned_content": "I'll do both at once.",
+  "tool_calls": [
+    {
+      "name": "Read",
+      "arguments": {"file_path": "/path/to/example/a"},
+      "id": ""
+    },
+    {
+      "name": "Read",
+      "arguments": {"file_path": "/path/to/example/b"},
+      "id": ""
+    }
+  ]
+}
