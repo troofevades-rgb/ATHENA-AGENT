@@ -2,9 +2,6 @@
 
 ## Unreleased
 
-### Known limitations
-- Phase 8's provider fallback chain (e.g. `[providers.anthropic] fallback = ["openrouter"]`) is not yet wired through the resolver. When a hosted provider's credentials are exhausted (all in 429 cooldown), the resolver raises rather than falling through to the configured fallback chain. The config key is documented but inert until a follow-up commit lands the chain-walking.
-
 ### Renamed
 - Project renamed `ocode` → `athena`. The Python package, the `athena`
   CLI command, `~/.athena/` config home, and the `ATHENA.md` project
@@ -23,7 +20,9 @@
 - `OpenAICompatProvider`, `OpenRouterProvider`, `NousProvider` — thin OpenAI-compat subclasses for vLLM/llama.cpp/openrouter.ai/portal.nousresearch.com (Phase 8)
 - `CredentialPool` at `~/.athena/credentials.json` — per-provider round-robin with cooldown on 429, atomic JSON persistence, thread-safe, redacted listing (Phase 8)
 - `resolve_provider(model, cfg, pool)` runtime resolver — prefix routing (anthropic/ openai/ google/ openrouter/ nous/), gemini- bare prefix, host:port/model → openai_compat, default ollama (Phase 8)
-- `athena providers {list,test,add-key,remove-key}` CLI (Phase 8)
+- Provider fallback chain via `providers.<primary>.fallback = ["openrouter", ...]` — resolver walks the chain when the primary has no credential or every credential is in 429 cooldown. Entries can be bare provider names (model string passes through) or `{provider, model}` dicts for cases where the model name needs to change too (Phase 8)
+- `athena providers {list,test,add-key,remove-key,models}` CLI (Phase 8)
+- `list_models()` on every hosted provider — `athena providers models <name>` queries the live catalog so users don't guess at stale model names (Phase 8)
 - `respx>=0.21` added to `[dev]` extras for httpx mocking in provider tests (Phase 8)
 - Trajectory extraction + auto-classifier (`good` / `bad` / `preference_pair` / `unreviewed`) (Phase 7)
 - Trajectory extraction + auto-classifier (`good` / `bad` / `preference_pair` / `unreviewed`) (Phase 7)
