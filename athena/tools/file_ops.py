@@ -2,7 +2,8 @@
 
 Tool names follow Claude Code conventions: Read, Write, Edit. Old snake_case
 names (read_file, write_file, str_replace) remain as aliases so legacy
-OCODE.md instructions and saved sessions keep working.
+ATHENA.md (or pre-rename OCODE.md) instructions and saved sessions keep
+working.
 """
 from __future__ import annotations
 from pathlib import Path

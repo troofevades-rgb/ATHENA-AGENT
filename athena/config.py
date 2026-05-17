@@ -13,7 +13,27 @@ else:
     import tomli as tomllib  # type: ignore
 
 
-CONFIG_DIR = Path.home() / ".athena"
+_PRIMARY_HOME = Path.home() / ".athena"
+_LEGACY_HOME = Path.home() / ".ocode"
+
+
+def _resolve_home() -> Path:
+    """Return the active athena home dir.
+
+    Prefers ``~/.athena/``. Falls back to ``~/.ocode/`` if athena's home
+    is missing but the legacy one exists — supports users migrating from
+    the previous project name without forcing them to move files. Once
+    ``~/.athena/`` exists (even empty), the legacy home is ignored.
+    """
+    if _PRIMARY_HOME.exists():
+        return _PRIMARY_HOME
+    if _LEGACY_HOME.exists():
+        return _LEGACY_HOME
+    return _PRIMARY_HOME
+
+
+CONFIG_DIR = _resolve_home()
+LEGACY_CONFIG_DIR = _LEGACY_HOME  # explicit handle for migration helpers
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 SESSIONS_DIR = CONFIG_DIR / "sessions"  # legacy flat dir; new code uses profile_dir
 USER_MCP_PATH = CONFIG_DIR / "mcp.json"
@@ -64,7 +84,7 @@ class Config:
     # Profile name under ~/.athena/profiles/<profile>/. Sessions, memory, and
     # per-profile config live here. Multiple profiles let a user keep work
     # contexts (default / personal / client-foo) separated without juggling
-    # OCODE_HOME values.
+    # ATHENA_HOME values.
     profile: str = "default"
     review: ReviewConfig = field(default_factory=ReviewConfig)
     curator: CuratorConfig = field(default_factory=CuratorConfig)
@@ -122,8 +142,10 @@ def load_config() -> Config:
                 setattr(cfg, k, v)
     # Merge plugin enable state from the machine-managed sidecar file.
     cfg.plugins = _merge_plugin_state(cfg.plugins)
-    # Env overrides
-    if env := os.environ.get("OCODE_MODEL"):
+    # Env overrides. ATHENA_* is the canonical name; OCODE_* is still
+    # honored for one transitional release so existing shells / dotfiles
+    # don't break the day after the rename.
+    if env := (os.environ.get("ATHENA_MODEL") or os.environ.get("OCODE_MODEL")):
         cfg.model = env
     if env := os.environ.get("OLLAMA_HOST"):
         cfg.ollama_host = env if env.startswith("http") else f"http://{env}"

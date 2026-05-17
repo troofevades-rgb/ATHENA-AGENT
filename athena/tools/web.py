@@ -1,9 +1,9 @@
 """Web tools: search and fetch URLs.
 
-Search backends (selected via OCODE_SEARCH_BACKEND env var):
+Search backends (selected via ATHENA_SEARCH_BACKEND env var):
   - duckduckgo  (default, no key required, scrapes html.duckduckgo.com)
   - brave       (set BRAVE_API_KEY; free tier 2000 queries/month)
-  - searxng     (set OCODE_SEARXNG_URL=https://your-searxng-instance/)
+  - searxng     (set ATHENA_SEARXNG_URL=https://your-searxng-instance/)
 
 Fetch backend: httpx, with HTML→text extraction via best-available library:
   trafilatura > beautifulsoup4 > regex fallback.
@@ -11,12 +11,12 @@ Fetch backend: httpx, with HTML→text extraction via best-available library:
 Optional installs to improve quality:
     pip install beautifulsoup4 trafilatura
 
-Configuration env vars:
-  OCODE_SEARCH_BACKEND     duckduckgo | brave | searxng     (default: duckduckgo)
+Configuration env vars (the legacy OCODE_* names are honored for one release):
+  ATHENA_SEARCH_BACKEND    duckduckgo | brave | searxng     (default: duckduckgo)
   BRAVE_API_KEY            for brave backend
-  OCODE_SEARXNG_URL        for searxng backend
-  OCODE_WEB_TIMEOUT        float seconds (default: 30)
-  OCODE_WEB_USER_AGENT     custom UA string
+  ATHENA_SEARXNG_URL       for searxng backend
+  ATHENA_WEB_TIMEOUT       float seconds (default: 30)
+  ATHENA_WEB_USER_AGENT    custom UA string
 """
 from __future__ import annotations
 import os
@@ -28,10 +28,15 @@ import httpx
 from .registry import tool
 
 
-_TIMEOUT = float(os.environ.get("OCODE_WEB_TIMEOUT", "30"))
-_USER_AGENT = os.environ.get(
-    "OCODE_WEB_USER_AGENT",
-    "Mozilla/5.0 (compatible; athena/0.1; local research agent)",
+_TIMEOUT = float(
+    os.environ.get("ATHENA_WEB_TIMEOUT")
+    or os.environ.get("OCODE_WEB_TIMEOUT")
+    or "30"
+)
+_USER_AGENT = (
+    os.environ.get("ATHENA_WEB_USER_AGENT")
+    or os.environ.get("OCODE_WEB_USER_AGENT")
+    or "Mozilla/5.0 (compatible; athena/0.1; local research agent)"
 )
 
 
@@ -183,9 +188,13 @@ def _search_brave(query: str, max_results: int) -> list[dict[str, str]]:
 
 
 def _search_searxng(query: str, max_results: int) -> list[dict[str, str]]:
-    base = os.environ.get("OCODE_SEARXNG_URL", "").rstrip("/")
+    base = (
+        os.environ.get("ATHENA_SEARXNG_URL")
+        or os.environ.get("OCODE_SEARXNG_URL")
+        or ""
+    ).rstrip("/")
     if not base:
-        return [{"error": "OCODE_SEARXNG_URL env var not set"}]
+        return [{"error": "ATHENA_SEARXNG_URL env var not set"}]
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as c:
         r = c.get(
             f"{base}/search",
@@ -228,7 +237,11 @@ def _search_searxng(query: str, max_results: int) -> list[dict[str, str]]:
     },
 )
 def WebSearch(query: str, max_results: int = 8) -> str:
-    backend = os.environ.get("OCODE_SEARCH_BACKEND", "duckduckgo").lower()
+    backend = (
+        os.environ.get("ATHENA_SEARCH_BACKEND")
+        or os.environ.get("OCODE_SEARCH_BACKEND")
+        or "duckduckgo"
+    ).lower()
     try:
         if backend == "brave":
             results = _search_brave(query, max_results)

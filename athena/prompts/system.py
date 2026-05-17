@@ -258,7 +258,7 @@ dashboards, Slack channels) and what they're for.
 - Code patterns, conventions, paths, structure — derive from current state.
 - Git history, recent diffs — `git log`/`git blame` are authoritative.
 - Bug fixes — the fix is in the code; the commit message has the context.
-- Anything in OCODE.md.
+- Anything in ATHENA.md.
 - Ephemeral task state.
 
 ## How to save
@@ -433,7 +433,7 @@ def build_system_prompt(
       1. Modelfile SYSTEM (persona) if present
       2. Sectioned athena prompt (filtered by lean / disabled_sections)
       3. Environment block
-      4. Project context (OCODE.md)
+      4. Project context (ATHENA.md)
       5. Memory index (MEMORY.md)
       6. /goal invariant (Phase 6) — last so the model sees it as the
          most recent / most authoritative instruction.
@@ -464,7 +464,7 @@ def build_system_prompt(
 
     if project_context:
         parts.append(
-            "# Project context (OCODE.md)\n"
+            "# Project context (ATHENA.md)\n"
             f"{project_context.strip()}"
         )
 
