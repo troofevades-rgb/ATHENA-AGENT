@@ -125,11 +125,28 @@ def fork(
     result = ForkResult(final_response="", child_session_id=child.session_id)
 
     try:
-        # 3. Inject system_addendum (preserve messages[0] as the system prompt).
+        # 3. Pin the child's system prompt to the parent's verbatim, then
+        #    append the addendum. The byte-exact prefix-cache key (Anthropic,
+        #    OpenRouter) only stays warm if the prefix matches the parent's
+        #    last warmed request — rebuilding the child's system prompt from
+        #    scratch produces a different `today` date, a different skills
+        #    catalog (the child has narrower toolsets), and a fresh
+        #    Modelfile-SYSTEM fetch. Each divergence ends the cacheable
+        #    prefix at that byte. Hermes Agent measured ~26% end-to-end cost
+        #    reduction on Sonnet 4.5 by pinning the parent's prompt verbatim
+        #    on review forks (issue #25322, PR #17276) — the same logic
+        #    applies to every fork we spawn against a hosted provider.
+        parent_system = (
+            self.messages[0]["content"]
+            if self.messages and self.messages[0].get("role") == "system"
+            else child.messages[0]["content"]
+        )
         if system_addendum:
             child.messages[0]["content"] = (
-                child.messages[0]["content"].rstrip() + "\n\n" + system_addendum
+                parent_system.rstrip() + "\n\n" + system_addendum
             )
+        else:
+            child.messages[0]["content"] = parent_system
 
         # 4. Replace history if provided.
         if conversation_history is not None:

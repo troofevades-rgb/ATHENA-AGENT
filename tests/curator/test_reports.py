@@ -97,3 +97,58 @@ def test_empty_runs_render_cleanly(tmp_path: Path) -> None:
     runs = list((tmp_path / "curator").iterdir())
     report = (runs[0] / "REPORT.md").read_text(encoding="utf-8")
     assert "(none)" in report
+
+
+def test_absorptions_recorded_in_run_json(tmp_path: Path) -> None:
+    """Reference migration cron needs `absorbed → umbrella` mapping
+    persisted, not just decision_counts."""
+    parsed = _parsed(
+        {"skill": "narrow-a", "decision": "CONSOLIDATE_INTO",
+         "target": "broad-umbrella", "absorbed_into": "broad-umbrella",
+         "rationale": "merge"},
+        {"skill": "narrow-b", "decision": "DEMOTE_TO_REFERENCES",
+         "target": "broad-umbrella", "absorbed_into": "broad-umbrella",
+         "rationale": "ref"},
+        {"skill": "narrow-c", "decision": "PRUNE",
+         "target": None, "absorbed_into": None, "rationale": "stale"},
+    )
+    write_run(SimpleNamespace(), _fork(), parsed, logs_root=tmp_path)
+    run_dir = next((tmp_path / "curator").iterdir())
+    data = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+    assert data["absorptions"] == {"broad-umbrella": ["narrow-a", "narrow-b"]}
+
+
+def test_absorptions_section_appears_in_markdown(tmp_path: Path) -> None:
+    parsed = _parsed(
+        {"skill": "old", "decision": "CONSOLIDATE_INTO",
+         "target": "umbrella", "absorbed_into": "umbrella", "rationale": "x"},
+    )
+    write_run(SimpleNamespace(), _fork(), parsed, logs_root=tmp_path)
+    run_dir = next((tmp_path / "curator").iterdir())
+    report = (run_dir / "REPORT.md").read_text(encoding="utf-8")
+    assert "Absorptions" in report
+    assert "`old` → `umbrella`" in report
+
+
+def test_no_absorptions_section_when_no_absorbed_into(tmp_path: Path) -> None:
+    parsed = _parsed(
+        {"skill": "x", "decision": "KEEP_AS_IS",
+         "target": None, "absorbed_into": None, "rationale": "."},
+    )
+    write_run(SimpleNamespace(), _fork(), parsed, logs_root=tmp_path)
+    run_dir = next((tmp_path / "curator").iterdir())
+    report = (run_dir / "REPORT.md").read_text(encoding="utf-8")
+    assert "Absorptions" not in report
+
+
+def test_demote_decisions_render_in_report(tmp_path: Path) -> None:
+    parsed = _parsed(
+        {"skill": "fixture-snip", "decision": "DEMOTE_TO_SCRIPTS",
+         "target": "testing-patterns", "absorbed_into": "testing-patterns",
+         "rationale": "repeatable"},
+    )
+    write_run(SimpleNamespace(), _fork(), parsed, logs_root=tmp_path)
+    run_dir = next((tmp_path / "curator").iterdir())
+    report = (run_dir / "REPORT.md").read_text(encoding="utf-8")
+    assert "DEMOTE_TO_SCRIPTS" in report
+    assert "testing-patterns" in report

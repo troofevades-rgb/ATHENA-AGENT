@@ -179,6 +179,33 @@ def test_fork_messages_inject_system_addendum(parent_agent: Agent) -> None:
     assert "ADDENDUM_TEXT" in system_msg["content"]
 
 
+def test_fork_pins_parent_system_prompt_verbatim(parent_agent: Agent) -> None:
+    """The child's system prompt must be the parent's prefix + addendum.
+
+    Hosted providers (Anthropic, OpenRouter) prefix-cache on byte-exact
+    match. If the child rebuilds its system prompt from scratch — fresh
+    ``today`` date, fresh skills catalog, fresh Modelfile-SYSTEM fetch —
+    the cache prefix ends at the first divergent byte. Hermes Agent
+    measured ~26% cost reduction on Sonnet 4.5 from pinning. This test
+    locks in the parity.
+    """
+    parent_system = parent_agent.messages[0]["content"]
+    parent_agent.fork(enabled_toolsets=["core"], system_addendum="ADD")
+    aux = FakeClient.instances[-1]
+    child_system = aux.observations[0]["messages"][0]["content"]
+    assert child_system.startswith(parent_system.rstrip())
+    assert child_system.endswith("ADD")
+
+
+def test_fork_with_no_addendum_inherits_parent_system_exactly(
+    parent_agent: Agent,
+) -> None:
+    parent_system = parent_agent.messages[0]["content"]
+    parent_agent.fork(enabled_toolsets=["core"], system_addendum="")
+    aux = FakeClient.instances[-1]
+    assert aux.observations[0]["messages"][0]["content"] == parent_system
+
+
 def test_fork_messages_inject_conversation_history(parent_agent: Agent) -> None:
     history = [
         {"role": "user", "content": "prior question"},

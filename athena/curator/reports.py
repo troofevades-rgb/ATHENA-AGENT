@@ -28,8 +28,15 @@ def write_run(
     *,
     dry_run: bool = False,
     logs_root: Path | None = None,
+    drift: dict | None = None,
 ) -> dict:
-    """Write run.json + REPORT.md and return the run summary dict."""
+    """Write run.json + REPORT.md and return the run summary dict.
+
+    ``drift`` is the dict from
+    :meth:`athena.curator.reconciliation.DriftReport.to_dict` — surfaces
+    discrepancies between what the YAML claimed and what's actually on
+    disk. Pass ``None`` (the dry-run default) to skip drift reporting.
+    """
     runs = parsed_yaml.get("runs") or []
     now = datetime.now(timezone.utc)
     run_dir = (logs_root or Path.cwd()) / "curator" / now.strftime("%Y%m%d-%H%M%S")
@@ -41,12 +48,23 @@ def write_run(
         if r.get("target"):
             targets_by_decision.setdefault(r["decision"], []).append(r["target"])
 
+    # absorbed_into → list[absorbed_skill_name]. Drives the future
+    # skill-reference migration cron: when an old conversation references
+    # absorbed_skill_name, the cron rewrites the reference to the umbrella.
+    absorptions: dict[str, list[str]] = {}
+    for r in runs:
+        umbrella = r.get("absorbed_into")
+        if isinstance(umbrella, str) and umbrella:
+            absorptions.setdefault(umbrella, []).append(r["skill"])
+
     summary = {
         "started_at": now.isoformat(),
         "dry_run": dry_run,
         "total_skills": len(runs),
         "decision_counts": dict(decision_counts),
         "targets_by_decision": targets_by_decision,
+        "absorptions": absorptions,
+        "drift": drift or {},
         "decisions": runs,
         "fork": {
             "duration_s": getattr(fork_result, "duration_s", 0.0),
@@ -99,4 +117,39 @@ def _render_markdown(summary: dict) -> str:
             lines.append(f"- **{r['skill']}**: {r['decision']}{target_suffix}")
             if r.get("rationale"):
                 lines.append(f"    rationale: {r['rationale']}")
+
+    absorptions = summary.get("absorptions") or {}
+    if absorptions:
+        lines.append("")
+        lines.append("## Absorptions (for reference migration)")
+        for umbrella, absorbed in sorted(absorptions.items()):
+            for name in sorted(absorbed):
+                lines.append(f"- `{name}` → `{umbrella}`")
+
+    drift = summary.get("drift") or {}
+    if any(drift.values()):
+        lines.append("")
+        lines.append("## ⚠ Filesystem drift")
+        if drift.get("missing_from_fs"):
+            lines.append("")
+            lines.append("### Claimed removal but still active on disk")
+            for d in drift["missing_from_fs"]:
+                lines.append(
+                    f"- `{d['skill']}` (claimed {d['decision']}, "
+                    f"observed state: {d['observed_state']})"
+                )
+        if drift.get("unexpected_archive"):
+            lines.append("")
+            lines.append("### Archived on disk but not in YAML output")
+            for d in drift["unexpected_archive"]:
+                lines.append(
+                    f"- `{d['skill']}` ({d['before_state']} → {d['after_state']})"
+                )
+        if drift.get("no_op_after_keep"):
+            lines.append("")
+            lines.append("### KEEP_AS_IS but state flipped")
+            for d in drift["no_op_after_keep"]:
+                lines.append(
+                    f"- `{d['skill']}` ({d['before_state']} → {d['after_state']})"
+                )
     return "\n".join(lines).rstrip() + "\n"

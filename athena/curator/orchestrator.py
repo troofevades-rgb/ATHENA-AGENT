@@ -9,6 +9,7 @@ next session retries cleanly.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -75,8 +76,18 @@ def maybe_run_curator(
     if dry_run:
         addendum = prompts.DRY_RUN_BANNER + addendum
 
+    # Snapshot the skill landscape before the fork so reconciliation
+    # (Retrofit #5) can diff against the post-fork state. On a dry-run
+    # we skip the snapshot — nothing should change on disk anyway, and
+    # paying the iterdir cost twice is wasteful.
+    from . import reconciliation
+    before_snapshot = (
+        None if dry_run else reconciliation.snapshot_skills(agent.workspace)
+    )
+
     # Defer fork import to call time to keep the orchestrator import-light.
     from ..agent.fork import fork
+    fork_start = time.monotonic()
     result = fork(
         agent,
         enabled_toolsets=["skills"],
@@ -86,11 +97,28 @@ def maybe_run_curator(
         auxiliary_client=True,
         quiet=True,
     )
+    duration = time.monotonic() - fork_start
 
     parsed = yaml_output.parse_curator_report(result.final_response)
     if parsed is None:
         logger.warning("curator run rejected: missing or malformed YAML output")
         return None
+
+    drift = None
+    if before_snapshot is not None:
+        after_snapshot = reconciliation.snapshot_skills(agent.workspace)
+        drift_report = reconciliation.reconcile(
+            before_snapshot, after_snapshot, parsed["runs"],
+        )
+        drift = drift_report.to_dict()
+        if not drift_report.is_clean:
+            logger.warning(
+                "curator filesystem drift detected: missing=%d, "
+                "unexpected_archive=%d, no_op_after_keep=%d",
+                len(drift_report.missing_from_fs),
+                len(drift_report.unexpected_archive),
+                len(drift_report.no_op_after_keep),
+            )
 
     # Reports come from a separate module — keep this orchestrator focused.
     from . import reports
@@ -100,11 +128,67 @@ def maybe_run_curator(
         parsed,
         dry_run=dry_run,
         logs_root=_logs_root_for(agent),
+        drift=drift,
     )
 
+    # Persist a one-line human summary + the report path so the next
+    # session's ``athena curator status`` (and the CLI status helper)
+    # can display "your last curator pass touched N skills" without
+    # re-parsing the report. Mirrors Hermes's last_run_summary +
+    # last_report_path fields.
+    last_summary = _format_one_line_summary(summary)
     state.write_state(skills_root, state.State(
         last_run_at=now,
+        last_run_duration_seconds=duration,
+        last_run_summary=last_summary,
+        last_run_summary_shown_at=cur_state.last_run_summary_shown_at,
+        last_report_path=summary.get("report_path") if isinstance(summary, dict) else None,
         run_count=cur_state.run_count + 1,
         paused=cur_state.paused,
     ))
     return summary
+
+
+def _format_one_line_summary(summary: Any) -> str | None:
+    """Render a one-line digest of a curator run for the status line.
+
+    Accepts the shape :mod:`athena.curator.reports` writes. Returns
+    ``None`` rather than raising if the shape is unexpected — we never
+    want a status-line render to crash the next session start.
+
+    Output examples:
+        "12 kept, 3 absorbed, 1 pruned"
+        "5 decision(s)"
+
+    Buckets the wide enum into three families so the line stays
+    readable:
+      - kept       → KEEP_AS_IS
+      - absorbed   → CONSOLIDATE_INTO + CREATE_UMBRELLA + DEMOTE_TO_*
+      - pruned     → PRUNE
+    """
+    if not isinstance(summary, dict):
+        return None
+    counts = summary.get("decision_counts")
+    if isinstance(counts, dict):
+        kept = counts.get("KEEP_AS_IS", 0)
+        pruned = counts.get("PRUNE", 0)
+        absorbed = (
+            counts.get("CONSOLIDATE_INTO", 0)
+            + counts.get("CREATE_UMBRELLA", 0)
+            + counts.get("DEMOTE_TO_REFERENCES", 0)
+            + counts.get("DEMOTE_TO_TEMPLATES", 0)
+            + counts.get("DEMOTE_TO_SCRIPTS", 0)
+        )
+        parts: list[str] = []
+        if kept:
+            parts.append(f"{kept} kept")
+        if absorbed:
+            parts.append(f"{absorbed} absorbed")
+        if pruned:
+            parts.append(f"{pruned} pruned")
+        if parts:
+            return ", ".join(parts)
+    runs = summary.get("decisions") or summary.get("runs")
+    if isinstance(runs, list):
+        return f"{len(runs)} decision(s)"
+    return None
