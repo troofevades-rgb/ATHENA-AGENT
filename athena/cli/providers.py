@@ -49,9 +49,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_add.add_argument("--label", default="",
                        help="Optional human-readable label (e.g. 'personal').")
 
-    p_rm = sub.add_parser("remove-key", help="Remove a credential by exact key or unambiguous prefix.")
+    p_rm = sub.add_parser(
+        "remove-key",
+        help="Remove a credential by exact key, unambiguous prefix, "
+             "or suffix (the form `athena providers list` displays — "
+             "the leading '...' is optional).",
+    )
     p_rm.add_argument("provider")
-    p_rm.add_argument("key_or_prefix")
+    p_rm.add_argument("key_or_match",
+                      help="Exact key, prefix, or suffix (e.g. 'ttWN' or '...ttWN').")
 
     p_models = sub.add_parser(
         "models",
@@ -117,10 +123,10 @@ def _cmd_add_key(args) -> int:
 
 def _cmd_remove_key(args) -> int:
     pool = _open_pool(args)
-    removed = pool.remove_credential(args.provider, args.key_or_prefix)
+    removed = pool.remove_credential(args.provider, args.key_or_match)
     if removed == 0:
         print(
-            f"no credential matched {args.key_or_prefix!r} for {args.provider!r} "
+            f"no credential matched {args.key_or_match!r} for {args.provider!r} "
             "(or the prefix was ambiguous)",
             file=sys.stderr,
         )

@@ -179,6 +179,43 @@ def test_remove_unknown_returns_zero(pool: CredentialPool):
     assert pool.remove_credential("openai", "nope") == 0
 
 
+def test_remove_by_suffix(pool: CredentialPool):
+    """The listing shows '...XXXX' suffixes — remove must accept that
+    form so the user can act on what they see."""
+    pool.add_credential("openai", Credential(key="sk-abc-123-WXYZ"))
+    pool.add_credential("openai", Credential(key="sk-def-456-MNOP"))
+    assert pool.remove_credential("openai", "WXYZ") == 1
+    listed = pool.list_credentials("openai")["openai"]
+    assert len(listed) == 1
+    assert listed[0]["key_suffix"] == "...MNOP"
+
+
+def test_remove_by_suffix_with_listing_dots(pool: CredentialPool):
+    """The literal display form '...WXYZ' should work too."""
+    pool.add_credential("openai", Credential(key="sk-abc-WXYZ"))
+    assert pool.remove_credential("openai", "...WXYZ") == 1
+
+
+def test_remove_ambiguous_suffix_is_noop(pool: CredentialPool):
+    pool.add_credential("openai", Credential(key="aaa-WXYZ"))
+    pool.add_credential("openai", Credential(key="bbb-WXYZ"))
+    assert pool.remove_credential("openai", "WXYZ") == 0
+
+
+def test_prefix_match_preferred_over_suffix(pool: CredentialPool):
+    """When the needle matches both a prefix and a suffix on different
+    credentials, prefix wins. (Real keys are usually disambiguated by
+    suffix only — the listing prefix is '...' — but the priority order
+    must be deterministic regardless.)"""
+    pool.add_credential("openai", Credential(key="abc-thing"))
+    pool.add_credential("openai", Credential(key="other-abc"))
+    # "abc" prefix-matches "abc-thing" exactly once.
+    assert pool.remove_credential("openai", "abc") == 1
+    listed = pool.list_credentials("openai")["openai"]
+    assert len(listed) == 1
+    assert listed[0]["key_suffix"][-3:] == "abc"
+
+
 # ---- Persistence --------------------------------------------------------
 
 

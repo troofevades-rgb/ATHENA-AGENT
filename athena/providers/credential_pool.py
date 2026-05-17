@@ -180,21 +180,32 @@ class CredentialPool:
             self._save()
 
     def remove_credential(
-        self, provider_name: str, key_or_prefix: str
+        self, provider_name: str, key_or_match: str
     ) -> int:
-        """Remove credentials matching ``key_or_prefix`` (exact key OR a
-        prefix that matches exactly one credential). Returns the number
-        removed (0 or 1; ambiguous prefixes remove nothing)."""
+        """Remove credentials matching ``key_or_match``.
+
+        Match priority: exact key first, then prefix, then suffix.
+        Each step only succeeds if it matches exactly one credential
+        (ambiguous matches at any step bail). A leading ``...``
+        (the listing prefix) is stripped before matching, so the user
+        can copy the display form (``...ttWN``) verbatim. Returns the
+        number removed (0 or 1).
+        """
         with self._lock:
             bucket = self._creds.get(provider_name) or []
             if not bucket:
                 return 0
-            # Exact match first.
-            exact = [c for c in bucket if c.key == key_or_prefix]
+            needle = key_or_match.removeprefix("...")
+            # Exact match wins outright.
+            exact = [c for c in bucket if c.key == needle]
             if exact:
                 target = exact[0]
             else:
-                matches = [c for c in bucket if c.key.startswith(key_or_prefix)]
+                # Prefix match.
+                matches = [c for c in bucket if c.key.startswith(needle)]
+                if not matches:
+                    # Suffix match — supports the display form.
+                    matches = [c for c in bucket if c.key.endswith(needle)]
                 if len(matches) != 1:
                     return 0
                 target = matches[0]
