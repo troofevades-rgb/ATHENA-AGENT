@@ -621,15 +621,49 @@ class Agent:
         text = "".join(text_parts)
         # Recovery: if the model emitted tool-call JSON as content instead of
         # using the provider's native tool_calls field, parse it out and treat
-        # as tool calls. (Phase 9 will move per-provider parsing into the
-        # provider's parse_tool_calls method.)
+        # as tool calls. Phase 9 routes this through the provider's
+        # parse_tool_calls (which dispatches to the per-(provider, model)
+        # parser registry); if that returns nothing, fall back to the in-agent
+        # generic recovery for older patterns.
         if not tool_calls and text.strip():
-            residual, recovered = _extract_text_tool_calls(text)
-            if recovered:
-                tool_calls = recovered
-                text = residual
-                ui.info(f"recovered {len(recovered)} tool call(s) from content")
+            recovered_calls = self._recover_tool_calls_from_text(text)
+            if recovered_calls:
+                tool_calls = recovered_calls[0]
+                text = recovered_calls[1]
+                ui.info(f"recovered {len(tool_calls)} tool call(s) from content")
         return text, tool_calls, usage
+
+    def _recover_tool_calls_from_text(
+        self, text: str
+    ) -> tuple[list[dict[str, Any]], str] | None:
+        """Try the per-(provider, model) parser registry first; if it
+        returns no tool calls, fall through to the in-agent generic
+        recovery. Returns (canonical_tool_calls, residual_content) on hit,
+        or None if no recovery was possible.
+        """
+        try:
+            cleaned, calls = self.provider.parse_tool_calls(
+                text, {"model": self.model}
+            )
+            if calls:
+                normalized = [
+                    {
+                        "function": {
+                            "name": c.get("name", ""),
+                            "arguments": c.get("arguments", {}),
+                        },
+                        **({"id": c["id"]} if c.get("id") else {}),
+                    }
+                    for c in calls
+                ]
+                return normalized, cleaned
+        except Exception:
+            ui.info("provider parse_tool_calls raised; falling back to generic recovery")
+
+        residual, recovered = _extract_text_tool_calls(text)
+        if recovered:
+            return recovered, residual
+        return None
 
     def _handle_tool_call(self, call: dict[str, Any]) -> None:
         fn = call.get("function", {}) or {}

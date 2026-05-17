@@ -110,7 +110,17 @@ class GoogleProvider(Provider):
     def parse_tool_calls(
         self, content: str, raw_response: dict[str, Any]
     ) -> tuple[str, list[dict[str, Any]]]:
-        return content, []
+        """Delegate to the parser registry — Phase 9. Streaming already
+        extracts functionCall parts via the SSE loop; this path covers
+        non-streaming responses and any future per-model leak recovery."""
+        from .parsers import resolve_parser
+        model = ""
+        if isinstance(raw_response, dict):
+            m = raw_response.get("model")
+            if isinstance(m, str):
+                model = m
+        parser = resolve_parser(self.name, model)
+        return parser(content, raw_response)
 
     # ---- Discovery ----
 

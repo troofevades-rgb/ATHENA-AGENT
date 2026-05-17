@@ -111,11 +111,18 @@ class OllamaProvider(Provider):
     def parse_tool_calls(
         self, content: str, raw_response: dict[str, Any]
     ) -> tuple[str, list[dict[str, Any]]]:
-        """Default for now: trust Ollama's native tool_calls (extracted
-        during streaming) and return ``content`` unchanged. Phase 9's
-        per-model parser registry will plug content-leak recovery here
-        (Qwen XML tags, harmony tags, JSON code-fences) once landed."""
-        return content, []
+        """Delegate to the parser registry — Phase 9. Routes on
+        ``raw_response.model`` so qwen* models route to qwen_xml_leakage,
+        gpt-oss* models route to harmony, and the bulk of Ollama models
+        fall through to the provider-default ollama_native parser."""
+        from .parsers import resolve_parser
+        model = ""
+        if isinstance(raw_response, dict):
+            m = raw_response.get("model")
+            if isinstance(m, str):
+                model = m
+        parser = resolve_parser(self.name, model)
+        return parser(content, raw_response)
 
     # ---- Discovery ----
 

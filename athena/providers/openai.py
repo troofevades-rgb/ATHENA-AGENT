@@ -109,7 +109,18 @@ class OpenAICompatibleProvider(Provider):
     def parse_tool_calls(
         self, content: str, raw_response: dict[str, Any]
     ) -> tuple[str, list[dict[str, Any]]]:
-        return content, []
+        """Delegate to the parser registry — Phase 9. Per-model entries
+        (legacy gpt-3.5/gpt-4-0613 use function_call; everything else
+        uses tool_calls; gpt-oss-* uses harmony channels) get tried
+        first, then the provider-default."""
+        from .parsers import resolve_parser
+        model = ""
+        if isinstance(raw_response, dict):
+            m = raw_response.get("model")
+            if isinstance(m, str):
+                model = m
+        parser = resolve_parser(self.name, model)
+        return parser(content, raw_response)
 
     # ---- Discovery ----
 

@@ -109,9 +109,18 @@ class AnthropicProvider(Provider):
     def parse_tool_calls(
         self, content: str, raw_response: dict[str, Any]
     ) -> tuple[str, list[dict[str, Any]]]:
-        """Anthropic's tool_use blocks were already extracted during streaming.
-        Phase 9 will plug content-level recovery (Anthropic XML leak) here."""
-        return content, []
+        """Delegate to the parser registry — Phase 9. Routes on
+        ``raw_response.model`` if present so per-model entries (e.g.
+        Claude 4 vs Claude 3) can specialize. Falls through to the
+        anthropic ``claude-*`` parser when the model field is absent."""
+        from .parsers import resolve_parser
+        model = ""
+        if isinstance(raw_response, dict):
+            m = raw_response.get("model")
+            if isinstance(m, str):
+                model = m
+        parser = resolve_parser(self.name, model or "claude-")
+        return parser(content, raw_response)
 
     # ---- Discovery ----
 
