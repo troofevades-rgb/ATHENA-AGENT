@@ -303,3 +303,182 @@ def test_build_adapters_unknown_platform_skipped(
     })
     daemon = GatewayDaemon(cfg)
     assert cli._build_adapters(daemon, cfg) == []
+
+
+# ---- Phase 11 platform wiring ----------------------------------------
+
+
+def test_build_adapters_signal_requires_both_keys(
+    isolated_profile: Path,
+) -> None:
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "signal": {"rest_url": "http://x"},  # missing account_number
+    })
+    daemon = GatewayDaemon(cfg)
+    assert cli._build_adapters(daemon, cfg) == []
+
+
+def test_build_adapters_signal_registers(isolated_profile: Path) -> None:
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "signal": {
+            "rest_url": "http://localhost:8080",
+            "account_number": "+15555550100",
+        },
+    })
+    daemon = GatewayDaemon(cfg)
+    assert cli._build_adapters(daemon, cfg) == ["signal"]
+    assert daemon.adapters[0].name == "signal"
+
+
+def test_build_adapters_imessage_registers(isolated_profile: Path) -> None:
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "imessage": {
+            "server_url": "https://bb.example.com",
+            "password": "secret",
+        },
+    })
+    daemon = GatewayDaemon(cfg)
+    assert cli._build_adapters(daemon, cfg) == ["imessage"]
+
+
+def test_build_adapters_imessage_missing_password(
+    isolated_profile: Path,
+) -> None:
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "imessage": {"server_url": "https://x"},
+    })
+    daemon = GatewayDaemon(cfg)
+    assert cli._build_adapters(daemon, cfg) == []
+
+
+def test_build_adapters_matrix_registers(isolated_profile: Path) -> None:
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "matrix": {
+            "homeserver": "https://matrix.example.org",
+            "user_id": "@bot:example.org",
+            "access_token": "syt_TOKEN",
+            "device_id": "DEV1",
+        },
+    })
+    daemon = GatewayDaemon(cfg)
+    assert cli._build_adapters(daemon, cfg) == ["matrix"]
+
+
+def test_build_adapters_matrix_missing_user_id(
+    isolated_profile: Path,
+) -> None:
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "matrix": {
+            "homeserver": "https://matrix.example.org",
+            "access_token": "t", "device_id": "D",
+            # missing user_id
+        },
+    })
+    daemon = GatewayDaemon(cfg)
+    assert cli._build_adapters(daemon, cfg) == []
+
+
+def test_build_adapters_email_registers(isolated_profile: Path) -> None:
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "email": {
+            "imap_host": "imap.example.com",
+            "imap_user": "bot@example.com",
+            "imap_password": "pw",
+            "smtp_host": "smtp.example.com",
+            "smtp_user": "bot@example.com",
+            "smtp_password": "pw",
+            "from_address": "bot@example.com",
+        },
+    })
+    daemon = GatewayDaemon(cfg)
+    assert cli._build_adapters(daemon, cfg) == ["email"]
+
+
+def test_build_adapters_email_missing_smtp_password(
+    isolated_profile: Path,
+) -> None:
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "email": {
+            "imap_host": "i", "imap_user": "u", "imap_password": "p",
+            "smtp_host": "s", "smtp_user": "u",
+            # missing smtp_password
+            "from_address": "f@x",
+        },
+    })
+    daemon = GatewayDaemon(cfg)
+    assert cli._build_adapters(daemon, cfg) == []
+
+
+def test_build_adapters_email_accepts_allowed_senders(
+    isolated_profile: Path,
+) -> None:
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "email": {
+            "imap_host": "i", "imap_user": "u", "imap_password": "p",
+            "smtp_host": "s", "smtp_user": "u", "smtp_password": "p",
+            "from_address": "f@x",
+            "allowed_senders": ["alice@x", "bob@x"],
+        },
+    })
+    daemon = GatewayDaemon(cfg)
+    assert cli._build_adapters(daemon, cfg) == ["email"]
+    adapter = daemon.adapters[0]
+    assert adapter.allowed_senders == {"alice@x", "bob@x"}
+
+
+def test_build_adapters_seven_platforms_together(
+    isolated_profile: Path,
+) -> None:
+    """Smoke test the full menu wires up in one daemon."""
+    from athena.gateway.daemon import GatewayDaemon
+
+    cfg = Config(profile="t")
+    cfg.gateway = GatewayConfig(platforms={
+        "telegram": {"bot_token": "t1"},
+        "slack": {"bot_token": "xoxb-x", "app_token": "xapp-x"},
+        "discord": {"bot_token": "d"},
+        "signal": {"rest_url": "http://x", "account_number": "+1"},
+        "imessage": {"server_url": "http://x", "password": "p"},
+        "matrix": {
+            "homeserver": "https://x", "user_id": "@b:x",
+            "access_token": "t", "device_id": "D",
+        },
+        "email": {
+            "imap_host": "i", "imap_user": "u", "imap_password": "p",
+            "smtp_host": "s", "smtp_user": "u", "smtp_password": "p",
+            "from_address": "f@x",
+        },
+    })
+    daemon = GatewayDaemon(cfg)
+    registered = cli._build_adapters(daemon, cfg)
+    assert set(registered) == {
+        "telegram", "slack", "discord",
+        "signal", "imessage", "matrix", "email",
+    }

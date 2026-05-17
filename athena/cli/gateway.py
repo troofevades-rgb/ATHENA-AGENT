@@ -26,6 +26,7 @@ import json
 import logging
 import signal
 import sys
+from pathlib import Path
 from typing import Any
 
 from ..config import Config, load_config, profile_dir
@@ -105,6 +106,84 @@ def _instantiate_adapter(
         if not token:
             raise ValueError("discord requires bot_token")
         return DiscordAdapter(daemon, bot_token=token)
+    if name == "signal":
+        from ..gateway.platforms.signal import SignalAdapter
+
+        rest_url = settings.get("rest_url")
+        account = settings.get("account_number")
+        if not rest_url or not account:
+            raise ValueError(
+                "signal requires rest_url and account_number",
+            )
+        return SignalAdapter(
+            daemon, rest_url=rest_url, account_number=account,
+        )
+    if name == "imessage":
+        from ..gateway.platforms.imessage import IMessageAdapter
+
+        server = settings.get("server_url")
+        password = settings.get("password")
+        if not server or not password:
+            raise ValueError(
+                "imessage requires server_url and password",
+            )
+        return IMessageAdapter(
+            daemon, server_url=server, password=password,
+        )
+    if name == "matrix":
+        from ..gateway.platforms.matrix import MatrixAdapter
+
+        homeserver = settings.get("homeserver")
+        user_id = settings.get("user_id")
+        access_token = settings.get("access_token")
+        device_id = settings.get("device_id")
+        missing = [
+            k for k, v in {
+                "homeserver": homeserver, "user_id": user_id,
+                "access_token": access_token, "device_id": device_id,
+            }.items() if not v
+        ]
+        if missing:
+            raise ValueError(
+                f"matrix requires {', '.join(missing)}",
+            )
+        store_path_raw = settings.get("store_path")
+        store_path = Path(store_path_raw).expanduser() if store_path_raw else None
+        return MatrixAdapter(
+            daemon,
+            homeserver=homeserver,
+            user_id=user_id,
+            access_token=access_token,
+            device_id=device_id,
+            store_path=store_path,
+        )
+    if name == "email":
+        from ..gateway.platforms.email import EmailAdapter
+
+        required = (
+            "imap_host", "imap_user", "imap_password",
+            "smtp_host", "smtp_user", "smtp_password",
+            "from_address",
+        )
+        missing = [k for k in required if not settings.get(k)]
+        if missing:
+            raise ValueError(
+                f"email requires {', '.join(missing)}",
+            )
+        return EmailAdapter(
+            daemon,
+            imap_host=settings["imap_host"],
+            imap_user=settings["imap_user"],
+            imap_password=settings["imap_password"],
+            smtp_host=settings["smtp_host"],
+            smtp_user=settings["smtp_user"],
+            smtp_password=settings["smtp_password"],
+            from_address=settings["from_address"],
+            imap_port=int(settings.get("imap_port", 993)),
+            smtp_port=int(settings.get("smtp_port", 587)),
+            subject_prefix=settings.get("subject_prefix", "[athena] "),
+            allowed_senders=settings.get("allowed_senders"),
+        )
     raise ValueError(f"unknown platform: {name!r}")
 
 
