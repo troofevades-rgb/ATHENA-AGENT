@@ -14,6 +14,27 @@
   `ATHENA_*`.
 
 ### Added
+- `GatewayDaemon` — single asyncio-based daemon hosting platform adapters, exposing the agent to messaging platforms. Owns the session router, agent pool, approval router, and continuity manager. ``athena gateway run`` boots it in foreground. (Phase 10)
+- `GatewayAdapter` base class with Hermes-faithful reliability primitives: `_active_sessions: dict[asyncio.Event]` guards + `_session_tasks: dict[asyncio.Task]` owner map, race-free guard install before `create_task`, stale-lock self-heal via `task.done()` (Hermes issue #11016), single `_pending_messages` slot with text-merging (issue #4469), interrupt-on-text vs queue-on-photo policy, bypass-command routing (`/stop|/new|/reset|/approve|/deny|/status|/restart`), command-scoped guard handoff preserving response ordering (Hermes PR #4926). (Phase 10)
+- `SessionRouter` — SQLite-backed `gateway_routes` table at `<profile>/gateway.db`. Sticky `(platform, chat_id, user_id) → session_id` routing; routes persist across daemon restarts; `last_seen_at` bumps on every reuse. (Phase 10)
+- `AgentPool` — async bounded LRU cache of warm Agents. Per-session instantiation locks ensure concurrent `get()` for the same id share one factory invocation; concurrent gets for different ids run in parallel. Eviction calls `Agent.close()`. (Phase 10)
+- `ApprovalRouter` — async + sync bridge for dangerous-tool approvals. `request_async` (loop side) returns the user's decision via `asyncio.Future`; `request_sync` (agent worker thread side) submits via `run_coroutine_threadsafe` and blocks on `concurrent.futures.Future`. Per-platform renderer dispatch via `register_platform_renderer(platform, renderer)`. 300s default timeout with `"deny"` as safe fallback. `cancel_all` unblocks every waiter on shutdown. (Phase 10)
+- `ContinuityManager` — bulk cross-platform user linking. `link_canonical(canonical_id, {platform: pid, ...})` is atomic; `unlink_canonical` drops all bindings for a user. Routing path uses these so a Telegram + Slack pair linked to the same canonical user lands on one session. (Phase 10)
+- `TelegramAdapter` (aiogram>=3) — long-polling, inline-keyboard approval buttons, eager attachment download to `<profile>/gateway_attachments/telegram/<chat>/`, Markdown body rendering. (Phase 10)
+- `SlackAdapter` (slack-sdk>=3.27 Socket Mode) — no public HTTPS endpoint required, Block Kit primary/danger approval buttons, bot-self filtering via `auth.test`-discovered `_bot_user_id`, file download via httpx with the bot token in Authorization. (Phase 10)
+- `DiscordAdapter` (discord.py>=2.4) — `discord.ui.View` approval buttons (callbacks bound to methods, not opaque strings), `Intents.message_content` enabled, `/athena` slash command via `app_commands.CommandTree`, `channel.typing()` for indicators. (Phase 10)
+- Gateway agent factory (`build_agent_factory`) — pool factory that constructs an Agent bound to the daemon's shared SessionStore, replays the session's JSONL into `Agent.messages`, returns warm. (Phase 10)
+- `Agent.resume_session_id` constructor kwarg + `Agent.load_history_from_session(session_id)` method for gateway resume. (Phase 10)
+- `_process_message_background` impl — pool warm, typing-heartbeat task, gateway-bridge approval callback installed via ContextVar (copied into the worker thread by `asyncio.to_thread`), `agent.run_until_done` on the worker, final response chunked on paragraph/sentence/word boundaries and sent back, pending drain into a fresh task. (Phase 10)
+- In-process `gateway.registry` — keyed by profile, populated on `daemon.start`. Used by cron's gateway-delivery path to find the daemon without IPC. (Phase 10)
+- `athena gateway {run, routes, link, unlink, canonical-users}` CLI subcommands. (Phase 10)
+- `[gateway]` optional dependencies group (aiogram, slack-sdk, discord.py) so headless installs don't pull SDKs. (Phase 10)
+- `GatewayConfig` — `max_warm_agents` (50 default), `continuity` (off default), `platforms` per-adapter credentials dict. (Phase 10)
+
+### Changed
+- `cron.delivery` — `gateway://<platform>/<chat_id>` delivery target now dispatches through the running `GatewayDaemon`'s adapter via the in-process registry. Falls back to log on missing daemon / missing adapter / loop not running. (Phase 10)
+
+### Added
 - Per-(provider, model_glob) tool-call parser registry under `athena/providers/parsers/` — first-match-wins with `register()` and provider-default fallthrough via `register_default()`; `resolve_parser(provider, model)` returns the function `Provider.parse_tool_calls` delegates to (Phase 9)
 - Native-format parsers: `anthropic_xml` (content-block array → text + tool_use), `openai_function` (legacy `function_call` for gpt-3.5*/gpt-4-0613), `openai_tools` (current `tool_calls` for gpt-4*/4o/o1/o3/o4 and every OpenAI-compatible service), `ollama_native` (provider-default for Ollama) (Phase 9)
 - Content-leak recovery parsers: `qwen_xml_leakage` (`<tool_call>{...}</tool_call>` XML), `harmony` (GPT-OSS three-channel analysis/commentary/final), `code_fenced_json` (` ```json ``` ` blocks), `json_block` (whole-content bare JSON) — model-specific globs route Qwen and GPT-OSS variants to the right parser regardless of host provider (Phase 9)
