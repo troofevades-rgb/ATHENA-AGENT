@@ -82,3 +82,6 @@ from . import ollama as _ollama  # noqa: E402,F401
 from . import anthropic as _anthropic  # noqa: E402,F401
 from . import openai as _openai  # noqa: E402,F401
 from . import google as _google  # noqa: E402,F401
+from . import openai_compat as _openai_compat  # noqa: E402,F401
+from . import openrouter as _openrouter  # noqa: E402,F401
+from . import nous as _nous  # noqa: E402,F401
