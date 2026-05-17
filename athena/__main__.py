@@ -210,6 +210,7 @@ _SUBCOMMANDS = {
     "train": "athena.cli.train",
     "providers": "athena.cli.providers",
     "gateway": "athena.cli.gateway",
+    "mcp": "athena.cli.mcp",
 }
 
 
