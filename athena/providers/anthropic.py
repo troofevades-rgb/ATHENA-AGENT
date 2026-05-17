@@ -113,6 +113,25 @@ class AnthropicProvider(Provider):
         Phase 9 will plug content-level recovery (Anthropic XML leak) here."""
         return content, []
 
+    # ---- Discovery ----
+
+    def list_models(self) -> list[str]:
+        """Return every model id the API key has access to.
+
+        Anthropic exposes ``GET /v1/models`` returning
+        ``{"data": [{"id": ..., "type": "model", ...}], "has_more": bool}``.
+        We request a high limit (1000 is the documented max) and ignore
+        ``has_more`` since real key catalogs are well under that.
+        """
+        r = self._client.get("/models", params={"limit": 1000})
+        r.raise_for_status()
+        data = r.json() or {}
+        items = data.get("data") or []
+        return [
+            item["id"] for item in items
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        ]
+
     # ---- Lifecycle ----
 
     def close(self) -> None:

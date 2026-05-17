@@ -112,6 +112,28 @@ class GoogleProvider(Provider):
     ) -> tuple[str, list[dict[str, Any]]]:
         return content, []
 
+    # ---- Discovery ----
+
+    def list_models(self) -> list[str]:
+        """``GET /v1beta/models`` returns
+        ``{"models":[{"name":"models/<id>", "supportedGenerationMethods":[...]}]}``.
+        We strip the ``models/`` prefix so the returned strings are the
+        same form callers pass to ``stream_chat``.
+        """
+        r = self._client.get("/models", params={"pageSize": 1000})
+        r.raise_for_status()
+        data = r.json() or {}
+        items = data.get("models") or []
+        out: list[str] = []
+        for m in items:
+            if not isinstance(m, dict):
+                continue
+            raw_name = m.get("name")
+            if not isinstance(raw_name, str):
+                continue
+            out.append(raw_name.removeprefix("models/"))
+        return out
+
     def close(self) -> None:
         try:
             self._client.close()

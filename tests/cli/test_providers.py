@@ -194,3 +194,92 @@ def test_test_openai_compat_needs_host(pool_path: Path):
     ])
     assert rc == 1
     assert "not configured" in stdout.lower() or "FAIL" in stdout
+
+
+# ---- models -------------------------------------------------------------
+
+
+def test_models_unknown_provider_errors(pool_path: Path):
+    rc, _, err = _run([
+        "--pool-path", str(pool_path), "models", "definitely-fake-provider",
+    ])
+    assert rc == 2
+    assert "not registered" in err
+
+
+def test_models_no_credential_for_hosted(pool_path: Path):
+    """Hosted provider with no key in the pool can't build the provider."""
+    rc, _, err = _run([
+        "--pool-path", str(pool_path), "models", "anthropic",
+    ])
+    assert rc == 2
+    assert "no credentials available" in err.lower() or "could not build" in err
+
+
+def test_models_lists_what_provider_returns(monkeypatch, pool_path: Path):
+    """When the resolver hands us a Provider with a working list_models,
+    the CLI prints every id sorted, one per line."""
+    captured: list[str] = []
+
+    class _StubAnthropic:
+        def __init__(self, **_):
+            pass
+        def list_models(self):
+            return ["claude-haiku-4-5-20251001", "claude-sonnet-4-7", "claude-opus-4-7"]
+        def close(self):
+            pass
+
+    # Replace the registry's anthropic entry so the resolver hands the
+    # stub back, AND seed a credential so the resolver doesn't bail.
+    from athena.providers import _REGISTRY
+    monkeypatch.setitem(_REGISTRY, "anthropic", _StubAnthropic)
+    from athena.providers.credential_pool import CredentialPool, Credential
+    CredentialPool(pool_path).add_credential("anthropic", Credential(key="sk-test"))
+
+    rc, stdout, _ = _run([
+        "--pool-path", str(pool_path), "models", "anthropic",
+    ])
+    assert rc == 0
+    # Sorted by name; sonnet < opus alphabetically — verify they show.
+    assert "claude-haiku-4-5-20251001" in stdout
+    assert "claude-sonnet-4-7" in stdout
+    assert "claude-opus-4-7" in stdout
+
+
+def test_models_limit_truncates(monkeypatch, pool_path: Path):
+    class _Stub:
+        def __init__(self, **_): pass
+        def list_models(self):
+            return [f"model-{i}" for i in range(50)]
+        def close(self): pass
+
+    from athena.providers import _REGISTRY
+    monkeypatch.setitem(_REGISTRY, "anthropic", _Stub)
+    from athena.providers.credential_pool import CredentialPool, Credential
+    CredentialPool(pool_path).add_credential("anthropic", Credential(key="k"))
+
+    rc, stdout, _ = _run([
+        "--pool-path", str(pool_path), "models", "anthropic", "--limit", "3",
+    ])
+    assert rc == 0
+    listed = [line.strip() for line in stdout.splitlines() if line.strip()]
+    assert len(listed) == 3
+
+
+def test_models_propagates_provider_error(monkeypatch, pool_path: Path):
+    class _Broken:
+        def __init__(self, **_): pass
+        def list_models(self):
+            raise RuntimeError("simulated 401")
+        def close(self): pass
+
+    from athena.providers import _REGISTRY
+    monkeypatch.setitem(_REGISTRY, "anthropic", _Broken)
+    from athena.providers.credential_pool import CredentialPool, Credential
+    CredentialPool(pool_path).add_credential("anthropic", Credential(key="k"))
+
+    rc, _, err = _run([
+        "--pool-path", str(pool_path), "models", "anthropic",
+    ])
+    assert rc == 1
+    assert "list_models failed" in err

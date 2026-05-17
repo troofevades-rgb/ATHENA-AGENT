@@ -138,6 +138,53 @@ def test_authorization_header_set():
         p.close()
 
 
+def test_list_models_returns_ids(provider):
+    """OpenAI's /v1/models returns {object:"list", data:[{id,...}]}."""
+    with respx.mock() as m:
+        m.get("https://api.openai.test/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "object": "list",
+                "data": [
+                    {"id": "gpt-4o", "object": "model"},
+                    {"id": "gpt-4o-mini", "object": "model"},
+                    {"id": "o1", "object": "model"},
+                ],
+            })
+        )
+        names = provider.list_models()
+    assert "gpt-4o-mini" in names
+    assert len(names) == 3
+
+
+def test_list_models_inherited_by_subclasses():
+    """OpenRouter / Nous / openai_compat get list_models() for free."""
+    from athena.providers.openrouter import OpenRouterProvider
+    p = OpenRouterProvider(api_key="sk-or-test")
+    try:
+        with respx.mock() as m:
+            m.get("https://openrouter.ai/api/v1/models").mock(
+                return_value=httpx.Response(200, json={
+                    "data": [
+                        {"id": "anthropic/claude-3-5-sonnet"},
+                        {"id": "openai/gpt-4o"},
+                    ],
+                })
+            )
+            names = p.list_models()
+        assert names == ["anthropic/claude-3-5-sonnet", "openai/gpt-4o"]
+    finally:
+        p.close()
+
+
+def test_list_models_propagates_error(provider):
+    with respx.mock() as m:
+        m.get("https://api.openai.test/v1/models").mock(
+            return_value=httpx.Response(401, json={"error": {"message": "bad key"}})
+        )
+        with pytest.raises(httpx.HTTPStatusError):
+            provider.list_models()
+
+
 def test_429_propagates(provider):
     with respx.mock() as m:
         m.post("https://api.openai.test/v1/chat/completions").mock(

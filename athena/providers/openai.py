@@ -111,6 +111,22 @@ class OpenAICompatibleProvider(Provider):
     ) -> tuple[str, list[dict[str, Any]]]:
         return content, []
 
+    # ---- Discovery ----
+
+    def list_models(self) -> list[str]:
+        """``GET /v1/models`` per OpenAI's spec — returns
+        ``{"object":"list","data":[{"id":..., ...}, ...]}``. Inherited
+        by every OpenAI-compatible subclass (OpenAI, openai_compat,
+        OpenRouter, Nous); their endpoints all return the same shape."""
+        r = self._client.get("/models")
+        r.raise_for_status()
+        data = r.json() or {}
+        items = data.get("data") or []
+        return [
+            item["id"] for item in items
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        ]
+
     def close(self) -> None:
         try:
             self._client.close()
