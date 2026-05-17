@@ -193,6 +193,12 @@ class Agent:
         self._owns_client = passed is None
         self.messages: list[dict[str, Any]] = []
         self.stats = Stats()
+        # Set by external callers (currently: ACP session/cancel) to
+        # abort the current turn at the next tool-call boundary.
+        # Checked between tool rounds and cleared at the start of
+        # every new run_turn so a stale True from a prior turn doesn't
+        # immediately abort.
+        self.cancel_pending: bool = False
         # Cache for Modelfile SYSTEM keyed by model name; avoids re-fetching
         # on every /clear or /resume. Invalidated implicitly by /model switching
         # to an unseen model name.
@@ -464,6 +470,9 @@ class Agent:
                 _current_agent.reset(token)
 
     def _run_turn_inner(self, user_input: str) -> None:
+        # Clear any stale cancel flag so a True left from a previous
+        # turn doesn't immediately abort this one.
+        self.cancel_pending = False
         # UserPromptSubmit hook — can cancel the turn
         allow, msg = hooks.fire("UserPromptSubmit", payload={"prompt": user_input})
         if not allow:
@@ -485,6 +494,17 @@ class Agent:
         # Loop until the model produces a final assistant message with no tool calls.
         max_steps = max(1, int(self.cfg.max_turn_steps))
         for step in range(max_steps):
+            # External cancel check (ACP session/cancel sets this).
+            # Honored between tool rounds — the in-flight stream
+            # itself completes naturally, but no further rounds spawn.
+            if self.cancel_pending:
+                ui.info("turn cancelled by external request")
+                self.messages.append({
+                    "role": "user",
+                    "content": "[turn cancelled by the user]",
+                })
+                self._fire_stop("cancelled")
+                return
             assistant_text, tool_calls, raw_done = self._stream_one()
             interrupted = bool(raw_done and raw_done.get("_interrupted"))
 
