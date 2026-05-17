@@ -207,3 +207,123 @@ def test_base_url_override_passed_through(filled_pool: CredentialPool):
     p, _ = resolve_provider("anthropic/claude", cfg, filled_pool)
     assert p.base_url == "https://eu.anthropic.test/v1"
     p.close()
+
+
+# ---- Fallback chain -----------------------------------------------------
+
+
+def test_fallback_walks_when_primary_has_no_credential(empty_pool: CredentialPool):
+    """anthropic primary has no key; fall back to openrouter which does."""
+    empty_pool.add_credential("openrouter", Credential(key="sk-or-fallback"))
+    cfg = Config(providers={
+        "anthropic": {"fallback": ["openrouter"]},
+    })
+    p, bare = resolve_provider("anthropic/claude-opus-4-7", cfg, empty_pool)
+    # Provider class is OpenRouter's (the fallback), not Anthropic's.
+    assert p.name == "openrouter"
+    # Original model string passes through — OpenRouter takes vendor/model.
+    assert bare == "anthropic/claude-opus-4-7"
+    assert p.api_key == "sk-or-fallback"
+    p.close()
+
+
+def test_fallback_chain_walks_in_order(empty_pool: CredentialPool):
+    """First fallback also empty; resolver walks to the second."""
+    empty_pool.add_credential("openrouter", Credential(key="key-or"))
+    cfg = Config(providers={
+        "anthropic": {"fallback": ["openai", "openrouter"]},
+    })
+    p, _ = resolve_provider("anthropic/claude", cfg, empty_pool)
+    assert p.name == "openrouter"
+    p.close()
+
+
+def test_fallback_with_model_override(empty_pool: CredentialPool):
+    """A {provider, model} dict entry lets the user remap the model string
+    for the fallback (useful when falling back to ollama, where the
+    original vendor/model form isn't valid)."""
+    cfg = Config(
+        ollama_host="http://localhost:11434",
+        providers={
+            "anthropic": {"fallback": [
+                {"provider": "ollama", "model": "qwen2.5-coder:14b"},
+            ]},
+        },
+    )
+    p, bare = resolve_provider("anthropic/claude", cfg, empty_pool)
+    assert isinstance(p, OllamaProvider)
+    assert bare == "qwen2.5-coder:14b"
+    p.close()
+
+
+def test_fallback_exhausted_raises_helpful_error(empty_pool: CredentialPool):
+    """No credential anywhere in the chain — final error names every
+    provider attempted."""
+    cfg = Config(providers={
+        "anthropic": {"fallback": ["openai", "openrouter"]},
+    })
+    with pytest.raises(RuntimeError) as excinfo:
+        resolve_provider("anthropic/claude", cfg, empty_pool)
+    msg = str(excinfo.value)
+    assert "anthropic" in msg
+    # Every attempt name appears in the error so the user can correct.
+    for name in ("anthropic", "openai", "openrouter"):
+        assert name in msg
+
+
+def test_fallback_skipped_when_primary_has_credential(filled_pool: CredentialPool):
+    """Don't fall back when the primary works — even if a fallback is
+    configured, the primary is the right answer."""
+    cfg = Config(providers={
+        "anthropic": {"fallback": ["openrouter"]},
+    })
+    p, _ = resolve_provider("anthropic/claude-opus-4-7", cfg, filled_pool)
+    assert p.name == "anthropic"
+    p.close()
+
+
+def test_fallback_does_not_swallow_config_errors(empty_pool: CredentialPool):
+    """openai_compat missing host is a config error, not credential
+    unavailability. It must NOT trigger fallback — the user typo'd."""
+    cfg = Config(providers={
+        # Route this model to openai_compat but don't configure host.
+        "routing": {"my-model": "openai_compat"},
+        # Even with a fallback configured, missing-host should raise.
+        "openai_compat": {"fallback": ["openrouter"]},
+    })
+    empty_pool.add_credential("openrouter", Credential(key="k"))
+    with pytest.raises(RuntimeError, match="openai_compat"):
+        resolve_provider("my-model", cfg, empty_pool)
+
+
+def test_fallback_chain_malformed_entry_skipped(empty_pool: CredentialPool, caplog):
+    """A typo'd entry (None, int, missing 'provider' key) is skipped with
+    a logged warning. The rest of the chain still works."""
+    empty_pool.add_credential("openrouter", Credential(key="k"))
+    cfg = Config(providers={
+        "anthropic": {"fallback": [
+            None,                              # not a string or dict
+            {"not_provider": "openrouter"},    # missing 'provider' key
+            "openrouter",                      # valid; should be reached
+        ]},
+    })
+    import logging
+    with caplog.at_level(logging.WARNING):
+        p, _ = resolve_provider("anthropic/claude", cfg, empty_pool)
+    assert p.name == "openrouter"
+    p.close()
+
+
+def test_fallback_when_all_credentials_in_cooldown(tmp_path):
+    """The pool.get None path covers both 'no credential' and 'all in
+    cooldown' — both should trigger fallback walking."""
+    from athena.providers.credential_pool import CredentialPool, Credential
+    p = CredentialPool(tmp_path / "c.json", cooldown_seconds=600)
+    p.add_credential("anthropic", Credential(key="k1"))
+    p.add_credential("openrouter", Credential(key="or-key"))
+    p.mark_429("anthropic", "k1")  # primary in cooldown
+
+    cfg = Config(providers={"anthropic": {"fallback": ["openrouter"]}})
+    provider, _ = resolve_provider("anthropic/claude", cfg, p)
+    assert provider.name == "openrouter"
+    provider.close()

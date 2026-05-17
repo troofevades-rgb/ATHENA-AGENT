@@ -13,23 +13,29 @@ Routing priority:
    parses as a host with a port).
 4. Anything else                → ollama (default; local-first posture).
 
-Once the provider name is decided, the resolver:
-
-- For ``ollama``: pulls the host from ``cfg.providers.ollama.host`` or
-  falls back to the legacy top-level ``cfg.ollama_host``.
-- For ``openai_compat``: requires ``cfg.providers.openai_compat.host``
-  to be set; raises a clear error otherwise. API key is optional
-  (local servers).
-- For everything hosted: pulls an API key from the credential pool.
-  If no credential is available and the provider requires one, raises
-  a helpful error mentioning ``athena providers add-key``.
+Once the primary provider name is decided, the resolver attempts to
+construct it. If the primary has no credential available (a hosted
+provider with an empty bucket OR every credential in 429 cooldown),
+the resolver walks the configured fallback chain
+``cfg.providers.<primary>.fallback = [...]`` in order, trying each
+listed provider with the ORIGINAL model string. OpenRouter accepts
+``vendor/model`` verbatim, so falling back from anthropic to
+openrouter "just works"; the chain entry can also be a per-fallback
+``{provider, model}`` dict for cases where the model string needs to
+change too (e.g., falling back to ollama with a local model name).
 
 The bare model name returned to the caller is the model with its
 routing prefix stripped — except for ``openrouter``, where the
 ``vendor/model`` form is what OpenRouter actually expects on the wire.
+
+Errors that aren't credential-related (missing openai_compat host,
+unknown provider name) bubble up immediately — fallback is only for
+credential exhaustion. The final error after every chain entry is
+exhausted lists the providers attempted so the user can correct.
 """
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from . import get_provider_class
@@ -38,6 +44,9 @@ from .credential_pool import CredentialPool
 
 if TYPE_CHECKING:
     from ..config import Config
+
+
+logger = logging.getLogger(__name__)
 
 
 _PREFIX_TO_PROVIDER: dict[str, str] = {
@@ -53,6 +62,14 @@ _PREFIX_TO_PROVIDER: dict[str, str] = {
 _STRIP_PREFIX_FOR: frozenset[str] = frozenset({
     "anthropic", "openai", "google", "nous",
 })
+
+
+class _CredentialUnavailable(RuntimeError):
+    """Internal sentinel — raised by ``_build_provider`` when a hosted
+    provider has no available credential. The resolver catches this to
+    walk the fallback chain; bare ``RuntimeError`` (config errors,
+    missing host, etc.) is NOT caught and bubbles up to the user.
+    """
 
 
 def _route(model: str, cfg: "Config") -> str:
@@ -93,18 +110,16 @@ def _bare_model(provider_name: str, model: str) -> str:
     return model
 
 
-def resolve_provider(
-    model: str, cfg: "Config", pool: CredentialPool
+def _build_provider(
+    name: str, model: str, cfg: "Config", pool: CredentialPool
 ) -> tuple[Provider, str]:
-    """Return a ``(Provider, bare_model)`` for ``model``.
+    """Construct the provider class registered under ``name`` for ``model``.
 
-    Raises :class:`RuntimeError` with a user-readable message when the
-    routing decision can't be honored (missing host for openai_compat,
-    no credentials for a key-requiring provider, etc.). Callers catch
-    that and either fall through to a configured fallback chain or
-    surface the error to the user.
+    Raises :class:`_CredentialUnavailable` (a RuntimeError subclass) when
+    a hosted provider has no available credential — the resolver catches
+    this to walk the fallback chain. Other ``RuntimeError`` (missing
+    config, unknown provider) bubble up.
     """
-    name = _route(model, cfg)
     bare = _bare_model(name, model)
     cls = get_provider_class(name)
     provider_cfg = (cfg.providers or {}).get(name, {}) or {}
@@ -129,15 +144,77 @@ def resolve_provider(
     # Hosted providers: anthropic / openai / google / openrouter / nous.
     cred = pool.get(name)
     if cred is None and getattr(cls, "requires_api_key", True):
-        raise RuntimeError(
-            f"no credentials available for provider {name!r}. "
-            f"Add one with:\n\n"
-            f"    athena providers add-key {name} <your-api-key>\n"
+        raise _CredentialUnavailable(
+            f"no credentials available for provider {name!r}"
         )
     api_key = cred.key if cred is not None else None
     kwargs: dict = {"api_key": api_key}
-    # Allow overriding base_url per-provider in config (useful for
-    # staging endpoints, proxies, EU regions for OpenAI/Anthropic).
     if "base_url" in provider_cfg:
         kwargs["base_url"] = provider_cfg["base_url"]
     return cls(**kwargs), bare
+
+
+def _fallback_chain(
+    primary: str, cfg: "Config"
+) -> list[tuple[str, str | None]]:
+    """Parse the fallback config for ``primary`` into a list of
+    ``(provider_name, model_override)`` pairs.
+
+    Two accepted shapes per entry:
+
+    - ``"openrouter"`` — string. Reuses the original model string.
+    - ``{"provider": "ollama", "model": "qwen2.5-coder:14b"}`` — dict.
+      Lets the user remap the model string when the fallback provider
+      can't address the primary's model directly.
+
+    Unknown / malformed entries are dropped with a logged warning so a
+    typo in one entry doesn't disable the whole chain.
+    """
+    raw = (cfg.providers or {}).get(primary, {}).get("fallback") or []
+    if not isinstance(raw, list):
+        return []
+    out: list[tuple[str, str | None]] = []
+    for entry in raw:
+        if isinstance(entry, str) and entry:
+            out.append((entry, None))
+        elif isinstance(entry, dict) and isinstance(entry.get("provider"), str):
+            out.append((entry["provider"], entry.get("model")))
+        else:
+            logger.warning(
+                "providers.%s.fallback: unexpected entry %r — skipping",
+                primary, entry,
+            )
+    return out
+
+
+def resolve_provider(
+    model: str, cfg: "Config", pool: CredentialPool
+) -> tuple[Provider, str]:
+    """Return a ``(Provider, bare_model)`` for ``model``.
+
+    Walks the fallback chain when the primary's credentials are
+    unavailable. The final ``RuntimeError`` on full exhaustion names
+    every provider that was attempted.
+    """
+    primary = _route(model, cfg)
+    attempts: list[tuple[str, str | None]] = [(primary, None)]
+    attempts.extend(_fallback_chain(primary, cfg))
+
+    tried: list[str] = []
+    for name, model_override in attempts:
+        effective_model = model_override if model_override is not None else model
+        try:
+            return _build_provider(name, effective_model, cfg, pool)
+        except _CredentialUnavailable:
+            tried.append(name)
+            continue
+        # Anything else: bubble up.
+
+    # Every attempt exhausted on credentials.
+    chain_str = " → ".join(tried)
+    raise RuntimeError(
+        f"no credentials available for provider {primary!r} "
+        f"(also tried: {chain_str if len(tried) > 1 else 'no fallback configured'}). "
+        f"Add one with:\n\n"
+        f"    athena providers add-key {primary} <your-api-key>\n"
+    )
