@@ -15,7 +15,9 @@ from ..config import Config, profile_dir as _profile_dir
 from ..plugins.hooks import HookDispatcher
 from ..prompts import build_system_prompt
 from ..providers import Provider
+from ..providers.credential_pool import global_pool as _global_pool
 from ..providers.ollama import OllamaProvider
+from ..providers.runtime_resolver import resolve_provider
 from ..sessions.store import SessionMeta, SessionStore, new_session_id
 
 
@@ -177,9 +179,15 @@ class Agent:
         # transitional release — existing call sites and tests that pass
         # ``client=`` keep working unchanged.
         passed = provider if provider is not None else client
-        self.provider: Provider = (
-            passed if passed is not None else OllamaProvider(cfg.ollama_host)
-        )
+        if passed is not None:
+            self.provider: Provider = passed
+        else:
+            # Route through the resolver. It returns the matching Provider
+            # AND the bare model name (with any routing prefix stripped),
+            # so ``self.model`` carries the on-the-wire name from here on.
+            self.provider, self.model = resolve_provider(
+                self.model, cfg, _global_pool(),
+            )
         self.client = self.provider  # back-compat alias
         self._owns_client = passed is None
         self.messages: list[dict[str, Any]] = []

@@ -120,6 +120,12 @@ class Config:
     # override map maintained by ``athena plugins enable|disable``. Per-plugin
     # config slices live under ``plugins[<plugin_name>]``.
     plugins: dict[str, Any] = field(default_factory=dict)
+    # Provider configuration (Phase 8). Sub-keys:
+    #   providers.routing     {model_name: provider_name} explicit overrides
+    #   providers.<name>.host base URL for ollama / openai_compat
+    #   providers.<name>.fallback  ordered list of provider names to try
+    #                              when the primary's credentials are exhausted
+    providers: dict[str, Any] = field(default_factory=dict)
 
 
 def load_config() -> Config:

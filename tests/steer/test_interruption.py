@@ -80,7 +80,9 @@ def test_agent_pops_steer_before_user_prompt(monkeypatch: pytest.MonkeyPatch, tm
         def close(self): pass
 
     import athena.agent.core as core_mod
-    monkeypatch.setattr(core_mod, "OllamaProvider", _NullClient)
+    from athena.providers import _REGISTRY
+    monkeypatch.setattr(core_mod, "OllamaProvider", _NullClient, raising=False)
+    monkeypatch.setitem(_REGISTRY, "ollama", _NullClient)
 
     # Isolate ~/.athena so SessionStore writes go to tmp_path:
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -122,7 +124,9 @@ def test_agent_handles_empty_queue_silently(monkeypatch: pytest.MonkeyPatch, tmp
         def close(self): pass
 
     import athena.agent.core as core_mod
-    monkeypatch.setattr(core_mod, "OllamaProvider", _NullClient)
+    from athena.providers import _REGISTRY
+    monkeypatch.setattr(core_mod, "OllamaProvider", _NullClient, raising=False)
+    monkeypatch.setitem(_REGISTRY, "ollama", _NullClient)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))

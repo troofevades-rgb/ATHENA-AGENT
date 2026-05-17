@@ -88,11 +88,23 @@ class FakeClient:
 
 
 @pytest.fixture
-def fake_client(monkeypatch: pytest.MonkeyPatch) -> type[FakeClient]:
+def fake_client(monkeypatch: pytest.MonkeyPatch):
+    """Replace the registry's ``ollama`` entry with FakeClient for the
+    duration of the test, so the resolver hands FakeClient back when
+    the agent (or a fork) constructs its provider."""
     FakeClient.instances = []
-    monkeypatch.setattr(core_mod, "OllamaProvider", FakeClient)
-    monkeypatch.setattr(aux_mod, "OllamaProvider", FakeClient)
-    return FakeClient
+    from athena.providers import _REGISTRY
+    saved = _REGISTRY.get("ollama")
+    _REGISTRY["ollama"] = FakeClient
+    # Also poison the module-level OllamaProvider symbols so any code
+    # that bypassed the resolver and reached for them still gets a fake.
+    monkeypatch.setattr(core_mod, "OllamaProvider", FakeClient, raising=False)
+    monkeypatch.setattr(aux_mod, "OllamaProvider", FakeClient, raising=False)
+    yield FakeClient
+    if saved is not None:
+        _REGISTRY["ollama"] = saved
+    else:
+        _REGISTRY.pop("ollama", None)
 
 
 @pytest.fixture

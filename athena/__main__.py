@@ -208,6 +208,7 @@ _SUBCOMMANDS = {
     "cron": "athena.cli.cron",
     "model": "athena.cli.model",
     "train": "athena.cli.train",
+    "providers": "athena.cli.providers",
 }
 
 
