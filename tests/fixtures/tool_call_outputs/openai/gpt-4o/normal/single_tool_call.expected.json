@@ -1,0 +1,10 @@
+{
+  "cleaned_content": "",
+  "tool_calls": [
+    {
+      "name": "Read",
+      "arguments": {"file_path": "/path/to/example"},
+      "id": "call_abc123"
+    }
+  ]
+}

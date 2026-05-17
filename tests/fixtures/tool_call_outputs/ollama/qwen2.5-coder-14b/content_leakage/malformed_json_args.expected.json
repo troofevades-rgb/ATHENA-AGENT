@@ -1,0 +1,4 @@
+{
+  "cleaned_content": "<tool_call>{\"name\": \"Read\", \"arguments\": {bad json no quotes}}</tool_call>",
+  "tool_calls": []
+}

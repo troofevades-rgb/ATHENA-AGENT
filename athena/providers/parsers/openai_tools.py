@@ -17,7 +17,7 @@ import json
 import logging
 from typing import Any
 
-from . import register
+from . import register, register_default
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,13 @@ register("openai", "gpt-4o*", parse)
 register("openai", "o1*", parse)
 register("openai", "o3*", parse)
 register("openai", "o4*", parse)
-# Every OpenAI-compatible service speaks the same shape.
-register("openrouter", "*", parse)
-register("openai_compat", "*", parse)
-register("nous", "*", parse)
+# Every OpenAI-compatible service speaks the same shape. Use
+# register_default so model-specific entries (qwen_xml_leakage for
+# qwen* on openai_compat, harmony for gpt-oss* on openai/openai_compat)
+# fire FIRST and only fall through to this when nothing more specific
+# matched. (Mistake of an earlier draft: registering "*" via register()
+# caught everything before model-specific globs got a chance.)
+register_default("openai", parse)
+register_default("openrouter", parse)
+register_default("openai_compat", parse)
+register_default("nous", parse)

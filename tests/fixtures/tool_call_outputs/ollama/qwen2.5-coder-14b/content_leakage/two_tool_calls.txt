@@ -1,0 +1,3 @@
+I'll do both at once.
+<tool_call>{"name": "Read", "arguments": {"file_path": "/path/to/example/a"}}</tool_call>
+<tool_call>{"name": "Read", "arguments": {"file_path": "/path/to/example/b"}}</tool_call>

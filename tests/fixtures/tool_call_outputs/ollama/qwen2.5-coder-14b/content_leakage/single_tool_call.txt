@@ -1,0 +1,1 @@
+<tool_call>{"name": "Read", "arguments": {"file_path": "/etc/hostname"}}</tool_call>

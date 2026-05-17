@@ -1,0 +1,10 @@
+{
+  "cleaned_content": "Let me read that file for you.\n\nAfter I have the contents I'll summarize.",
+  "tool_calls": [
+    {
+      "name": "Read",
+      "arguments": {"file_path": "/path/to/example"},
+      "id": ""
+    }
+  ]
+}
