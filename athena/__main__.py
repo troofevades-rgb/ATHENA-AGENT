@@ -139,6 +139,19 @@ def _handle_slash(agent: Agent, line: str) -> bool:
             f"elapsed: {elapsed:.1f}s"
         )
 
+    elif cmd == "status":
+        # Render the same shape `athena status` (running in another
+        # terminal) would show — shared formatter lives in the CLI
+        # module so the two surfaces don't drift.
+        from .cli.status import render_status
+        snapshot = agent.stats.to_snapshot(
+            session_id=agent.session_id,
+            model=agent.model,
+            provider=getattr(agent.provider, "name", "?"),
+            profile=(agent.cfg.profile or "default"),
+        )
+        ui.console.print(render_status(snapshot))
+
     elif cmd == "save":
         path = Path(arg).expanduser() if arg else SESSIONS_DIR / f"{int(time.time())}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -214,6 +227,7 @@ _SUBCOMMANDS = {
     "acp": "athena.cli.acp",
     "profile": "athena.cli.profile",
     "webhook": "athena.cli.webhook",
+    "status": "athena.cli.status",
 }
 
 

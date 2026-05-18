@@ -151,11 +151,61 @@ def _extract_text_tool_calls(text: str) -> tuple[str, list[dict]]:
 
 @dataclass
 class Stats:
+    """Running counters for the active agent session.
+
+    The first four fields (``prompt_tokens`` / ``eval_tokens`` /
+    ``tool_calls`` / ``turns``) plus ``started`` are the original
+    Phase 0 shape — kept for the ``/cost`` slash command and any
+    external readers (``tool_call_trace``-style consumers).
+
+    Phase 16 adds per-tool counts + fork / review / curator counters
+    and an atomic snapshot writer so ``athena status`` (running in
+    a separate process) can read live progress without IPC.
+    """
     prompt_tokens: int = 0
     eval_tokens: int = 0
     tool_calls: int = 0
     turns: int = 0
     started: float = field(default_factory=time.time)
+    # Phase 16 additions:
+    tool_call_counts: dict[str, int] = field(default_factory=dict)
+    fork_count: int = 0
+    review_fired_count: int = 0
+    curator_run_count: int = 0
+
+    def record_tool_call(self, tool_name: str) -> None:
+        """Increment both the top-level counter (legacy ``/cost``)
+        and the per-tool histogram used by ``/status``."""
+        self.tool_calls += 1
+        self.tool_call_counts[tool_name] = (
+            self.tool_call_counts.get(tool_name, 0) + 1
+        )
+
+    def to_snapshot(
+        self,
+        *,
+        session_id: str | None,
+        model: str,
+        provider: str,
+        profile: str,
+    ) -> dict:
+        return {
+            "session_id": session_id,
+            "model": model,
+            "provider": provider,
+            "profile": profile,
+            "started_at": self.started,
+            "elapsed_seconds": time.time() - self.started,
+            "turns": self.turns,
+            "tool_calls": self.tool_calls,
+            "tool_call_counts": dict(self.tool_call_counts),
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.eval_tokens,
+            "total_tokens": self.prompt_tokens + self.eval_tokens,
+            "fork_count": self.fork_count,
+            "review_fired_count": self.review_fired_count,
+            "curator_run_count": self.curator_run_count,
+        }
 
 
 class Agent:
@@ -575,7 +625,9 @@ class Agent:
             return
         try:
             from ..review.orchestrator import maybe_fire_review
-            maybe_fire_review(self)
+            fired = maybe_fire_review(self)
+            if fired is not None:
+                self.stats.review_fired_count += 1
         except Exception:
             # The review path must never break a foreground turn.
             ui.info("background review failed to fire (logged)")
@@ -590,6 +642,48 @@ class Agent:
                 "eval_tokens": self.stats.eval_tokens,
             },
         })
+        # Phase 16: refresh the on-disk status snapshot so
+        # ``athena status`` (running in another terminal) sees the
+        # post-turn counters.
+        try:
+            self.write_status_snapshot()
+        except Exception:
+            # Status snapshot is observability, not correctness — a
+            # failed write must never break the turn.
+            pass
+
+    def write_status_snapshot(self) -> None:
+        """Atomically write ``<profile_dir>/.status.json`` with the
+        current Stats. Read by :mod:`athena.cli.status`.
+
+        Atomic via tempfile + ``os.replace`` so a concurrent
+        ``athena status`` invocation never reads a half-written file.
+        Silent no-op when the agent has no SessionStore (no profile
+        dir to write into).
+        """
+        if self.session_store is None:
+            return
+        try:
+            profile = self.cfg.profile or "default"
+            snapshot = self.stats.to_snapshot(
+                session_id=self.session_id,
+                model=self.model,
+                provider=getattr(self.provider, "name", "?"),
+                profile=profile,
+            )
+        except Exception:
+            return
+        target = self.session_store.profile_dir / ".status.json"
+        try:
+            import os
+            tmp = target.with_suffix(".tmp")
+            tmp.write_text(
+                json.dumps(snapshot, indent=2, default=str),
+                encoding="utf-8",
+            )
+            os.replace(tmp, target)
+        except OSError:
+            pass
 
     def _stream_one(self) -> tuple[str, list[dict[str, Any]], dict[str, Any] | None]:
         """One model turn. Streams text to stdout, returns (text, tool_calls, usage).
@@ -720,7 +814,7 @@ class Agent:
             args = args_raw or {}
 
         ui.tool_call_summary(name, args)
-        self.stats.tool_calls += 1
+        self.stats.record_tool_call(name)
 
         # Plan-mode gate: only read-only tools are allowed
         from ..tools import plan as plan_mod
