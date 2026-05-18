@@ -20,6 +20,7 @@ from ..provenance import (
     SYSTEM,
     get_current_write_origin,
 )
+from ..safety.mutation import snapshot_and_record
 from . import archive as archive_mod
 from . import loader, pin
 from .archive import SkillNotFoundError
@@ -120,7 +121,14 @@ def skill_create(
     base.mkdir(parents=True, exist_ok=True)
     skill_dir = base / name
     skill_dir.mkdir()
-    (skill_dir / "SKILL.md").write_text(serialized, encoding="utf-8")
+    # Snapshot+audit: skill_create is the first mutation, so the
+    # pre-state is an empty dir. The audit record links the new
+    # SKILL.md to the snapshot that captured the (empty) directory.
+    with snapshot_and_record(
+        [skill_dir], tool_name="skill_create",
+    ) as ctx:
+        (skill_dir / "SKILL.md").write_text(serialized, encoding="utf-8")
+        ctx.record(skill_dir / "SKILL.md")
     loader.invalidate(name, workspace)
     return skill_dir
 
@@ -166,7 +174,11 @@ def skill_patch(
     serialized = serialize_frontmatter(new_fm, new_body)
     _validate_skill_md(serialized)
 
-    skill_md.write_text(serialized, encoding="utf-8")
+    with snapshot_and_record(
+        [skill_dir], tool_name="skill_patch",
+    ) as ctx:
+        skill_md.write_text(serialized, encoding="utf-8")
+        ctx.record(skill_md)
     loader.invalidate(name, workspace)
     return skill_dir
 
@@ -198,16 +210,26 @@ def skill_delete(
             allowed, reason = _curator_can_modify(target_fm)
             if not allowed:
                 raise CuratorPolicyError(reason)
-    new_path = archive_mod.archive_skill(name, workspace)
-    if absorbed_into is not None:
-        meta = {
-            "absorbed_into": absorbed_into,
-            "archived_at": datetime.now(timezone.utc).isoformat(),
-            "origin": origin,
-        }
-        (new_path / ".archive_meta.json").write_text(
-            json.dumps(meta, indent=2), encoding="utf-8"
-        )
+    # Resolve the live skill dir before archiving so we can snapshot
+    # its pre-archive state. archive_skill() renames the dir, so the
+    # snapshot must capture the source path, not the post-archive path.
+    src = _existing(name, workspace)
+    snapshot_paths = [src] if src is not None else []
+    with snapshot_and_record(
+        snapshot_paths, tool_name="skill_delete",
+    ) as ctx:
+        new_path = archive_mod.archive_skill(name, workspace)
+        if absorbed_into is not None:
+            meta = {
+                "absorbed_into": absorbed_into,
+                "archived_at": datetime.now(timezone.utc).isoformat(),
+                "origin": origin,
+            }
+            (new_path / ".archive_meta.json").write_text(
+                json.dumps(meta, indent=2), encoding="utf-8"
+            )
+        if src is not None:
+            ctx.record(src / "SKILL.md")
     return new_path
 
 
@@ -272,7 +294,11 @@ def skill_write_file(
         raise ValueError(f"content failed validation: {lint_err}")
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
+    with snapshot_and_record(
+        [skill_dir], tool_name="skill_write_file",
+    ) as ctx:
+        target.write_text(content, encoding="utf-8")
+        ctx.record(target)
     return target
 
 

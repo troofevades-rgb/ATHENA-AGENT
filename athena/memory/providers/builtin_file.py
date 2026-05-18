@@ -239,7 +239,13 @@ class BuiltinFileProvider(MemoryProvider):
             "---\n\n"
             f"{body.strip()}\n"
         )
-        target.write_text(content, encoding="utf-8")
+        from ...safety.mutation import snapshot_and_record
+        with snapshot_and_record(
+            [target] if target.exists() else [d],
+            tool_name="memory_write",
+        ) as ctx:
+            target.write_text(content, encoding="utf-8")
+            ctx.record(target)
 
         self._upsert_row(
             profile,
@@ -295,7 +301,12 @@ class BuiltinFileProvider(MemoryProvider):
                 return False
             target = d / row["filename"]
             if target.exists():
-                target.unlink()
+                from ...safety.mutation import snapshot_and_record
+                with snapshot_and_record(
+                    [target], tool_name="memory_delete",
+                ) as ctx:
+                    target.unlink()
+                    ctx.record(target)
             conn.execute("DELETE FROM memory_entries WHERE name = ?", (name,))
         self._refresh_markdown_index(profile)
         return True
