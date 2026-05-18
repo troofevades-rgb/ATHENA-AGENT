@@ -17,9 +17,22 @@ API auth: ``x-api-key`` header + ``anthropic-version`` pin.
 """
 from __future__ import annotations
 
+import itertools
 import json
 from collections.abc import Iterator
 from typing import Any
+
+_synth_counter = itertools.count(1)
+
+
+def _synth_tool_id() -> str:
+    """Synthesize a tool_use id when the upstream message log didn't
+    carry one. Anthropic requires every ``tool_result`` block to
+    reference a ``tool_use_id`` matching some preceding ``tool_use``.
+    The translator pairs synthesized ids between adjacent
+    assistant/tool turns; each one needs to be unique within a request.
+    """
+    return f"toolu_athena_{next(_synth_counter):08d}"
 
 import httpx
 
@@ -90,6 +103,7 @@ class AnthropicProvider(Provider):
         **kwargs: Any,
     ) -> Iterator[StreamChunk]:
         system, body_messages = self._split_system(messages)
+        body_messages = self._translate_messages(body_messages)
         payload: dict[str, Any] = {
             "model": model,
             "messages": body_messages,
@@ -176,6 +190,105 @@ class AnthropicProvider(Provider):
                 )
             return str(content), list(messages[1:])
         return "", list(messages)
+
+    @staticmethod
+    def _translate_messages(
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Convert athena's Ollama-shaped message log to Anthropic's
+        content-block format.
+
+        Athena (and Ollama) speak:
+
+          {"role": "assistant", "content": "...",
+           "tool_calls": [{"id": .., "function": {"name": .., "arguments": ..}}]}
+          {"role": "tool", "tool_call_id": .., "name": .., "content": ".."}
+
+        Anthropic requires:
+
+          {"role": "assistant",
+           "content": [{"type": "text", "text": ".."},
+                       {"type": "tool_use", "id": .., "name": .., "input": {..}}]}
+          {"role": "user",
+           "content": [{"type": "tool_result", "tool_use_id": .., "content": ".."}]}
+
+        Adjacent tool-result messages collapse into a single user
+        message (Anthropic requires alternating user/assistant turns).
+        """
+        out: list[dict[str, Any]] = []
+        i = 0
+        # Queue of ids minted for the most recent assistant turn's
+        # tool_use blocks. The following tool-result turns dequeue
+        # from here when their own tool_call_id is missing, so a paired
+        # call+result that both lack ids still gets matching synth ids.
+        pending_synth_ids: list[str] = []
+        while i < len(messages):
+            msg = messages[i]
+            role = msg.get("role")
+            content = msg.get("content") or ""
+
+            if role == "assistant":
+                blocks: list[dict[str, Any]] = []
+                pending_synth_ids = []
+                if isinstance(content, str) and content:
+                    blocks.append({"type": "text", "text": content})
+                elif isinstance(content, list):
+                    blocks.extend(content)
+                for tc in msg.get("tool_calls") or []:
+                    fn = tc.get("function") or {}
+                    args = fn.get("arguments", {})
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args) if args.strip() else {}
+                        except json.JSONDecodeError:
+                            args = {"_raw": args}
+                    tc_id = tc.get("id")
+                    if not tc_id:
+                        tc_id = _synth_tool_id()
+                        pending_synth_ids.append(tc_id)
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": tc_id,
+                        "name": fn.get("name", ""),
+                        "input": args if isinstance(args, dict) else {},
+                    })
+                # Anthropic rejects assistant turns with empty content.
+                if not blocks:
+                    blocks.append({"type": "text", "text": ""})
+                out.append({"role": "assistant", "content": blocks})
+                i += 1
+                continue
+
+            if role == "tool":
+                # Coalesce consecutive tool results into one user message.
+                results: list[dict[str, Any]] = []
+                while i < len(messages) and messages[i].get("role") == "tool":
+                    t = messages[i]
+                    tc_id = t.get("tool_call_id")
+                    if not tc_id:
+                        # Pair with the next synth id minted for the
+                        # preceding assistant turn.
+                        tc_id = (
+                            pending_synth_ids.pop(0)
+                            if pending_synth_ids else _synth_tool_id()
+                        )
+                    results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tc_id,
+                        "content": str(t.get("content") or ""),
+                    })
+                    i += 1
+                out.append({"role": "user", "content": results})
+                continue
+
+            # user / system / anything else passes through with content
+            # left as-is (string or already-structured blocks).
+            out.append({
+                "role": role or "user",
+                "content": content,
+            })
+            i += 1
+        return out
 
     @staticmethod
     def _convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
