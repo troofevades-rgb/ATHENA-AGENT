@@ -196,7 +196,7 @@ def load_config() -> Config:
             )
         for k, v in data.items():
             if hasattr(cfg, k):
-                setattr(cfg, k, v)
+                _assign_field(cfg, k, v)
     # Merge plugin enable state from the machine-managed sidecar file.
     cfg.plugins = _merge_plugin_state(cfg.plugins)
     # Env overrides. ATHENA_* is the canonical name; OCODE_* is still
@@ -207,6 +207,35 @@ def load_config() -> Config:
     if env := os.environ.get("OLLAMA_HOST"):
         cfg.ollama_host = _normalize_ollama_host(env)
     return cfg
+
+
+def _assign_field(cfg: Any, key: str, value: Any) -> None:
+    """Apply a top-level config entry from TOML.
+
+    When the existing field on ``cfg`` is itself a dataclass instance
+    (Config.gateway is a ``GatewayConfig`` for example), merge the
+    TOML table INTO it field-by-field so unspecified options keep
+    their defaults. Without this the naive ``setattr`` overwrites the
+    typed dataclass with a plain dict and downstream code that reads
+    ``cfg.gateway.continuity`` blows up with AttributeError.
+
+    Plain (non-dataclass) fields are assigned verbatim. Mismatched
+    types (TOML provided a string where the dataclass expects a
+    dataclass instance) fall through to a plain assignment so the
+    error surfaces at usage time rather than being silently
+    swallowed here.
+    """
+    import dataclasses as _dc
+    current = getattr(cfg, key)
+    if _dc.is_dataclass(current) and not _dc.is_dataclass(type(value)) and isinstance(value, dict):
+        # Merge TOML dict into the existing dataclass instance.
+        for sub_key, sub_val in value.items():
+            if hasattr(current, sub_key):
+                # Recurse one level so [gateway.webhooks] (itself a
+                # dataclass) gets the same treatment.
+                _assign_field(current, sub_key, sub_val)
+        return
+    setattr(cfg, key, value)
 
 
 def _normalize_ollama_host(raw: str) -> str:
