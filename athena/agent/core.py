@@ -601,10 +601,23 @@ class Agent:
             assistant_text, tool_calls, raw_done = self._stream_one()
             interrupted = bool(raw_done and raw_done.get("_interrupted"))
 
-            # Track usage if Ollama reported it (skip phantom raw on interrupt)
+            # Track usage if the provider reported it (skip phantom raw on
+            # interrupt). Accept both Ollama-flavoured field names
+            # (prompt_eval_count / eval_count) and the OpenAI-style names
+            # used by every hosted provider's usage chunk
+            # (prompt_tokens / completion_tokens) so cross-provider token
+            # accounting keeps working without per-provider branching here.
             if raw_done and not interrupted:
-                self.stats.prompt_tokens += raw_done.get("prompt_eval_count", 0) or 0
-                self.stats.eval_tokens += raw_done.get("eval_count", 0) or 0
+                self.stats.prompt_tokens += (
+                    raw_done.get("prompt_eval_count")
+                    or raw_done.get("prompt_tokens")
+                    or 0
+                )
+                self.stats.eval_tokens += (
+                    raw_done.get("eval_count")
+                    or raw_done.get("completion_tokens")
+                    or 0
+                )
 
             # Record the assistant message (with tool_calls if any) into history
             assistant_msg: dict[str, Any] = {"role": "assistant", "content": assistant_text}
