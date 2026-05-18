@@ -92,6 +92,15 @@ def maybe_run_curator(
         agent,
         enabled_toolsets=["skills"],
         system_addendum=addendum,
+        # Anthropic + most hosted providers reject (or silently
+        # respond empty to) requests whose only turn is a system
+        # prompt. The curator fork has no parent conversation to
+        # inherit, so synthesize an explicit user "begin" turn so
+        # the model has something to respond to.
+        user_prompt="Begin the curator consolidation pass now. "
+                    "Use the skill_view tool to inspect each existing "
+                    "skill, then emit the structured YAML report per "
+                    "the schema in your system prompt.",
         max_iterations=agent.cfg.curator.max_iterations,
         write_origin="curator",
         auxiliary_client=True,
@@ -101,7 +110,34 @@ def maybe_run_curator(
 
     parsed = yaml_output.parse_curator_report(result.final_response)
     if parsed is None:
-        logger.warning("curator run rejected: missing or malformed YAML output")
+        # Surface enough context for the operator to diagnose: was the
+        # fork itself broken (result.error set), did it run but produce
+        # no text (provider/tool failure), or did it produce text but
+        # fail the YAML contract (prompt drift / model not following
+        # the schema)? Previously this was a single warning that left
+        # all three indistinguishable.
+        if result.error:
+            logger.warning(
+                "curator run rejected: fork error: %s", result.error,
+            )
+        elif not result.final_response:
+            logger.warning(
+                "curator run rejected: fork returned empty response "
+                "(stderr len=%d, %d tool calls)",
+                len(result.stderr or ""), len(result.tool_calls),
+            )
+            if result.stderr:
+                logger.warning(
+                    "curator fork stderr tail: %s",
+                    (result.stderr or "")[-500:],
+                )
+        else:
+            logger.warning(
+                "curator run rejected: malformed YAML in response "
+                "(len=%d, head=%r)",
+                len(result.final_response),
+                result.final_response[:300],
+            )
         return None
 
     drift = None

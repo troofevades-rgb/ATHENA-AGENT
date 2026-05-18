@@ -275,6 +275,13 @@ class Agent:
         passed = provider if provider is not None else client
         if passed is not None:
             self.provider: Provider = passed
+            # Strip any routing prefix off self.model even when a
+            # provider was passed in — otherwise the prefixed name
+            # ("anthropic/claude-sonnet-4-6") goes straight onto the
+            # wire and the hosted API rejects it as unknown. Affects
+            # forks built via build_auxiliary_client.
+            from ..providers.runtime_resolver import _bare_model, _route
+            self.model = _bare_model(_route(self.model, cfg), self.model)
         else:
             # Route through the resolver. It returns the matching Provider
             # AND the bare model name (with any routing prefix stripped),
