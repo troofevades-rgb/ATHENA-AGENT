@@ -228,6 +228,9 @@ _SUBCOMMANDS = {
     "profile": "athena.cli.profile",
     "webhook": "athena.cli.webhook",
     "status": "athena.cli.status",
+    "snapshot": "athena.cli.snapshot",
+    "skill": "athena.cli.skill",
+    "memory": "athena.cli.memory",
 }
 
 
