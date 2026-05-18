@@ -155,6 +155,16 @@ class Config:
     # before the allowlist; matching commands are rejected outright
     # by the Bash tool.
     bash_extra_denylist: list[str] = field(default_factory=list)
+    # Phase 17 [safety] settings. Keys preserved in a sub-dict so
+    # athena.safety modules can read them without growing the top-
+    # level Config surface for every new option.
+    safety: dict[str, Any] = field(default_factory=lambda: {
+        "snapshot_foreground": False,
+        "retention_days": 90,
+        "retention_count": 5_000,
+        "retention_bytes": 5 * 1024**3,
+        "extra_denylist": [],
+    })
     # Hard cap on tool-call rounds per user turn. Stops runaway loops.
     max_turn_steps: int = 25
     # Plugin configuration. ``plugins["enabled"]`` is a {plugin_name: bool}
