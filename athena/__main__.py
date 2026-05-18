@@ -212,6 +212,7 @@ _SUBCOMMANDS = {
     "gateway": "athena.cli.gateway",
     "mcp": "athena.cli.mcp",
     "acp": "athena.cli.acp",
+    "profile": "athena.cli.profile",
 }
 
 
