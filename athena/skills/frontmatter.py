@@ -107,8 +107,23 @@ def _validate_name(name: str) -> None:
     if len(name) > _MAX_NAME_LEN:
         raise FrontmatterError(f"name longer than {_MAX_NAME_LEN} chars: {name!r}")
     if not _NAME_RE.match(name):
+        # Build a hint pointing at the specific character class the
+        # caller likely got wrong. The two common mistakes are
+        # underscores (snake_case) and uppercase letters — call them
+        # out by name so the user doesn't have to mentally diff their
+        # input against the spec.
+        hints: list[str] = []
+        if "_" in name:
+            suggested = name.replace("_", "-").lower()
+            hints.append(
+                f"use hyphens instead of underscores (try {suggested!r})"
+            )
+        elif any(c.isupper() for c in name):
+            hints.append(f"use lowercase (try {name.lower()!r})")
+        hint_str = f" — {hints[0]}" if hints else ""
         raise FrontmatterError(
-            f"name must be lowercase alphanumeric with internal hyphens: {name!r}"
+            f"name must be lowercase alphanumeric with internal hyphens: "
+            f"{name!r}{hint_str}"
         )
 
 
