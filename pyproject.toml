@@ -41,6 +41,14 @@ gateway = [
     # change can't quietly remove it.
     "aiohttp>=3.9",
 ]
+# Observability — OpenTelemetry SDK + JSON logging. Optional because
+# the SDK pulls a meaningful chunk of transitive deps (protobuf,
+# grpcio fallback paths) that headless installs don't need.
+observability = [
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+    "python-json-logger>=2.0",
+]
 # Heavy GPU-only deps for the closed training loop. Install with
 # ``pip install -e ".[train]"`` only on a workstation with CUDA.
 train = [

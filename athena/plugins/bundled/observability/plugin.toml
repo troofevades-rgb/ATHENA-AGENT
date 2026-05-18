@@ -1,0 +1,16 @@
+[plugin]
+name = "observability"
+version = "0.1.0"
+description = "OpenTelemetry tracing + metrics + JSON structured logging."
+enabled_by_default = false
+entry = "athena.plugins.bundled.observability.plugin:ObservabilityPlugin"
+
+# Optional configuration (set under [plugins.observability] in
+# the user's config.toml):
+#   otlp_endpoint = "https://your-collector:4318"
+#     When set, spans + metrics export to that OTLP/HTTP endpoint
+#     instead of stderr (ConsoleSpanExporter is the default).
+#   service_name = "athena"
+#     Resource attribute on every span / metric.
+#   log_level = "INFO"
+#     Root logger level for athena.* loggers when the plugin is active.
