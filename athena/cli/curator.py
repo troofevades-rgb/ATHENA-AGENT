@@ -35,6 +35,12 @@ def _build_agent_shell(profile: str, home: Path | None):
         workspace=Path.cwd().resolve(),
         client=None,
         model=cfg.model,
+        # fork() reads parent.messages to pin the child's system
+        # prompt for prefix-cache parity. The headless curator has no
+        # conversation to inherit from — an empty list makes fork()
+        # fall through to the child's default system prompt instead
+        # of blowing up with AttributeError.
+        messages=[],
     )
 
 
