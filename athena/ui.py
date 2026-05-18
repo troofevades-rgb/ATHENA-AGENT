@@ -1,6 +1,7 @@
 """Rich terminal UI helpers — confirmation prompts, diff rendering, status."""
 from __future__ import annotations
 import difflib
+import sys
 from pathlib import Path
 
 from rich.console import Console
@@ -9,7 +10,26 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 
+# On legacy Windows consoles (cp1252-encoded stdout), `console.print` crashes
+# on common UI glyphs like ✗ / ✓ / ↳ / ▰ because they aren't representable.
+# Reconfigure stdout to encode with errors="replace" so unrepresentable chars
+# degrade to '?' instead of taking down the process. Python 3.7+ supports
+# ``reconfigure`` on TextIOBase.
+if sys.platform == "win32":
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, ValueError):
+            pass
+
 console = Console()
+
+# Pick glyphs that survive the legacy Windows console. The replacement
+# variants are plain ASCII fall-backs so a user on cmd.exe with cp1252
+# still gets a readable transcript even if their terminal can't render
+# the colored unicode symbols.
+_X = "x" if console.legacy_windows else "✗"
+_CHECK = "+" if console.legacy_windows else "✓"
 
 # Electric-lime palette. Truecolor; falls back gracefully on 256-color terms.
 LIME = "#00ff00"
@@ -49,7 +69,7 @@ def warn(msg: str) -> None:
 
 
 def error(msg: str) -> None:
-    console.print(f"[red]✗[/] [red]{msg}[/]")
+    console.print(f"[red]{_X}[/] [red]{msg}[/]")
 
 
 def tool_call_summary(name: str, args: dict) -> None:

@@ -205,8 +205,38 @@ def load_config() -> Config:
     if env := (os.environ.get("ATHENA_MODEL") or os.environ.get("OCODE_MODEL")):
         cfg.model = env
     if env := os.environ.get("OLLAMA_HOST"):
-        cfg.ollama_host = env if env.startswith("http") else f"http://{env}"
+        cfg.ollama_host = _normalize_ollama_host(env)
     return cfg
+
+
+def _normalize_ollama_host(raw: str) -> str:
+    """Coerce an OLLAMA_HOST value into a client-side connect URL.
+
+    Ollama documents ``OLLAMA_HOST`` for *server-side* binding, where
+    ``0.0.0.0:11434`` means "listen on all interfaces". Users routinely
+    copy that same env var into their shell for client work and hit
+    ``WinError 10049 — the requested address is not valid in its
+    context`` (Windows) or ``Cannot assign requested address`` (Linux)
+    because ``0.0.0.0`` isn't a valid connect target. Rewrite the
+    common bind-only forms to a loopback connect URL.
+    """
+    host = raw.strip()
+    if not host.startswith("http"):
+        host = f"http://{host}"
+    # Replace 0.0.0.0 / :: in the authority section with 127.0.0.1.
+    # We don't touch the path/query — just the netloc.
+    from urllib.parse import urlsplit, urlunsplit
+    parts = urlsplit(host)
+    netloc = parts.netloc or parts.path  # `http://0.0.0.0:11434` style only
+    if netloc:
+        # netloc may have :port; preserve it.
+        if netloc.startswith("0.0.0.0"):
+            netloc = "127.0.0.1" + netloc[len("0.0.0.0"):]
+        elif netloc.startswith("[::]"):
+            netloc = "[::1]" + netloc[len("[::]"):]
+        elif netloc.startswith("[0:0:0:0:0:0:0:0]"):
+            netloc = "[::1]" + netloc[len("[0:0:0:0:0:0:0:0]"):]
+    return urlunsplit((parts.scheme or "http", netloc, parts.path if parts.netloc else "", parts.query, parts.fragment))
 
 
 def load_plugin_state() -> dict[str, Any]:
