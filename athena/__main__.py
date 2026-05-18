@@ -216,6 +216,18 @@ _SUBCOMMANDS = {
 
 
 def main() -> int:
+    # One-time migration of legacy single-profile layout (everything at
+    # ~/.athena/<x>) into ~/.athena/profiles/default/<x>. Naturally
+    # idempotent — once profiles/ exists, this short-circuits.
+    try:
+        from .profiles.migration import maybe_run_migration
+        maybe_run_migration()
+    except Exception:
+        # A migration failure must never block startup; the user's
+        # legacy items stay in place and the rest of the app still
+        # runs. Logged in migration.py.
+        pass
+
     # Subcommands short-circuit the interactive parser. argv[1] is the verb.
     if len(sys.argv) >= 2 and sys.argv[1] in _SUBCOMMANDS:
         import importlib
