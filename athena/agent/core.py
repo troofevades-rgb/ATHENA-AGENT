@@ -765,6 +765,10 @@ class Agent:
         status = ui.console.status("[dim]thinking…[/]", spinner="dots")
         status.start()
         first = True
+        # Render streamed text via the typewriter helper so we can swap
+        # to a Rich.Markdown view at the end without polluting the
+        # terminal with both the plain stream and the rendered copy.
+        typewriter = ui.TypewriterStream(prefix="▌ ", prefix_style="bold #00ff00")
         try:
             for chunk in self.provider.stream_chat(
                 model=self.model,
@@ -777,14 +781,19 @@ class Agent:
             ):
                 if first and chunk.kind in ("content", "tool_call"):
                     status.stop()
-                    ui.console.print("[bold #00ff00]▌[/] ", end="")
+                    if chunk.kind == "content":
+                        typewriter.start()
                     first = False
                 if chunk.kind == "content":
                     text = chunk.payload or ""
                     if text:
-                        ui.console.print(text, end="", soft_wrap=True, highlight=False)
+                        typewriter.feed(text)
                         text_parts.append(text)
                 elif chunk.kind == "tool_call":
+                    # Stream cuts to a tool call — finalize the
+                    # typewriter on whatever text accumulated so the
+                    # tool-call summary panel renders on a fresh line.
+                    typewriter.finalize(markdown=False)
                     p = chunk.payload or {}
                     tool_calls.append({
                         "function": {
@@ -799,21 +808,24 @@ class Agent:
         except KeyboardInterrupt:
             if first:
                 status.stop()
-            ui.console.print()
+            typewriter.finalize(markdown=False)
             ui.warn("interrupted")
             # Signal interruption to run_turn via a sentinel on the usage dict.
             return "".join(text_parts), tool_calls, {"_interrupted": True}
         except Exception as e:
             if first:
                 status.stop()
-            ui.console.print()
+            typewriter.finalize(markdown=False)
             ui.error(f"provider error: {e}")
             return "".join(text_parts), [], None
         finally:
             # Tool-only or empty responses never trip the in-loop stop().
             if first:
                 status.stop()
-        ui.console.print()  # newline after the streamed reply
+        # Final render — Markdown when the assembled text looks like
+        # it'd benefit (code blocks, headings, lists). Plain text
+        # responses re-render as plain.
+        typewriter.finalize(markdown=True)
         if usage:
             ui.stream_stats(usage)
         text = "".join(text_parts)

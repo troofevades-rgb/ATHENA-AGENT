@@ -140,17 +140,20 @@ def _handle_slash(agent: Agent, line: str) -> bool:
         )
 
     elif cmd == "status":
-        # Render the same shape `athena status` (running in another
-        # terminal) would show — shared formatter lives in the CLI
-        # module so the two surfaces don't drift.
-        from .cli.status import render_status
-        snapshot = agent.stats.to_snapshot(
-            session_id=agent.session_id,
-            model=agent.model,
-            provider=getattr(agent.provider, "name", "?"),
-            profile=(agent.cfg.profile or "default"),
-        )
-        ui.console.print(render_status(snapshot))
+        # `--live` flag (or bare `live` arg) opens the dashboard view;
+        # the bare form keeps the snapshot-text behavior so existing
+        # users / scripts that grep for the output don't break.
+        if arg.strip() in ("live", "--live"):
+            ui.live_status(agent)
+        else:
+            from .cli.status import render_status
+            snapshot = agent.stats.to_snapshot(
+                session_id=agent.session_id,
+                model=agent.model,
+                provider=getattr(agent.provider, "name", "?"),
+                profile=(agent.cfg.profile or "default"),
+            )
+            ui.console.print(render_status(snapshot))
 
     elif cmd == "save":
         path = Path(arg).expanduser() if arg else SESSIONS_DIR / f"{int(time.time())}.json"
@@ -318,7 +321,15 @@ def main() -> int:
 
     history_file = CONFIG_DIR / "history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
-    session = PromptSession(history=FileHistory(str(history_file)))
+    session = PromptSession(
+        history=FileHistory(str(history_file)),
+        # Always-on bottom toolbar shows model · profile · elapsed ·
+        # token counters · estimated cost · top-3 tool histogram.
+        # The callable re-renders on every redraw so numbers update
+        # while the prompt is sitting idle.
+        bottom_toolbar=ui.build_bottom_toolbar(agent),
+        refresh_interval=1.0,
+    )
 
     try:
         while True:
