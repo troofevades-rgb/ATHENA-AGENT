@@ -20,6 +20,7 @@ import logging
 import os
 import secrets
 import sqlite3
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,13 +87,57 @@ class SearchHit:
 
 
 class SessionStore:
+    """Per-profile session index + JSONL transcripts.
+
+    SQLite connection strategy (Phase 17 stress fix): one connection
+    per thread, opened lazily on first access. Sharing a single
+    connection across many writer threads with
+    ``check_same_thread=False`` produced races under stress
+    (concurrent INSERT bursts surfaced as ``SystemError: error
+    return without exception set`` and ``Cannot operate on a closed
+    database``). SQLite's file lock serialises writes between
+    separate connections cleanly, so per-thread connections are the
+    correct shape for concurrent gateway dispatch.
+    """
+
     def __init__(self, profile_dir: Path) -> None:
         self.profile_dir = profile_dir
         self.sessions_dir = profile_dir / "sessions"
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = profile_dir / "sessions.db"
-        self._db = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        sqlite_index.init_schema(self._db)
+        self._closed = False
+        # Thread-local connections. Each thread that touches the
+        # store gets its own sqlite3.Connection (lazy first-use).
+        # We track them all on _connections so close() can shut every
+        # one down on daemon teardown.
+        self._tls = threading.local()
+        self._connections: list[sqlite3.Connection] = []
+        self._connections_lock = threading.Lock()
+        # Initialise schema once on the constructing thread; this also
+        # opens the first per-thread connection.
+        sqlite_index.init_schema(self._conn())
+
+    def _conn(self) -> sqlite3.Connection:
+        """Return this thread's sqlite3 connection, opening one on
+        first call. Raises ``RuntimeError`` after ``close()``."""
+        if self._closed:
+            raise RuntimeError("SessionStore is closed")
+        conn = getattr(self._tls, "conn", None)
+        if conn is not None:
+            return conn
+        conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        # WAL mode lets concurrent readers proceed while a writer
+        # holds the file lock; on its own this dramatically reduces
+        # "database is locked" errors under bursty dispatch.
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+        except sqlite3.Error:
+            logger.debug("WAL pragma not available", exc_info=True)
+        self._tls.conn = conn
+        with self._connections_lock:
+            self._connections.append(conn)
+        return conn
 
     # -- session lifecycle -------------------------------------------
 
@@ -104,7 +149,7 @@ class SessionStore:
         jsonl_path.touch(exist_ok=True)
         meta_path.write_text(_meta_to_json(meta), encoding="utf-8")
         try:
-            sqlite_index.insert_session(self._db, _meta_to_dict(meta))
+            sqlite_index.insert_session(self._conn(), _meta_to_dict(meta))
         except sqlite3.Error as e:
             logger.warning("sqlite open_session failed for %s: %s", meta.session_id, e)
 
@@ -120,7 +165,7 @@ class SessionStore:
 
         try:
             sqlite_index.insert_turn(
-                self._db, session_id, turn_index, role, content, tool_name, timestamp,
+                self._conn(), session_id, turn_index, role, content, tool_name, timestamp,
             )
         except sqlite3.Error as e:
             logger.warning(
@@ -141,7 +186,7 @@ class SessionStore:
             meta["ended_at"] = ended.isoformat()
             meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
         try:
-            sqlite_index.update_session_ended(self._db, session_id, ended)
+            sqlite_index.update_session_ended(self._conn(), session_id, ended)
         except sqlite3.Error as e:
             logger.warning("sqlite close_session failed for %s: %s", session_id, e)
 
@@ -164,7 +209,7 @@ class SessionStore:
             f"{where} ORDER BY started_at DESC LIMIT ?"
         )
         params.append(limit)
-        rows = self._db.execute(sql, params).fetchall()
+        rows = self._conn().execute(sql, params).fetchall()
         out: list[SessionMeta] = []
         for r in rows:
             out.append(SessionMeta(
@@ -197,7 +242,7 @@ class SessionStore:
             "WHERE ended_at IS NOT NULL AND session_id != ? "
             "ORDER BY ended_at DESC LIMIT 1"
         )
-        row = self._db.execute(sql, (exclude or "",)).fetchone()
+        row = self._conn().execute(sql, (exclude or "",)).fetchone()
         if row is None:
             return None
         return SessionMeta(
@@ -215,7 +260,7 @@ class SessionStore:
     def children(self, session_id: str) -> list[SessionMeta]:
         """Return every session whose ``parent_session_id`` is ``session_id``,
         ordered by ``started_at`` ascending so the tree displays chronologically."""
-        rows = self._db.execute(
+        rows = self._conn().execute(
             "SELECT session_id, profile, model, provider, workspace, "
             "parent_session_id, started_at, ended_at, tags FROM sessions "
             "WHERE parent_session_id = ? ORDER BY started_at ASC",
@@ -245,7 +290,7 @@ class SessionStore:
         since: datetime | None = None,
     ) -> list[SearchHit]:
         rows = sqlite_index.fts5_search(
-            self._db, query, k=k, workspace=workspace, since=since
+            self._conn(), query, k=k, workspace=workspace, since=since
         )
         hits: list[SearchHit] = []
         for (session_id, turn_index, role, content, tool_name,
@@ -277,10 +322,18 @@ class SessionStore:
         return out
 
     def close(self) -> None:
-        try:
-            self._db.close()
-        except sqlite3.Error:
-            pass
+        """Close every thread-local connection. Safe to call from
+        any thread; idempotent so daemon shutdown can fire it even
+        if a SessionStore was never actually used."""
+        self._closed = True
+        with self._connections_lock:
+            connections = list(self._connections)
+            self._connections.clear()
+        for conn in connections:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
 
 
 # -- module helpers ------------------------------------------------------
