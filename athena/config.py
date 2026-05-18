@@ -145,10 +145,16 @@ class Config:
     # athena/prompts/system.py SECTIONS (e.g. "executing_with_care",
     # "session_guidance", "memory_header"). Combines with lean_prompt.
     disabled_prompt_sections: list[str] = field(default_factory=list)
-    # Per-Bash command allowlist; entries are simple prefix matches.
-    # E.g. ["git status", "git diff", "ls", "cat"]. Allowlisted commands
-    # skip the confirmation prompt even when auto_approve_tools is False.
+    # Per-Bash command allowlist; entries are word-boundary matched
+    # against the binary token (Phase 17 ShellPolicy). E.g.
+    # ["git", "ls", "cat"]. Allowlisted commands skip the
+    # confirmation prompt even when auto_approve_tools is False.
     bash_allowlist: list[str] = field(default_factory=list)
+    # Additional regex denylist patterns appended to
+    # athena.safety.shell_policy.DEFAULT_DENYLIST. Always enforced
+    # before the allowlist; matching commands are rejected outright
+    # by the Bash tool.
+    bash_extra_denylist: list[str] = field(default_factory=list)
     # Hard cap on tool-call rounds per user turn. Stops runaway loops.
     max_turn_steps: int = 25
     # Plugin configuration. ``plugins["enabled"]`` is a {plugin_name: bool}

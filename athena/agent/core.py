@@ -834,9 +834,15 @@ class Agent:
         if t and t.requires_confirmation and not self.cfg.auto_approve_tools:
             allowed = False
             if name in ("Bash", "bash"):
+                from ..safety.shell_policy import DEFAULT_DENYLIST, ShellPolicy
                 cmd = (args.get("command") or "").strip()
-                # Word-boundary match: prefix "ls" must not allow "lsof".
-                allowed = any(cmd == p or cmd.startswith(p + " ") for p in self.cfg.bash_allowlist)
+                # Word-boundary match via ShellPolicy: prefix "ls"
+                # must not allow "lsof"; "git" must not allow "gitleaks".
+                deny = tuple(DEFAULT_DENYLIST) + tuple(
+                    getattr(self.cfg, "bash_extra_denylist", ()) or ()
+                )
+                policy = ShellPolicy(self.cfg.bash_allowlist, deny)
+                allowed = policy.evaluate(cmd).allowed
             if not allowed:
                 preview = args.get("command") or json.dumps(args)
                 ui.console.print(f"[yellow]command:[/] [white]{preview}[/]")

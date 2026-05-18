@@ -13,7 +13,20 @@ from typing import Any
 
 from .registry import tool
 from . import file_ops  # for workspace
+from ..safety.shell_policy import DEFAULT_DENYLIST, ShellPolicy
 from ..ui import console
+
+
+def _policy_for_config() -> ShellPolicy:
+    """Build the always-on denylist policy from current config.
+
+    Imported lazily so the config singleton is read fresh on each
+    call — useful in tests that rebuild Config between cases.
+    """
+    from ..config import load_config
+    cfg = load_config()
+    deny = tuple(DEFAULT_DENYLIST) + tuple(getattr(cfg, "bash_extra_denylist", ()))
+    return ShellPolicy(allowlist=cfg.bash_allowlist, denylist=deny)
 
 _IS_WINDOWS = sys.platform == "win32"
 
@@ -103,6 +116,11 @@ def Bash(
     run_in_background: bool = False,
 ) -> str:
     timeout = max(1, min(int(timeout or 120), 600))
+
+    decision = _policy_for_config().evaluate_denylist_only(command)
+    if not decision.allowed:
+        return f"BLOCKED by shell policy: {decision.reason}"
+
     if run_in_background:
         return _start_background(command)
 
