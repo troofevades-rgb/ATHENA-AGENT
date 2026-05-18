@@ -141,6 +141,49 @@ def _extract_text_tool_calls(text: str) -> tuple[str, list[dict]]:
         except json.JSONDecodeError:
             pass
 
+    # Preamble + naked JSON object. Seen with qwen2.5-coder on Ollama:
+    # the model emits a one-line natural preamble, then a tool-call JSON
+    # blob without any wrapper. Scan from the first ``{`` to a
+    # brace-balanced ``}`` and try json.loads on every candidate; accept
+    # the first match that normalizes to a tool call shape. Conservative:
+    # we only consider objects whose shape includes ``name`` (str) plus
+    # ``arguments`` (dict/str), so prose containing literal ``{...}``
+    # JSON examples doesn't trip us.
+    for start in range(len(s)):
+        if s[start] != "{":
+            continue
+        depth = 0
+        in_str = False
+        esc = False
+        for end in range(start, len(s)):
+            ch = s[end]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = s[start:end + 1]
+                    try:
+                        obj = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break
+                    calls = _normalize_tool_call(obj)
+                    if calls:
+                        residual = (s[:start] + s[end + 1:]).strip()
+                        return residual, calls
+                    break
+
     return text, []
 
 
