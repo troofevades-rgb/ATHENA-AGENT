@@ -156,8 +156,13 @@ def fork(
         stderr_buf = io.StringIO()
 
         def _runner() -> None:
+            from ..safety.approval_guard import (
+                reset_approvals,
+                scope_fresh_approvals,
+            )
             origin_token = set_current_write_origin(write_origin)
             approval_token = set_approval_callback(AUTO_DENY)
+            grants_token = scope_fresh_approvals()
             agent_token = _current_agent.set(child)
             try:
                 cm = contextlib.ExitStack()
@@ -171,6 +176,7 @@ def fork(
                 result.error = f"{type(exc).__name__}: {exc}"
             finally:
                 _current_agent.reset(agent_token)
+                reset_approvals(grants_token)
                 reset_approval_callback(approval_token)
                 reset_current_write_origin(origin_token)
 
