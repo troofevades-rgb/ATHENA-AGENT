@@ -46,9 +46,14 @@ LIME_FAINT = "#004400"
 _GRADIENT = ("#00aa00", "#22cc22", "#44ee44", "#66ff66", "#22cc22", "#008800")
 
 
-# Single-line variant — used when the terminal is wide enough (≥105
-# columns). 101-char wide.
-_ATHENA_AGENT_WIDE = (
+# ATHENA-AGENT in pyfiglet's ``ansi_shadow`` font. 101 chars wide,
+# 6 rows tall — single-line render. Modern dev terminals default
+# to ≥100 cols (Windows Terminal: 120, iTerm2: 80→user-resized,
+# most IDE terminals: 100+) so this fits on a single line in
+# practice. Genuinely narrow terminals will wrap; that's a
+# user-side problem the previous adaptive-stack code papered over
+# at the cost of looking inconsistent across sessions.
+_ATHENA_AGENT = (
     " █████╗ ████████╗██╗  ██╗███████╗███╗   ██╗ █████╗        █████╗  ██████╗ ███████╗███╗   ██╗████████╗\n"
     "██╔══██╗╚══██╔══╝██║  ██║██╔════╝████╗  ██║██╔══██╗      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝\n"
     "███████║   ██║   ███████║█████╗  ██╔██╗ ██║███████║█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   \n"
@@ -57,26 +62,12 @@ _ATHENA_AGENT_WIDE = (
     "╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   "
 )
 
-# Stacked variant — narrow terminals (<105 columns). ATHENA on top, AGENT
-# centered below. 51 chars wide.
-_ATHENA_STACKED = (
-    " █████╗ ████████╗██╗  ██╗███████╗███╗   ██╗ █████╗ \n"
-    "██╔══██╗╚══██╔══╝██║  ██║██╔════╝████╗  ██║██╔══██╗\n"
-    "███████║   ██║   ███████║█████╗  ██╔██╗ ██║███████║\n"
-    "██╔══██║   ██║   ██╔══██║██╔══╝  ██║╚██╗██║██╔══██║\n"
-    "██║  ██║   ██║   ██║  ██║███████╗██║ ╚████║██║  ██║\n"
-    "╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═══╝╚═╝  ╚═╝"
+# Spray-line matches the banner width so it looks like a single
+# nameplate. 99 cells of ▒/▓/█ with fade caps.
+_SPRAY = (
+    "░▒▓████████████████████████████████████████████████"
+    "█████████████████████████████████████████████▓▒░"
 )
-_AGENT_STACKED = (
-    "    █████╗  ██████╗ ███████╗███╗   ██╗████████╗\n"
-    "   ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝\n"
-    "   ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   \n"
-    "   ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   \n"
-    "   ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   \n"
-    "   ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   "
-)
-
-_SPRAY = "░▒▓██████████████████████████████████████████████▓▒░"
 
 
 def _gradient_text(art: str) -> Text:
@@ -108,11 +99,7 @@ def _model_color(model: str) -> str:
 
 def banner(model: str, workspace: Path) -> None:
     console.print()
-    if console.width >= 105:
-        console.print(_gradient_text(_ATHENA_AGENT_WIDE))
-    else:
-        console.print(_gradient_text(_ATHENA_STACKED))
-        console.print(_gradient_text(_AGENT_STACKED))
+    console.print(_gradient_text(_ATHENA_AGENT))
     console.print(Text(_SPRAY, style=LIME_DIM))
     accent = _model_color(model)
     console.print(Text.from_markup(
