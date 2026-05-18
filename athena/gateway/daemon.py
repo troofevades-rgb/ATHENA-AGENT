@@ -199,6 +199,32 @@ class GatewayDaemon:
                 logger.exception("webhook server stop() raised")
             self._webhook_server = None
 
+        # Drain in-flight per-session dispatch tasks before evicting
+        # agents. Each adapter owns a dict[session_id, asyncio.Task]
+        # of background message handlers; closing their agents
+        # underneath them produced "Cannot operate on a closed
+        # database" sqlite warnings during stress shutdown. We give
+        # them a bounded grace period, then proceed regardless.
+        pending: list[asyncio.Task] = []
+        for adapter in self.adapters:
+            for task in getattr(adapter, "_session_tasks", {}).values():
+                if not task.done():
+                    pending.append(task)
+        if pending:
+            done, _ = await asyncio.wait(
+                pending, timeout=10.0,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+            still_running = [t for t in pending if not t.done()]
+            if still_running:
+                logger.warning(
+                    "daemon.stop: %d session dispatch task(s) did not "
+                    "drain in 10s; cancelling",
+                    len(still_running),
+                )
+                for t in still_running:
+                    t.cancel()
+
         # Deny every pending approval so any worker thread blocked on
         # request_sync unwinds cleanly before pool.evict_all closes
         # the agents holding those threads.

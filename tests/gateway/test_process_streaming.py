@@ -16,6 +16,7 @@ Tests the full lifecycle:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -73,6 +74,16 @@ class _FakePool:
         self.agents: dict[str, Any] = {}
         self.get_calls: list[str] = []
         self.fail_get = False
+
+    @contextlib.asynccontextmanager
+    async def use(self, session_id: str):
+        """Mirrors the real AgentPool.use contract — yield the agent
+        and let the gateway dispatch run inside the context."""
+        agent = await self.get(session_id)
+        try:
+            yield agent
+        finally:
+            pass
 
     async def get(self, session_id: str):
         self.get_calls.append(session_id)

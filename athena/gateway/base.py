@@ -589,11 +589,17 @@ class GatewayAdapter(ABC):
 
         guard = self._active_sessions.get(session_id)
         try:
+            # ``pool.use`` refcount-pins the entry so concurrent
+            # eviction won't close the agent (and its owned
+            # SessionStore) while the run_turn below is in flight.
+            # Closing mid-dispatch produced "Cannot operate on a
+            # closed database" sqlite warnings under stress.
             try:
-                agent = await self.daemon.pool.get(session_id)
+                pool_ctx = self.daemon.pool.use(session_id)
+                agent = await pool_ctx.__aenter__()
             except Exception:
                 logger.exception(
-                    "[%s] agent pool.get failed for %s",
+                    "[%s] agent pool.use failed for %s",
                     self.name, session_id,
                 )
                 await self._safe_send(
@@ -602,44 +608,47 @@ class GatewayAdapter(ABC):
                 )
                 return
 
-            heartbeat_task = asyncio.create_task(
-                self._typing_heartbeat(event.chat_id),
-                name=f"gateway-typing-{session_id[:8]}",
-            )
-            approval_callback = build_gateway_approval_callback(
-                self.daemon,
-                session_id=session_id,
-                platform=self.name,
-                chat_id=event.chat_id,
-            )
-            approval_token = set_approval_callback(approval_callback)
-
-            user_text = _build_user_text(event)
-
             try:
-                await asyncio.to_thread(
-                    agent.run_until_done, user_text,
+                heartbeat_task = asyncio.create_task(
+                    self._typing_heartbeat(event.chat_id),
+                    name=f"gateway-typing-{session_id[:8]}",
                 )
-            except Exception:
-                logger.exception(
-                    "[%s] agent run failed for %s", self.name, session_id,
+                approval_callback = build_gateway_approval_callback(
+                    self.daemon,
+                    session_id=session_id,
+                    platform=self.name,
+                    chat_id=event.chat_id,
                 )
-                await self._safe_send(
-                    event.chat_id,
-                    "_processing failed; see logs_",
-                )
-                return
-            finally:
-                reset_approval_callback(approval_token)
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except (asyncio.CancelledError, Exception):
-                    pass
+                approval_token = set_approval_callback(approval_callback)
 
-            response = agent.last_assistant_message()
-            if response:
-                await self._send_chunked(event.chat_id, response)
+                user_text = _build_user_text(event)
+
+                try:
+                    await asyncio.to_thread(
+                        agent.run_until_done, user_text,
+                    )
+                except Exception:
+                    logger.exception(
+                        "[%s] agent run failed for %s", self.name, session_id,
+                    )
+                    await self._safe_send(
+                        event.chat_id,
+                        "_processing failed; see logs_",
+                    )
+                    return
+                finally:
+                    reset_approval_callback(approval_token)
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+
+                response = agent.last_assistant_message()
+                if response:
+                    await self._send_chunked(event.chat_id, response)
+            finally:
+                await pool_ctx.__aexit__(None, None, None)
         finally:
             self._session_tasks.pop(session_id, None)
             pending = self._pending_messages.pop(session_id, None)

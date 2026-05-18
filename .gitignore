@@ -42,3 +42,6 @@ Thumbs.db
 
 # Phase 16 bench results — transient timestamped files
 tests/fixtures/benchmarks/results/*.json
+
+# Phase 17 stress harness — synthesizes a profile root, never commit
+stress-home/
