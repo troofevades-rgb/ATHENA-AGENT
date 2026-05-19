@@ -37,7 +37,6 @@ import base64
 import hashlib
 import json
 import logging
-import os
 import secrets
 import socket
 import sys
@@ -50,6 +49,7 @@ from typing import Any
 import httpx
 
 from ..config import CONFIG_DIR
+from ..safety.secure_files import ensure_secure_dir, secure_read_text, secure_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -412,37 +412,22 @@ def _token_path(server_id: str) -> Path:
 
 
 def save_token(server_id: str, token: StoredToken) -> None:
-    """Atomically write the token with mode 0600.
+    """Atomically write the token with mode 0o600 via secure_files.
 
-    On POSIX, ``os.chmod`` sets the permission bits. On Windows there's
-    no equivalent — Windows ACLs serve the same purpose via the user's
-    profile dir permissions, and the chmod call is a no-op there.
+    ``secure_write_json`` uses ``os.open(O_EXCL, 0o600)`` so the file
+    never exists at a wider mode. ``ensure_secure_dir`` brings
+    ``~/.athena/mcp_tokens/`` up to 0o700 on first call.
     """
-    TOKENS_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_secure_dir(TOKENS_DIR)
     path = _token_path(server_id)
-    payload = json.dumps(
-        {
-            "access_token": token.access_token,
-            "refresh_token": token.refresh_token,
-            "expires_at": token.expires_at.isoformat(),
-            "token_type": token.token_type,
-            "scope": token.scope,
-        },
-        indent=2,
-    )
-
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        # Windows doesn't honor chmod the same way; skip.
-        pass
-    os.replace(tmp, path)
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    payload = {
+        "access_token": token.access_token,
+        "refresh_token": token.refresh_token,
+        "expires_at": token.expires_at.isoformat(),
+        "token_type": token.token_type,
+        "scope": token.scope,
+    }
+    secure_write_json(path, payload)
 
 
 def load_token(server_id: str) -> StoredToken | None:
@@ -452,7 +437,7 @@ def load_token(server_id: str) -> StoredToken | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(secure_read_text(path))
     except (OSError, json.JSONDecodeError):
         logger.warning("failed to parse token file %s", path, exc_info=True)
         return None
