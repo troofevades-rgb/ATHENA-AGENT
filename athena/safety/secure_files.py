@@ -27,8 +27,13 @@ import logging
 import os
 import secrets
 import stat
+import sys
+import time
 from pathlib import Path
 from typing import Any
+
+_WINDOWS_REPLACE_RETRIES = 8
+_WINDOWS_REPLACE_BACKOFF_S = 0.01
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +97,35 @@ def secure_write_text(path: Path | str, text: str, *, mode: int = 0o600) -> None
                 dir_fd = None
         if dir_fd is not None:
             os.fsync(dir_fd)
-        os.replace(tmp_path, path)
+        _atomic_replace(tmp_path, path)
         if dir_fd is not None:
             os.fsync(dir_fd)
     finally:
         if dir_fd is not None:
             os.close(dir_fd)
+
+
+def _atomic_replace(tmp_path: Path, dest: Path) -> None:
+    """os.replace with Windows transient-PermissionError retry.
+
+    On POSIX, os.replace is atomic and never raises EACCES for concurrent
+    callers, so the loop body executes exactly once. On Windows, the
+    destination can be momentarily locked by a peer thread's replace; we
+    retry briefly with a tiny backoff.
+    """
+    if sys.platform != "win32":
+        os.replace(tmp_path, dest)
+        return
+    last_err: PermissionError | None = None
+    for attempt in range(_WINDOWS_REPLACE_RETRIES):
+        try:
+            os.replace(tmp_path, dest)
+            return
+        except PermissionError as e:
+            last_err = e
+            time.sleep(_WINDOWS_REPLACE_BACKOFF_S * (1 + attempt))
+    assert last_err is not None
+    raise last_err
 
 
 def secure_write_json(path: Path | str, obj: Any, *, mode: int = 0o600) -> None:
