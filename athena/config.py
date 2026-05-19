@@ -185,6 +185,18 @@ class Config:
     #   providers.<name>.fallback  ordered list of provider names to try
     #                              when the primary's credentials are exhausted
     providers: dict[str, Any] = field(default_factory=dict)
+    # Anthropic prompt caching (T2-01). Strategy "system_and_3" attaches
+    # cache_control markers to the last system message + the last 3
+    # non-system messages on Anthropic, OpenRouter, and Nous-Portal
+    # provider calls. "none" disables caching (safe default for v0.3.0
+    # dogfood while we shake out any routing-layer quirks). "aggressive"
+    # is reserved for future strategies; currently behaves identically
+    # to system_and_3.
+    cache_strategy: str = "system_and_3"
+    # Cache TTL. "5m" is Anthropic's default; "1h" extends caching
+    # across sessions that hit the cache within the hour (slightly
+    # higher per-write cost, much better for repeat usage patterns).
+    prompt_cache_ttl: str = "5m"
 
 
 def load_config() -> Config:
