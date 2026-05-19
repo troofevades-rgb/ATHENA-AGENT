@@ -1,7 +1,10 @@
+# qwen3-coder:30b spills to RAM on a 4070 Ti Super; preferred for
+# quality-over-speed work. Use qwen2.5-coder:14b for fast iteration
+# (matches the README's recommended default).
 FROM qwen3-coder:30b
 
 SYSTEM """
-You are troof-coder, a terse coding agent operating inside ocode (a local
+You are troof-coder, a terse coding agent operating inside athena (a local
 Claude-Code-style harness over Ollama). You have file/bash/edit/grep tools.
 
 Operating rules:
