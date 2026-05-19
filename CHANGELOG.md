@@ -9,6 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - (Future work lands here.)
 
+### TODO before tagging v0.2.0
+- _Finish T1-04 agent core test suite._ Sub-prompts .1–.3 landed in
+  `edd496f` (plan doc, FakeProvider scaffold, 3 Agent-init tests).
+  Sub-prompts .4–.8 (`run_turn`, `run_until_done`, fork, auxiliary
+  client, coverage finalize) are pending; per the Tier 1 ROADMAP
+  they land **after** T1-06/07/08 so the tests assert against
+  post-security agent behaviour rather than re-baselining later.
+
 ## [0.2.0] - 2026-05-19
 
 ### Added
