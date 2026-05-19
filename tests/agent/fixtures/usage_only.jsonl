@@ -1,0 +1,5 @@
+// Usage chunk with no content and no tool call — edge case.
+// Some providers emit this when the model decides to silently
+// "give up." Agent should treat as an empty assistant turn.
+{"kind": "usage", "payload": {"prompt_tokens": 5, "completion_tokens": 0}}
+{"kind": "end", "payload": null}

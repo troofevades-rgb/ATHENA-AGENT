@@ -1,0 +1,7 @@
+// Tool call with arguments as a JSON STRING rather than dict.
+// Some providers (ollama with certain models) emit this. The agent
+// must json.loads the string before dispatching.
+{"scenario": 0, "kind": "tool_call", "payload": {"id": "c1", "name": "Read", "arguments": "{\"file_path\": \"x.py\"}"}}
+{"scenario": 0, "kind": "end", "payload": null}
+{"scenario": 1, "kind": "content", "payload": "Read x.py."}
+{"scenario": 1, "kind": "end", "payload": null}

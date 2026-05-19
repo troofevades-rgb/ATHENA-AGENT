@@ -1,0 +1,7 @@
+// Stream that emits some content then ends without a tool call —
+// loop exit condition. (KeyboardInterrupt is simulated in-Python by
+// the test, not via a fixture.)
+{"kind": "content", "payload": "Working on it... "}
+{"kind": "content", "payload": "actually never mind."}
+{"kind": "usage", "payload": {"prompt_tokens": 30, "completion_tokens": 6}}
+{"kind": "end", "payload": null}
