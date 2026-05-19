@@ -61,6 +61,171 @@ SLASH_HELP = """\
 """
 
 
+def _slash_help(agent: Agent, arg: str) -> None:
+    ui.console.print(SLASH_HELP)
+
+
+def _slash_model(agent: Agent, arg: str) -> None:
+    if not arg:
+        ui.info(f"current model: {agent.model}")
+    else:
+        agent.model = arg.strip()
+        ui.info(f"model set to {agent.model}")
+
+
+def _slash_models(agent: Agent, arg: str) -> None:
+    try:
+        names = agent.provider.list_models()
+    except Exception as e:
+        ui.error(f"could not list models: {e}")
+        return
+    for n in names:
+        marker = "*" if n == agent.model else " "
+        ui.console.print(f" {marker} {n}")
+
+
+def _slash_tools(agent: Agent, arg: str) -> None:
+    for t in tools.all_tools(disabled=agent.cfg.disabled_tools):
+        confirm = " [confirm]" if t.requires_confirmation else ""
+        kind = " [mcp]" if "__" in t.name else ""
+        ui.console.print(
+            f"  • [bold]{t.name}[/]{kind}{confirm} — {t.description.splitlines()[0]}"
+        )
+
+
+def _slash_mcp(agent: Agent, arg: str) -> None:
+    sub = arg.split(maxsplit=1)
+    clients = active_clients()
+    if not sub:
+        if not clients:
+            ui.info("no MCP servers connected. Drop an mcp.json in the project or ~/.athena/")
+            return
+        for c in clients:
+            status = "alive" if c.is_alive() else "dead"
+            tcount = len(c._tools or [])  # safe: list_tools was called at startup
+            info = c._server_info.get("serverInfo", {}) if c._server_info else {}
+            version = info.get("version", "?")
+            ui.console.print(f"  • [bold]{c.name}[/] ({status}, v{version}) — {tcount} tools")
+        return
+    if sub[0] == "logs":
+        if len(sub) < 2:
+            ui.error("usage: /mcp logs SERVER")
+            return
+        target = sub[1].strip()
+        client = next((c for c in clients if c.name == target), None)
+        if not client:
+            ui.error(f"no server named '{target}'")
+            return
+        lines = client.stderr_tail(50)
+        if not lines:
+            ui.info(f"({target} has produced no stderr)")
+        else:
+            for ln in lines:
+                ui.console.print(f"  [dim]{ln}[/]")
+    else:
+        ui.error(f"unknown /mcp subcommand: {sub[0]}")
+
+
+def _slash_clear(agent: Agent, arg: str) -> None:
+    agent.reset()
+
+
+def _slash_cost(agent: Agent, arg: str) -> None:
+    s = agent.stats
+    elapsed = time.time() - s.started
+    ui.console.print(
+        f"turns: {s.turns}  tool calls: {s.tool_calls}\n"
+        f"prompt tokens: {s.prompt_tokens}  eval tokens: {s.eval_tokens}\n"
+        f"elapsed: {elapsed:.1f}s"
+    )
+
+
+def _slash_status(agent: Agent, arg: str) -> None:
+    # `--live` flag (or bare `live` arg) opens the dashboard view;
+    # the bare form keeps the snapshot-text behavior so existing
+    # users / scripts that grep for the output don't break.
+    if arg.strip() in ("live", "--live"):
+        ui.live_status(agent)
+        return
+    from .cli.status import render_status
+
+    snapshot = agent.stats.to_snapshot(
+        session_id=agent.session_id,
+        model=agent.model,
+        provider=getattr(agent.provider, "name", "?"),
+        profile=(agent.cfg.profile or "default"),
+    )
+    ui.console.print(render_status(snapshot))
+
+
+def _slash_save(agent: Agent, arg: str) -> None:
+    path = Path(arg).expanduser() if arg else SESSIONS_DIR / f"{int(time.time())}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(agent.messages, indent=2), encoding="utf-8")
+    ui.info(f"saved transcript to {path}")
+
+
+def _slash_dump(agent: Agent, arg: str) -> None:
+    sysmsg = next((m for m in agent.messages if m.get("role") == "system"), None)
+    if not sysmsg:
+        ui.error("no system message in history")
+        return
+    content = sysmsg.get("content", "")
+    ui.info(f"system prompt: {len(content):,} chars / ~{len(content) // 4:,} tokens")
+    ui.console.print(content, soft_wrap=True, highlight=False)
+
+
+def _slash_hooks(agent: Agent, arg: str) -> None:
+    from . import hooks as hooks_mod
+
+    hs = hooks_mod.list_hooks()
+    if not hs:
+        ui.info("no hooks configured. drop one in ~/.athena/settings.json")
+        return
+    for h in hs:
+        ui.console.print(f"  • [bold]{h.event}[/]  matcher={h.matcher!r}  -> {h.command!r}")
+
+
+def _slash_cwd(agent: Agent, arg: str) -> None:
+    if not arg:
+        ui.info(f"workspace: {agent.workspace}")
+        return
+    new = Path(arg).expanduser().resolve()
+    if not new.is_dir():
+        ui.error(f"not a directory: {new}")
+        return
+    agent.workspace = new
+    tools.file_ops.set_workspace(new, max_read=agent.cfg.max_file_read)
+    # Reload hooks for the new workspace, then rebuild the system
+    # prompt in place so ATHENA.md / MEMORY.md reflect it. Conversation
+    # history is preserved; user can /clear if they want a reset.
+    from . import hooks as hooks_mod
+
+    hooks_mod.load_hooks(new)
+    if agent.messages and agent.messages[0].get("role") == "system":
+        agent.messages[0] = {"role": "system", "content": agent._build_system()}
+    ui.info(f"workspace -> {new} (system prompt rebuilt; /clear to reset history)")
+
+
+# Uniform dispatch table for inline slash commands. New contributors
+# find every inline command here in one place; a future move into
+# athena/commands/ is now a pure rename per row (Tier-2 follow-up).
+_INLINE_SLASH_HANDLERS = {
+    "help": _slash_help,
+    "model": _slash_model,
+    "models": _slash_models,
+    "tools": _slash_tools,
+    "mcp": _slash_mcp,
+    "clear": _slash_clear,
+    "cost": _slash_cost,
+    "status": _slash_status,
+    "save": _slash_save,
+    "dump": _slash_dump,
+    "hooks": _slash_hooks,
+    "cwd": _slash_cwd,
+}
+
+
 def _handle_slash(agent: Agent, line: str) -> bool:
     """Returns True if the loop should continue, False to exit."""
     parts = line[1:].strip().split(maxsplit=1)
@@ -72,153 +237,25 @@ def _handle_slash(agent: Agent, line: str) -> bool:
     if cmd in ("exit", "quit", "q"):
         return False
 
-    if cmd == "help":
-        ui.console.print(SLASH_HELP)
+    handler = _INLINE_SLASH_HANDLERS.get(cmd)
+    if handler is not None:
+        handler(agent, arg)
+        return True
 
-    elif cmd == "model":
-        if not arg:
-            ui.info(f"current model: {agent.model}")
-        else:
-            agent.model = arg.strip()
-            ui.info(f"model set to {agent.model}")
-
-    elif cmd == "models":
+    # Fall through to the commands registry for module-based commands
+    # (/compact, /goal, /init, /loop, /memory, /plan, /resume, /review,
+    # /steer).
+    fn = commands.get_command(cmd)
+    if fn is None:
+        ui.error(f"unknown command: /{cmd}. /help for list.")
+        return True
+    result = fn(agent, arg)
+    # If the command returned a prompt string, run it as a user turn.
+    if isinstance(result, str) and result:
         try:
-            names = agent.provider.list_models()
-        except Exception as e:
-            ui.error(f"could not list models: {e}")
-            return True
-        for n in names:
-            marker = "*" if n == agent.model else " "
-            ui.console.print(f" {marker} {n}")
-
-    elif cmd == "tools":
-        for t in tools.all_tools(disabled=agent.cfg.disabled_tools):
-            confirm = " [confirm]" if t.requires_confirmation else ""
-            kind = " [mcp]" if "__" in t.name else ""
-            ui.console.print(
-                f"  • [bold]{t.name}[/]{kind}{confirm} — {t.description.splitlines()[0]}"
-            )
-
-    elif cmd == "mcp":
-        sub = arg.split(maxsplit=1)
-        clients = active_clients()
-        if not sub:
-            if not clients:
-                ui.info("no MCP servers connected. Drop an mcp.json in the project or ~/.athena/")
-                return True
-            for c in clients:
-                status = "alive" if c.is_alive() else "dead"
-                tcount = len(c._tools or [])  # safe: list_tools was called at startup
-                info = c._server_info.get("serverInfo", {}) if c._server_info else {}
-                version = info.get("version", "?")
-                ui.console.print(f"  • [bold]{c.name}[/] ({status}, v{version}) — {tcount} tools")
-        elif sub[0] == "logs":
-            if len(sub) < 2:
-                ui.error("usage: /mcp logs SERVER")
-                return True
-            target = sub[1].strip()
-            client = next((c for c in clients if c.name == target), None)
-            if not client:
-                ui.error(f"no server named '{target}'")
-                return True
-            lines = client.stderr_tail(50)
-            if not lines:
-                ui.info(f"({target} has produced no stderr)")
-            else:
-                for ln in lines:
-                    ui.console.print(f"  [dim]{ln}[/]")
-        else:
-            ui.error(f"unknown /mcp subcommand: {sub[0]}")
-
-    elif cmd == "clear":
-        agent.reset()
-
-    elif cmd == "cost":
-        s = agent.stats
-        elapsed = time.time() - s.started
-        ui.console.print(
-            f"turns: {s.turns}  tool calls: {s.tool_calls}\n"
-            f"prompt tokens: {s.prompt_tokens}  eval tokens: {s.eval_tokens}\n"
-            f"elapsed: {elapsed:.1f}s"
-        )
-
-    elif cmd == "status":
-        # `--live` flag (or bare `live` arg) opens the dashboard view;
-        # the bare form keeps the snapshot-text behavior so existing
-        # users / scripts that grep for the output don't break.
-        if arg.strip() in ("live", "--live"):
-            ui.live_status(agent)
-        else:
-            from .cli.status import render_status
-
-            snapshot = agent.stats.to_snapshot(
-                session_id=agent.session_id,
-                model=agent.model,
-                provider=getattr(agent.provider, "name", "?"),
-                profile=(agent.cfg.profile or "default"),
-            )
-            ui.console.print(render_status(snapshot))
-
-    elif cmd == "save":
-        path = Path(arg).expanduser() if arg else SESSIONS_DIR / f"{int(time.time())}.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(agent.messages, indent=2), encoding="utf-8")
-        ui.info(f"saved transcript to {path}")
-
-    elif cmd == "dump":
-        sysmsg = next((m for m in agent.messages if m.get("role") == "system"), None)
-        if not sysmsg:
-            ui.error("no system message in history")
-            return True
-        content = sysmsg.get("content", "")
-        ui.info(f"system prompt: {len(content):,} chars / ~{len(content) // 4:,} tokens")
-        ui.console.print(content, soft_wrap=True, highlight=False)
-
-    elif cmd == "hooks":
-        from . import hooks as hooks_mod
-
-        hs = hooks_mod.list_hooks()
-        if not hs:
-            ui.info("no hooks configured. drop one in ~/.athena/settings.json")
-            return True
-        for h in hs:
-            ui.console.print(f"  • [bold]{h.event}[/]  matcher={h.matcher!r}  -> {h.command!r}")
-
-    elif cmd == "cwd":
-        if not arg:
-            ui.info(f"workspace: {agent.workspace}")
-        else:
-            new = Path(arg).expanduser().resolve()
-            if not new.is_dir():
-                ui.error(f"not a directory: {new}")
-            else:
-                agent.workspace = new
-                tools.file_ops.set_workspace(new, max_read=agent.cfg.max_file_read)
-                # Reload hooks for the new workspace, then rebuild the system
-                # prompt in place so ATHENA.md / MEMORY.md reflect it. Conversation
-                # history is preserved; user can /clear if they want a reset.
-                from . import hooks as hooks_mod
-
-                hooks_mod.load_hooks(new)
-                if agent.messages and agent.messages[0].get("role") == "system":
-                    agent.messages[0] = {"role": "system", "content": agent._build_system()}
-                ui.info(f"workspace -> {new} (system prompt rebuilt; /clear to reset history)")
-
-    else:
-        # Fall through to the commands registry
-        fn = commands.get_command(cmd)
-        if fn is None:
-            ui.error(f"unknown command: /{cmd}. /help for list.")
-            return True
-        result = fn(agent, arg)
-        # If the command returned a prompt string, run it as a user turn.
-        if isinstance(result, str) and result:
-            try:
-                agent.run_turn(result)
-            except KeyboardInterrupt:
-                ui.warn("turn interrupted")
-
+            agent.run_turn(result)
+        except KeyboardInterrupt:
+            ui.warn("turn interrupted")
     return True
 
 

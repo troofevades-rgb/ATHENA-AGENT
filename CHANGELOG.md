@@ -10,18 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - (Future work lands here.)
 
 ### TODO before tagging v0.2.0
-- _Consolidate slash commands into `athena/commands/`._ T1-05 surfaced
-  that `/help`, `/exit`, `/model`, `/models`, `/tools`, `/mcp`,
-  `/clear`, `/cost`, `/status`, `/save`, `/dump`, `/hooks`, `/cwd`
-  are dispatched inline in `athena/__main__.py:_handle_slash`, while
-  `/compact`, `/goal`, `/init`, `/loop`, `/memory`, `/plan`,
-  `/resume`, `/review`, `/steer` have proper handler modules under
-  `athena/commands/`. The split is accidental ("added it quick,
-  never moved it"), not principled. Refactor each inline command
-  into its own `athena/commands/<name>_cmd.py` so the dispatcher
-  becomes a uniform table and new contributors find every command
-  in one place. Out of T1-05's scope (no-code-edits docs phase);
-  pencil for a Tier-1 follow-up after T1-08 or for Tier 2.
+
+(empty — all Tier 1 follow-ups closed; v0.2.0 is gated only on the
+user pushing the `v0.2.0` tag to trigger the publish workflow.)
+
+### Changed
+- Slash-command dispatcher refactored into a uniform table. `_handle_slash`
+  in `athena/__main__.py` now routes 12 inline commands (`/help`,
+  `/model`, `/models`, `/tools`, `/mcp`, `/clear`, `/cost`, `/status`,
+  `/save`, `/dump`, `/hooks`, `/cwd`) through `_INLINE_SLASH_HANDLERS`
+  rather than an elif chain. Module-based commands (`/compact`,
+  `/goal`, `/init`, `/loop`, `/memory`, `/plan`, `/resume`, `/review`,
+  `/steer`) still flow through `commands.get_command` unchanged. A
+  future move of the inline handlers into `athena/commands/*` is now
+  a pure rename per row.
 
 ## [0.2.0] - 2026-05-19
 
