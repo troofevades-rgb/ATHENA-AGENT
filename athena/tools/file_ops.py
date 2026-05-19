@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..safety.path_security import set_workspace as _set_path_security_workspace
+from ..safety.path_security import validate_path
 from .delta_lint import lint_after_write
 from .registry import tool
 
@@ -19,30 +21,26 @@ _MAX_READ = 256_000
 
 
 def set_workspace(path: Path, max_read: int = 256_000) -> None:
+    """Set the workspace root for file_ops AND path_security."""
     global _WORKSPACE, _MAX_READ
     _WORKSPACE = path.resolve()
     _MAX_READ = max_read
+    _set_path_security_workspace(_WORKSPACE)
 
 
-def _resolve(path: str) -> Path:
-    """Resolve a possibly-relative path against the workspace.
+def _resolve(path: str, *, intent: str) -> Path:
+    """Resolve a possibly-relative path against the workspace, then
+    validate it via path_security.
 
-    We don't hard-block out-of-workspace reads (the user may legitimately
-    want to view /etc/something), but we WILL block writes outside the
-    workspace.
+    Inside-workspace paths pass through unconditionally. Outside-workspace
+    paths route through the active approval callback (forks see AUTO_DENY).
+    Absolute-deny paths (process memory, kernel memory, raw devices) are
+    refused regardless of approval.
     """
     p = Path(path).expanduser()
     if not p.is_absolute():
         p = _WORKSPACE / p
-    return p.resolve()
-
-
-def _within_workspace(p: Path) -> bool:
-    try:
-        p.resolve().relative_to(_WORKSPACE)
-        return True
-    except ValueError:
-        return False
+    return validate_path(p, intent=intent)  # type: ignore[arg-type]
 
 
 # ---- Read ---------------------------------------------------------------
@@ -78,7 +76,7 @@ def Read(file_path: str, offset: int | None = None, limit: int | None = None, **
         if end and end != -1 and offset:
             limit = max(0, end - offset + 1)
 
-    p = _resolve(file_path)
+    p = _resolve(file_path, intent="read")
     if not p.exists():
         return f"ERROR: file not found: {p}"
     if p.is_dir():
@@ -132,9 +130,7 @@ def Read(file_path: str, offset: int | None = None, limit: int | None = None, **
 )
 def Write(file_path: str = "", content: str = "", **legacy) -> str:
     file_path = file_path or legacy.get("path", "")
-    p = _resolve(file_path)
-    if not _within_workspace(p):
-        return f"ERROR: refusing to write outside workspace: {p}"
+    p = _resolve(file_path, intent="write")
     p.parent.mkdir(parents=True, exist_ok=True)
     existed = p.exists()
     p.write_text(content, encoding="utf-8")
@@ -188,9 +184,7 @@ def Edit(
     old_string = old_string or legacy.get("old_str", "")
     new_string = new_string or legacy.get("new_str", "")
 
-    p = _resolve(file_path)
-    if not _within_workspace(p):
-        return f"ERROR: refusing to write outside workspace: {p}"
+    p = _resolve(file_path, intent="write")
     if not p.exists():
         return f"ERROR: file not found: {p}"
     text = p.read_text(encoding="utf-8")
@@ -237,7 +231,7 @@ def Edit(
     },
 )
 def list_dir(path: str = ".") -> str:
-    p = _resolve(path)
+    p = _resolve(path, intent="read")
     if not p.exists():
         return f"ERROR: not found: {p}"
     if not p.is_dir():
