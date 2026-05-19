@@ -708,15 +708,28 @@ class GatewayAdapter(ABC):
         when possible; on no boundary in the budget, hard-cut.
         """
         cap = getattr(self, "body_cap", _DEFAULT_BODY_CAP)
-        for chunk in _chunk_text(text, cap):
+        chunks = list(_chunk_text(text, cap))
+        for i, chunk in enumerate(chunks):
             try:
                 await self.send_text(chat_id, chunk)
             except Exception:
+                # Log and continue rather than abort the whole reply:
+                # one oversized / format-tripping chunk shouldn't
+                # swallow the rest of the assistant's turn. The user
+                # sees the partial answer + a clear failure marker
+                # instead of silence.
                 logger.exception(
-                    "[%s] send_text failed mid-stream for %s",
-                    self.name, chat_id,
+                    "[%s] send_text failed for %s chunk %d/%d",
+                    self.name, chat_id, i + 1, len(chunks),
                 )
-                return
+                try:
+                    await self.send_text(
+                        chat_id,
+                        f"_(chunk {i + 1}/{len(chunks)} failed to send; "
+                        "see daemon log)_",
+                    )
+                except Exception:
+                    pass
 
 
 # ---- module-level helpers ----------------------------------------------

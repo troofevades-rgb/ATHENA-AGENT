@@ -40,6 +40,11 @@ class DiscordAdapter(GatewayAdapter):
     """Discord bot exposure for the gateway."""
 
     name: str = "discord"
+    # Discord's hard limit on message content is 2000 chars; ``send``
+    # 400's with error 50035 above that. 1900 leaves room for the
+    # chunk-counter suffix ``_chunk_text`` may append, plus a markdown
+    # code fence the model might split mid-block.
+    body_cap: int = 1900
 
     def __init__(
         self,
