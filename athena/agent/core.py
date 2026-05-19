@@ -1020,11 +1020,21 @@ class Agent:
             self._persist_message(steer_msg)
 
     def _persist_message(self, message: dict[str, Any]) -> None:
-        """Append the message to the session store if one is active."""
+        """Append the message to the session store if one is active.
+
+        Strips any Anthropic ``cache_control`` markers before writing —
+        the current call path never plants them in ``self.messages``
+        (they're applied to a deepcopy in ``_messages_with_cache_markers``)
+        but the strip makes the invariant explicit and prevents a
+        future regression from polluting the JSONL.
+        """
         if self.session_store is None or self.session_id is None:
             return
+        from .prompt_caching import strip_cache_markers
+
+        clean = strip_cache_markers([message])[0]
         try:
-            self.session_store.append_turn(self.session_id, message)
+            self.session_store.append_turn(self.session_id, clean)
         except Exception as e:  # pragma: no cover — defensive
             ui.info(f"session append failed (continuing): {e}")
 
