@@ -9,6 +9,7 @@ See ``_PLAN.md`` for why the contracts here look the way they do —
 in particular, why ``stream_chat`` is sync (not async like the spec
 skeleton assumed).
 """
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,6 @@ from typing import Any
 import pytest
 
 from athena.providers.base import Provider, StreamChunk
-
 
 # ---------------------------------------------------------------------
 # FakeProvider — sync iterator of pre-baked StreamChunks
@@ -158,9 +158,7 @@ def thread_baseline():
     # legitimately predate this test's window.
     suspicious = {t for t in threading.enumerate() if t.ident in leaked and t.daemon}
     suspect_names = [t.name for t in suspicious if t.name.startswith("athena-")]
-    assert not suspect_names, (
-        f"Test leaked athena-prefixed daemon threads: {suspect_names}"
-    )
+    assert not suspect_names, f"Test leaked athena-prefixed daemon threads: {suspect_names}"
 
 
 @pytest.fixture

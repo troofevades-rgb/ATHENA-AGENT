@@ -88,9 +88,7 @@ def _slash_tools(agent: Agent, arg: str) -> None:
     for t in tools.all_tools(disabled=agent.cfg.disabled_tools):
         confirm = " [confirm]" if t.requires_confirmation else ""
         kind = " [mcp]" if "__" in t.name else ""
-        ui.console.print(
-            f"  • [bold]{t.name}[/]{kind}{confirm} — {t.description.splitlines()[0]}"
-        )
+        ui.console.print(f"  • [bold]{t.name}[/]{kind}{confirm} — {t.description.splitlines()[0]}")
 
 
 def _slash_mcp(agent: Agent, arg: str) -> None:
@@ -307,6 +305,7 @@ def main() -> int:
     # name (athena); show both so users hitting --version see the
     # `pip install` identifier alongside the version.
     from . import __version__ as _athena_version
+
     ap.add_argument(
         "--version",
         action="version",
