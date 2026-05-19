@@ -1,7 +1,45 @@
 [project]
-name = "athena"
+# Distribution name on PyPI ("pip install athena-coder"). The Python
+# import name stays `athena` and the installed shims are still
+# `athena` / `ocode` — distribution and import names are allowed to
+# differ (cf. `pip install pyyaml` → `import yaml`). `athena` and
+# `athena-agent` were both occupied by unrelated projects.
+name = "athena-coder"
 version = "0.2.0"
 description = "Self-improving terminal-first AI agent with closed training loop"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "troofevades", email = "troofevades@gmail.com" },
+]
+keywords = [
+    "ai",
+    "agent",
+    "claude",
+    "ollama",
+    "coding",
+    "terminal",
+    "tui",
+    "llm",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Terminals",
+    "Typing :: Typed",
+]
 requires-python = ">=3.10"
 dependencies = [
     "httpx>=0.27",
@@ -61,6 +99,12 @@ train = [
     "accelerate>=0.30",
     "bitsandbytes>=0.43",
 ]
+
+[project.urls]
+Homepage = "https://github.com/troofevades-rgb/ATHENA-AGENT"
+Repository = "https://github.com/troofevades-rgb/ATHENA-AGENT"
+Issues = "https://github.com/troofevades-rgb/ATHENA-AGENT/issues"
+Changelog = "https://github.com/troofevades-rgb/ATHENA-AGENT/blob/master/CHANGELOG.md"
 
 [project.scripts]
 athena = "athena.__main__:main"

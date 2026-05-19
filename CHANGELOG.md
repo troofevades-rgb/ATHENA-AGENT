@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Added
+- **PyPI publishing via trusted publishing** (T1-02) — `.github/workflows/publish.yml` fires on every `v*` git tag push. Builds sdist + wheel once, then routes the artifacts to TestPyPI (for `v*-rc*` / `v*-beta*` / `v*-alpha*` tags via PEP 440 pre-release detection) or real PyPI (for everything else). Uses OIDC trusted publishing — no `PYPI_API_TOKEN` secret in repo settings. Both publish jobs target named GitHub environments (`testpypi` / `pypi`) so a maintainer can optionally pin a manual-approval gate per release. `workflow_dispatch` inputs let you re-run a failed publish without burning a fresh tag.
+- **Project metadata for PyPI** — `pyproject.toml` now carries `readme`, `license` ("MIT"), `license-files`, `authors`, `keywords`, `classifiers`, and `[project.urls]` (Homepage, Repository, Issues, Changelog). Distribution name is `athena-coder` because both `athena` and `athena-agent` are taken on PyPI by unrelated active projects; the import name and CLI shims (`athena`, `ocode`) are unchanged.
+- **LICENSE file** — MIT, 2026.
+- **`docs/release.md`** — operator runbook covering the one-time PyPI / TestPyPI trusted-publisher registration, the standard release flow (`git tag v0.2.1 && git push origin v0.2.1`), pre-release staging via `*rc*` tags, manual re-dispatch on flaky publish, and yank/rollback procedure.
+
+### Added
 - **GitHub Actions CI** (T1-01) — five workflows running on every push to `master` and every PR: `tests.yml` (pytest matrix on Python 3.10/3.11/3.12/3.13), `lint.yml` (ruff check + ruff format --check, with mypy strict landing as advisory until the T1-04 cleanup), `coverage.yml` (pytest --cov; gates the build at 60%, current floor is 75%), `osv-scanner.yml` (google/osv-scanner-action reusable workflow on push + weekly Monday 08:00 UTC), `supply-chain.yml` (pip-audit, advisory-only for now). Each workflow has a `concurrency` group that cancels in-progress runs on new pushes to the same PR. Test workflow uses `fail-fast: false` so one Python version's failure doesn't hide others. No secrets referenced.
 - **Dependabot** (`.github/dependabot.yml`) — weekly pip + github-actions bumps. Dev-tool updates (ruff, mypy, pytest*) grouped into one PR so unrelated bumps don't flood the queue. Limit 5 open PRs at a time.
 - **README CI badges** — five SVG status badges immediately under the H1 linking to each workflow page on Actions.

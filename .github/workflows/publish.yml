@@ -1,0 +1,131 @@
+name: publish
+
+# Fires on any tag matching v*. Pre-release tags (v*-rc*, v*-beta*,
+# v*-alpha*) publish to TestPyPI for staging; everything else
+# publishes to real PyPI.
+#
+# Uses PyPI's *trusted publishing* (OIDC) — there are NO long-lived
+# secrets in this workflow or in repo settings. The trust handshake
+# happens between GitHub's OIDC issuer and PyPI's identity provider
+# config on the project page. Manual one-time setup is documented in
+# docs/release.md.
+
+on:
+  push:
+    tags:
+      - "v*"
+  # workflow_dispatch lets you manually trigger a (re-)build without
+  # tagging — useful for retrying a transient PyPI 5xx without a
+  # disposable tag.
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Where to publish"
+        required: true
+        default: "testpypi"
+        type: choice
+        options:
+          - testpypi
+          - pypi
+
+permissions:
+  contents: read
+
+jobs:
+  # ----------------------------------------------------------------
+  # 1. Build sdist + wheel once. Both publish jobs reuse the artifact
+  #    so we never build twice for the same tag.
+  # ----------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+      - name: Derive version + pre-release classification
+        id: version
+        shell: bash
+        run: |
+          # Strip the leading "v" from the tag (refs/tags/v0.2.1 → 0.2.1)
+          # OR fall back to the version in pyproject when the workflow
+          # was triggered manually via workflow_dispatch (no tag).
+          if [ -n "${GITHUB_REF_NAME:-}" ] && [[ "$GITHUB_REF_NAME" == v* ]]; then
+            VER="${GITHUB_REF_NAME#v}"
+          else
+            VER=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          # Detect pre-release suffixes per PEP 440: a/b/rc/dev.
+          if [[ "$VER" =~ (a|b|rc|\.dev|-alpha|-beta|-rc) ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved version=$VER prerelease=$([[ "$VER" =~ (a|b|rc|\.dev) ]] && echo true || echo false)"
+      - name: Build sdist + wheel
+        run: python -m build
+      - name: Validate metadata
+        run: twine check dist/*
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # ----------------------------------------------------------------
+  # 2. TestPyPI publish: fires on pre-release tags OR when
+  #    workflow_dispatch picked `testpypi`. Trusted publishing
+  #    requires the TestPyPI project page to list this workflow as a
+  #    trusted publisher (see docs/release.md).
+  # ----------------------------------------------------------------
+  publish-testpypi:
+    needs: build
+    if: needs.build.outputs.is_prerelease == 'true' || inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/athena-coder/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write   # OIDC trusted-publishing handshake
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+
+  # ----------------------------------------------------------------
+  # 3. Real PyPI publish: fires on non-prerelease tags OR a manual
+  #    `pypi` dispatch. Same OIDC trust contract on the production
+  #    project page.
+  # ----------------------------------------------------------------
+  publish-pypi:
+    needs: build
+    if: needs.build.outputs.is_prerelease == 'false' && (github.event_name == 'push' || inputs.target == 'pypi')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/athena-coder/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true
