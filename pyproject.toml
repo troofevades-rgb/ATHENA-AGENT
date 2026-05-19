@@ -108,8 +108,6 @@ Changelog = "https://github.com/troofevades-rgb/ATHENA-AGENT/blob/master/CHANGEL
 
 [project.scripts]
 athena = "athena.__main__:main"
-# Legacy alias; remove one release after the rename lands.
-ocode = "athena.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -40,3 +40,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,gateway,observability]"
       - run: mypy
+
+  version-sync:
+    # Gates the build: pyproject.toml's `version` and
+    # athena.__version__ must match. PyPI refuses re-uploads of the
+    # same version, so a release where the two disagree would ship a
+    # wheel whose installed `athena --version` prints something
+    # different from the package's metadata.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install athena (no extras needed)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Verify pyproject.toml ↔ athena.__version__
+        run: python scripts/verify_version.py

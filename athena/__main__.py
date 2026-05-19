@@ -266,6 +266,15 @@ def main() -> int:
         return mod.main(sys.argv[2:])
 
     ap = argparse.ArgumentParser(prog="athena", description="Local Claude Code on Ollama")
+    # Distribution name (athena-coder) differs from the Python import
+    # name (athena); show both so users hitting --version see the
+    # `pip install` identifier alongside the version.
+    from . import __version__ as _athena_version
+    ap.add_argument(
+        "--version",
+        action="version",
+        version=f"athena-coder {_athena_version}",
+    )
     ap.add_argument("-m", "--model", help="Ollama model tag")
     ap.add_argument("-p", "--prompt", help="One-shot prompt; runs and exits")
     ap.add_argument("-C", "--cwd", help="Workspace directory (default: current dir)")
