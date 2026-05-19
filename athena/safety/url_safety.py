@@ -183,8 +183,7 @@ def validate_url(url: str) -> ValidatedURL:
 
     if parsed.scheme not in _ALLOWED_SCHEMES:
         raise URLSecurityDenied(
-            f"Refusing URL with scheme {parsed.scheme!r}: only http/https allowed. "
-            f"(URL: {url})"
+            f"Refusing URL with scheme {parsed.scheme!r}: only http/https allowed. (URL: {url})"
         )
 
     host = parsed.hostname

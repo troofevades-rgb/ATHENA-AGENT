@@ -1,4 +1,5 @@
 """Agent construction + config wiring (T1-04.3)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -61,8 +62,7 @@ def test_agent_loads_athena_md_from_workspace(
     assert agent.messages, "agent has no messages after init"
     system_text = agent.messages[0].get("content") or ""
     assert sentinel in system_text or "foo-utils" in system_text, (
-        f"ATHENA.md content not visible in system prompt; "
-        f"first 200 chars: {system_text[:200]!r}"
+        f"ATHENA.md content not visible in system prompt; first 200 chars: {system_text[:200]!r}"
     )
 
 
@@ -76,9 +76,7 @@ def test_agent_respects_enabled_toolsets(
     from athena import tools
 
     # First baseline: no restriction → both Read and Bash are visible.
-    full_catalog = {
-        t.name for t in tools.all_tools(disabled=[])
-    }
+    full_catalog = {t.name for t in tools.all_tools(disabled=[])}
     assert "Read" in full_catalog
     assert "Bash" in full_catalog
 
@@ -86,17 +84,19 @@ def test_agent_respects_enabled_toolsets(
     # enabled_toolsets through tools.ollama_schema() in _stream_one;
     # we exercise the same helper directly.
     schema = tools.ollama_schema(
-        enabled_toolsets=["file"], disabled=[],
+        enabled_toolsets=["file"],
+        disabled=[],
     )
     names = {entry["function"]["name"] for entry in schema}
     assert "Read" in names
     assert "Bash" not in names, (
-        f"Bash should be filtered out by enabled_toolsets=['file']; "
-        f"got names: {sorted(names)}"
+        f"Bash should be filtered out by enabled_toolsets=['file']; got names: {sorted(names)}"
     )
 
     # Bonus: confirm the agent constructs cleanly with the restriction.
     agent = _make_agent(
-        fake_provider, workspace, enabled_toolsets=["file"],
+        fake_provider,
+        workspace,
+        enabled_toolsets=["file"],
     )
     assert agent.cfg.enabled_toolsets == ["file"]
