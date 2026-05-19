@@ -19,6 +19,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-xdist>=3.5",
+    "pytest-cov>=4.1",
     "freezegun>=1.4",
     "respx>=0.21",
     "ruff>=0.4",
@@ -83,7 +84,23 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
-ignore = ["E501"]
+# T1-01 baseline. Each entry below has 1+ existing violation in
+# athena/ or tests/; cleanup is staged for T1-04 (each rule flipped
+# back on after its violations are fixed, one PR per rule).
+ignore = [
+    "E501",   # line-too-long (100-col cap; over-cap lines deliberate)
+    "E402",   # module-import-not-at-top (defensive ordering in places)
+    "E741",   # ambiguous variable name
+    "F401",   # unused-import (re-exports w/o __all__ trip this)
+    "F841",   # unused-variable
+    "B007",   # unused loop control variable
+    "B017",   # assert-raises-Exception
+    "B024",   # ABC without abstract method
+    "B027",   # empty method in ABC without @abstractmethod
+    "B039",   # mutable contextvar default
+    "B904",   # raise-from-inside-except
+    "B905",   # zip-without-strict
+]
 
 [tool.mypy]
 python_version = "3.10"

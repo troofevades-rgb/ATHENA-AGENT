@@ -1,0 +1,26 @@
+name: osv-scanner
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  schedule:
+    - cron: "0 8 * * 1"  # Mondays 08:00 UTC
+
+# The OSV scanner reusable workflow is invoked at the JOB level via
+# `uses:` (a reusable workflow cannot be used as a step). Fails the
+# build by default when it finds vulnerabilities.
+jobs:
+  scan:
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.2.4
+    with:
+      scan-args: |-
+        --recursive
+        --skip-git
+        ./
+      upload-sarif: true

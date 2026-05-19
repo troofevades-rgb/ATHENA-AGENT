@@ -1,0 +1,28 @@
+name: supply-chain
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  schedule:
+    - cron: "0 8 * * 2"  # Tuesdays 08:00 UTC
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install athena + audit tool
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" pip-audit
+      - name: pip-audit (advisory)
+        # T1-01 lands pip-audit as advisory-only. Once we have a clean
+        # baseline + dependency lock, T1-04 drops the trailing `|| true`
+        # and makes audit findings block PRs.
+        run: pip-audit --strict || true

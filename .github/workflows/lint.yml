@@ -1,0 +1,42 @@
+name: lint
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install ruff
+      - run: ruff check athena tests
+      - run: ruff format --check athena tests
+
+  mypy:
+    runs-on: ubuntu-latest
+    # T1-01 lands mypy as advisory (visible in PR checks, doesn't gate
+    # merge). athena currently has ~283 violations of `strict = true`
+    # spread across ~81 modules; T1-04 ratchets this back to required
+    # after a focused cleanup pass.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - run: mypy

@@ -1,5 +1,11 @@
 # ATHENA-AGENT
 
+[![tests](https://github.com/troofevades-rgb/athena/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/troofevades-rgb/athena/actions/workflows/tests.yml)
+[![lint](https://github.com/troofevades-rgb/athena/actions/workflows/lint.yml/badge.svg?branch=master)](https://github.com/troofevades-rgb/athena/actions/workflows/lint.yml)
+[![coverage](https://github.com/troofevades-rgb/athena/actions/workflows/coverage.yml/badge.svg?branch=master)](https://github.com/troofevades-rgb/athena/actions/workflows/coverage.yml)
+[![osv-scanner](https://github.com/troofevades-rgb/athena/actions/workflows/osv-scanner.yml/badge.svg?branch=master)](https://github.com/troofevades-rgb/athena/actions/workflows/osv-scanner.yml)
+[![supply-chain](https://github.com/troofevades-rgb/athena/actions/workflows/supply-chain.yml/badge.svg?branch=master)](https://github.com/troofevades-rgb/athena/actions/workflows/supply-chain.yml)
+
 A terminal-based agentic coding assistant.
 
 ## Features
