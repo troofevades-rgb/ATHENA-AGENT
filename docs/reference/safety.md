@@ -329,6 +329,51 @@ workspace})`. The default implementation is a `logger.warning` with
 a grep-able structured prefix; tests monkeypatch the symbol to
 capture calls.
 
+## URL safety (T1-08)
+
+`athena/tools/web.py` is sandboxed via
+`athena.safety.url_safety.validate_url`. `WebFetch` validates the
+user-supplied URL before the httpx fetch, and an httpx event hook
+re-validates every redirect target so a 30x `Location:` header
+pointing at a blocked IP is refused just like a direct fetch.
+
+**Block list (IPv4):** `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`
+(carrier-grade NAT — AWS metadata fallback), `127.0.0.0/8`,
+`169.254.0.0/16` (link-local AND `169.254.169.254` cloud metadata),
+`172.16.0.0/12`, `192.0.0.0/24`, `192.0.2.0/24`, `192.168.0.0/16`,
+`198.18.0.0/15`, `198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4`
+(multicast), `240.0.0.0/4`, `255.255.255.255/32`.
+
+**Block list (IPv6):** `::/128`, `::1/128`, `64:ff9b::/96`,
+`100::/64`, `fc00::/7` (ULA), `fe80::/10` (link-local),
+`fd00:ec2::254/128` (AWS IMDSv2 v6), `ff00::/8` (multicast).
+IPv4-mapped IPv6 addresses (`::ffff:0:0/96`) re-check against the
+IPv4 list, so `::ffff:127.0.0.1` is blocked.
+
+**Schemes:** only `http` and `https` allowed. `file:`, `ftp:`,
+`gopher:`, `jar:`, `dict:`, `data:` with binary, etc. all refused.
+
+**Approval contract.** Same shape as path security:
+`(tool_name, args) -> "allow"|"deny"`. `validate_url` invokes
+`callback("url_safety", {url, resolved_ips, blocked_ips})`. Forks
+have `AUTO_DENY` installed, so any blocked URL from a fork raises
+`URLSecurityDenied` without prompting.
+
+**Escape hatch.** Tests fetching from localhost test servers, or a
+foreground tool reaching a user-configured private SearxNG, wrap
+the call in `with athena.safety.allow_external_urls():`. Bypass
+events fire `audit_append(kind="url_security_allow_external_bypass")`
+so even allowed bypasses are recorded.
+
+**Fail-closed on DNS failure.** `socket.getaddrinfo` errors raise
+`URLSecurityDenied` rather than allow the fetch through. An attacker
+cannot bypass validation by giving us a host that fails DNS in a way
+that crashes the validator.
+
+**Hardcoded URLs are not validated.** `_search_duckduckgo` and
+`_search_brave` hit public search endpoints under our control; they
+skip `validate_url` with an inline justification comment.
+
 ## Operational playbook
 
 **An agent edit broke a skill.**
