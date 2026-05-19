@@ -163,6 +163,12 @@ def fork(
                 reset_approvals,
                 scope_fresh_approvals,
             )
+            from ..safety.path_security import set_workspace as set_ps_workspace
+
+            # ContextVars don't propagate across thread boundaries, so the
+            # fork sees the default path_security workspace (cwd) unless
+            # we re-pin it. Inherit the parent's workspace explicitly.
+            set_ps_workspace(child.workspace)
 
             origin_token = set_current_write_origin(write_origin)
             approval_token = set_approval_callback(AUTO_DENY)
