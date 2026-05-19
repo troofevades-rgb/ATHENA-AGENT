@@ -793,10 +793,11 @@ class Agent:
         # to a Rich.Markdown view at the end without polluting the
         # terminal with both the plain stream and the rendered copy.
         typewriter = ui.TypewriterStream(prefix="▌ ", prefix_style="bold #00ff00")
+        msgs_to_send = self._messages_with_cache_markers()
         try:
             for chunk in self.provider.stream_chat(
                 model=self.model,
-                messages=self.messages,
+                messages=msgs_to_send,
                 tools=tools.ollama_schema(
                     enabled_toolsets=self.cfg.enabled_toolsets,
                     disabled=self.cfg.disabled_tools,
@@ -1026,6 +1027,33 @@ class Agent:
             self.session_store.append_turn(self.session_id, message)
         except Exception as e:  # pragma: no cover — defensive
             ui.info(f"session append failed (continuing): {e}")
+
+    # Providers that benefit from Anthropic-style cache_control
+    # markers. OpenRouter and Nous-Portal relay the marker upstream
+    # when the underlying model is Anthropic; the field is a no-op
+    # for non-Anthropic backends behind the same routing layer.
+    _CACHE_AWARE_PROVIDERS = frozenset({"anthropic", "openrouter", "nous"})
+
+    def _messages_with_cache_markers(self) -> list[dict[str, Any]]:
+        """Return ``self.messages`` with cache_control markers if the
+        active provider is Anthropic-flavoured and caching is enabled
+        in ``cfg.cache_strategy``. Pure copy — does not mutate
+        ``self.messages``.
+        """
+        strategy = getattr(self.cfg, "cache_strategy", "none")
+        if strategy == "none":
+            return self.messages
+        provider_name = getattr(self.provider, "name", "")
+        if provider_name not in self._CACHE_AWARE_PROVIDERS:
+            return self.messages
+        from .prompt_caching import apply_cache_markers
+
+        return apply_cache_markers(
+            self.messages,
+            strategy=strategy,  # type: ignore[arg-type]
+            ttl=getattr(self.cfg, "prompt_cache_ttl", "5m"),  # type: ignore[arg-type]
+            native_anthropic=(provider_name == "anthropic"),
+        )
 
     # -- introspection helpers used by Agent.fork() ---------------------
 
