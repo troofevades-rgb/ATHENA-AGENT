@@ -271,6 +271,64 @@ Surfaces migrated to `secure_files`:
 - `athena/migration/config_translator.py` — Hermes-import credential
   carry-over
 
+## Path security (T1-07)
+
+`athena/tools/file_ops.py` is sandboxed to the workspace via
+`athena.safety.path_security.validate_path`. Every `Read`, `Write`,
+`Edit`, and `list_dir` call resolves the input path and passes it
+through the validator before opening any file.
+
+Resolution order:
+
+1. Resolve the path (follows symlinks).
+2. If the resolved path matches an **absolute-deny** pattern, refuse.
+   Approval cannot override.
+3. If the resolved path is **inside the workspace**, allow.
+4. If the resolved path matches an **always-allowed prefix**, allow.
+5. If `allow_external()` is active on this context, allow.
+6. Otherwise, prompt the active approval callback. `"allow"` returns
+   the path; anything else raises `PathSecurityDenied`.
+
+**Always-allowed prefixes** (no prompt, even outside the workspace):
+
+- `~/.athena/**` — athena's own state directory
+- `~/.config/athena/**`
+- `/tmp/athena-**` — scratch dirs the agent itself created
+- `/var/folders/*/*/T/athena-**` — macOS TMPDIR shape
+
+**Absolute-deny patterns** (refuse regardless of approval):
+
+- `/proc/<pid>/mem`, `/proc/kcore`
+- `/dev/mem`, `/dev/kmem`, `/dev/port`
+- `/dev/sd[a-z]<n>`, `/dev/nvme<n>n<m>` raw block devices
+- `/sys/firmware/efi/efivars/*` — corrupting these can brick a host
+- Windows raw-device paths: `\\.\PHYSICALDRIVE<n>`, `\\.\Volume{...}`
+
+**Workspace is a `ContextVar`.** `Agent.__init__` sets it via
+`file_ops.set_workspace` (which delegates to `path_security.set_workspace`).
+Forks run in daemon threads and do **not** inherit `ContextVar` values
+across thread boundaries, so the fork runner re-pins the workspace
+explicitly before installing `AUTO_DENY`. Net effect: forks cannot
+escape the parent's workspace under any circumstances.
+
+**Test isolation.** `tests/conftest.py` installs an autouse
+`_path_security_workspace` fixture that points the workspace at
+`tmp_path` for every test. Tests that legitimately need to operate
+outside `tmp_path` wrap their call in
+`with athena.safety.path_security.allow_external():`.
+
+**Approval callback contract.** The project's approval callback is
+`(tool_name: str, args: dict) -> "allow"|"deny"`. `validate_path`
+calls `callback("path_security", {intent, path, workspace})`. Forks
+have `AUTO_DENY` installed, so any outside-workspace operation from
+a fork raises `PathSecurityDenied` without prompting.
+
+**Audit logging.** Approved outside-workspace operations fire
+`audit_append(kind="path_security_approval", payload={intent, path,
+workspace})`. The default implementation is a `logger.warning` with
+a grep-able structured prefix; tests monkeypatch the symbol to
+capture calls.
+
 ## Operational playbook
 
 **An agent edit broke a skill.**
