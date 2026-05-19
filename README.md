@@ -149,3 +149,14 @@ Only the **stdio** transport is supported. HTTP/SSE servers are skipped with a w
 - Local models are weaker at long-horizon planning than Claude. Keep tasks scoped.
 - No sub-agent / parallel tool execution.
 - Diff rendering is line-based, not semantic.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the complete change history.
+The most recent release notes are in
+[RELEASE_v0.2.0.md](RELEASE_v0.2.0.md).
+
+## Contributing
+
+Operator checklist for cutting a release lives in
+[docs/internal/release-process.md](docs/internal/release-process.md).
