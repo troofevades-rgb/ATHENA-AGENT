@@ -20,6 +20,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-xdist>=3.5",
     "pytest-cov>=4.1",
+    "pytest-timeout>=2.3",
     "freezegun>=1.4",
     "respx>=0.21",
     "ruff>=0.4",
@@ -77,6 +78,12 @@ include = ["athena*"]
 testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
+# Per-test timeout (pytest-timeout). 60s is generous for unit tests
+# and forces CI to surface hangs as a clear failure with a stack
+# trace instead of timing out the GHA runner. Tests that genuinely
+# need longer can mark themselves with @pytest.mark.timeout(N).
+timeout = 60
+timeout_method = "thread"
 
 [tool.ruff]
 line-length = 100
