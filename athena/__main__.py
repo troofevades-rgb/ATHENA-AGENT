@@ -1,5 +1,7 @@
 """CLI entry point. Handles argument parsing, REPL, and slash commands."""
+
 from __future__ import annotations
+
 import argparse
 import json
 import sys
@@ -10,7 +12,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 
-from . import tools, ui, commands
+from . import commands, tools, ui
 from .agent import Agent
 from .config import CONFIG_DIR, SESSIONS_DIR, load_config, mcp_config_paths
 from .mcp import load_mcp_servers, shutdown_all
@@ -94,7 +96,9 @@ def _handle_slash(agent: Agent, line: str) -> bool:
         for t in tools.all_tools(disabled=agent.cfg.disabled_tools):
             confirm = " [confirm]" if t.requires_confirmation else ""
             kind = " [mcp]" if "__" in t.name else ""
-            ui.console.print(f"  • [bold]{t.name}[/]{kind}{confirm} — {t.description.splitlines()[0]}")
+            ui.console.print(
+                f"  • [bold]{t.name}[/]{kind}{confirm} — {t.description.splitlines()[0]}"
+            )
 
     elif cmd == "mcp":
         sub = arg.split(maxsplit=1)
@@ -147,6 +151,7 @@ def _handle_slash(agent: Agent, line: str) -> bool:
             ui.live_status(agent)
         else:
             from .cli.status import render_status
+
             snapshot = agent.stats.to_snapshot(
                 session_id=agent.session_id,
                 model=agent.model,
@@ -167,11 +172,12 @@ def _handle_slash(agent: Agent, line: str) -> bool:
             ui.error("no system message in history")
             return True
         content = sysmsg.get("content", "")
-        ui.info(f"system prompt: {len(content):,} chars / ~{len(content)//4:,} tokens")
+        ui.info(f"system prompt: {len(content):,} chars / ~{len(content) // 4:,} tokens")
         ui.console.print(content, soft_wrap=True, highlight=False)
 
     elif cmd == "hooks":
         from . import hooks as hooks_mod
+
         hs = hooks_mod.list_hooks()
         if not hs:
             ui.info("no hooks configured. drop one in ~/.athena/settings.json")
@@ -193,6 +199,7 @@ def _handle_slash(agent: Agent, line: str) -> bool:
                 # prompt in place so ATHENA.md / MEMORY.md reflect it. Conversation
                 # history is preserved; user can /clear if they want a reset.
                 from . import hooks as hooks_mod
+
                 hooks_mod.load_hooks(new)
                 if agent.messages and agent.messages[0].get("role") == "system":
                     agent.messages[0] = {"role": "system", "content": agent._build_system()}
@@ -243,6 +250,7 @@ def main() -> int:
     # idempotent — once profiles/ exists, this short-circuits.
     try:
         from .profiles.migration import maybe_run_migration
+
         maybe_run_migration()
     except Exception:
         # A migration failure must never block startup; the user's
@@ -253,6 +261,7 @@ def main() -> int:
     # Subcommands short-circuit the interactive parser. argv[1] is the verb.
     if len(sys.argv) >= 2 and sys.argv[1] in _SUBCOMMANDS:
         import importlib
+
         mod = importlib.import_module(_SUBCOMMANDS[sys.argv[1]])
         return mod.main(sys.argv[2:])
 
@@ -260,8 +269,16 @@ def main() -> int:
     ap.add_argument("-m", "--model", help="Ollama model tag")
     ap.add_argument("-p", "--prompt", help="One-shot prompt; runs and exits")
     ap.add_argument("-C", "--cwd", help="Workspace directory (default: current dir)")
-    ap.add_argument("--auto-approve", action="store_true", help="Skip confirmation prompts for tools that opt into them (Bash, etc.)")
-    ap.add_argument("--lean-prompt", action="store_true", help="Use a trimmed system prompt (smaller models, low context)")
+    ap.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="Skip confirmation prompts for tools that opt into them (Bash, etc.)",
+    )
+    ap.add_argument(
+        "--lean-prompt",
+        action="store_true",
+        help="Use a trimmed system prompt (smaller models, low context)",
+    )
     ap.add_argument(
         "--profile",
         help="Active profile name (overrides ATHENA_PROFILE / active_profile / config).",
@@ -274,8 +291,10 @@ def main() -> int:
     # cfg.profile (SessionStore root, gateway router, curator state,
     # cron db, gateway routes) lands on the same on-disk root.
     from .profiles.resolution import resolve_active_profile
+
     cfg.profile = resolve_active_profile(
-        cli_arg=args.profile, config_default=cfg.profile,
+        cli_arg=args.profile,
+        config_default=cfg.profile,
     )
     if args.auto_approve:
         cfg.auto_approve_tools = True

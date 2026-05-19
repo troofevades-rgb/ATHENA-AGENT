@@ -8,6 +8,7 @@ A skill is a *directory* containing a ``SKILL.md``. Loose files and
 directories without a SKILL.md are ignored. Malformed SKILL.md files are
 skipped with a warning rather than crashing discovery.
 """
+
 from __future__ import annotations
 
 import logging

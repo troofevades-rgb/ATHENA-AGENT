@@ -2,15 +2,16 @@
 
 Falls back to pure Python if `rg` isn't on PATH.
 """
+
 from __future__ import annotations
+
 import re
 import shutil
 import subprocess
 from pathlib import Path
 
-from .registry import tool
 from . import file_ops
-
+from .registry import tool
 
 _HAS_RG = shutil.which("rg") is not None
 
@@ -63,7 +64,10 @@ def Glob(pattern: str, max_results: int = 200) -> str:
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Regex pattern"},
-            "path": {"type": "string", "description": "Subdirectory or file to search (default: workspace root)"},
+            "path": {
+                "type": "string",
+                "description": "Subdirectory or file to search (default: workspace root)",
+            },
             "glob": {"type": "string", "description": "Optional file glob filter, e.g. '*.py'"},
             "max_results": {"type": "integer", "description": "Default 100."},
         },
@@ -104,7 +108,9 @@ def Grep(
         files = [p for p in target.rglob(glob or "*") if p.is_file()]
     for f in files:
         try:
-            for i, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            for i, line in enumerate(
+                f.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+            ):
                 if rx.search(line):
                     results.append(f"{f.relative_to(root)}:{i}:{line}")
                     if len(results) >= max_results:

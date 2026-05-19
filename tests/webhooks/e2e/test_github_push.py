@@ -12,6 +12,7 @@ Uses the same in-process test client other webhook tests use — the
 goal is to exercise the wiring (auth + headers + JSON parse +
 dispatch + record_fire), not to spin up real Docker or DNS.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,8 +20,6 @@ import hashlib
 import hmac
 import json
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -28,7 +27,6 @@ from aiohttp.test_utils import TestClient, TestServer
 from athena.webhooks.delivery import dispatch_webhook
 from athena.webhooks.server import WebhookServer
 from athena.webhooks.subscription import WebhookStore, WebhookSubscription
-
 
 # A small realistic GitHub push payload — trimmed to the fields most
 # webhook consumers actually care about.
@@ -75,13 +73,19 @@ class _StubAgent:
 
 
 def _hmac_sig(body: bytes, secret: str) -> str:
-    return "sha256=" + hmac.new(
-        secret.encode(), body, hashlib.sha256,
-    ).hexdigest()
+    return (
+        "sha256="
+        + hmac.new(
+            secret.encode(),
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+    )
 
 
 async def test_github_push_signature_verified_and_dispatched(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The canonical Phase 15 scenario: a GitHub push hits the
     listener, the signature verifies, the agent runs the bound skill
@@ -104,13 +108,19 @@ async def test_github_push_signature_verified_and_dispatched(
     async def real_dispatch(s, payload, headers):
         agent = _StubAgent(agent_response)
         await dispatch_webhook(
-            daemon=None, sub=s, payload=payload, headers=headers,
+            daemon=None,
+            sub=s,
+            payload=payload,
+            headers=headers,
             agent_factory=lambda: agent,
         )
         dispatched_with.append((s.id, payload, headers, agent.run_calls))
 
     server = WebhookServer(
-        daemon=None, store=store, host="127.0.0.1", port=0,
+        daemon=None,
+        store=store,
+        host="127.0.0.1",
+        port=0,
         dispatch=real_dispatch,
     )
 
@@ -163,7 +173,8 @@ async def test_github_push_wrong_signature_rejected(tmp_path: Path) -> None:
     """A push signed with the wrong secret never reaches dispatch."""
     store = WebhookStore(tmp_path / "webhooks.db")
     sub = WebhookSubscription(
-        auth_type="hmac_sha256", auth_secret="correct",
+        auth_type="hmac_sha256",
+        auth_secret="correct",
         skill_name="summarize-changes",
     )
     store.add(sub)
@@ -174,7 +185,10 @@ async def test_github_push_wrong_signature_rejected(tmp_path: Path) -> None:
         fired.append((s.id, payload, headers))
 
     server = WebhookServer(
-        daemon=None, store=store, host="127.0.0.1", port=0,
+        daemon=None,
+        store=store,
+        host="127.0.0.1",
+        port=0,
         dispatch=spy_dispatch,
     )
 
@@ -203,7 +217,8 @@ async def test_github_redelivery_idempotent(tmp_path: Path) -> None:
     store = WebhookStore(tmp_path / "webhooks.db")
     secret = "s"
     sub = WebhookSubscription(
-        auth_type="hmac_sha256", auth_secret=secret,
+        auth_type="hmac_sha256",
+        auth_secret=secret,
         skill_name="echo",
     )
     store.add(sub)
@@ -214,7 +229,10 @@ async def test_github_redelivery_idempotent(tmp_path: Path) -> None:
         dispatches.append(s.id)
 
     server = WebhookServer(
-        daemon=None, store=store, host="127.0.0.1", port=0,
+        daemon=None,
+        store=store,
+        host="127.0.0.1",
+        port=0,
         dispatch=spy,
     )
 
@@ -227,10 +245,14 @@ async def test_github_redelivery_idempotent(tmp_path: Path) -> None:
     }
     async with TestClient(TestServer(server.app)) as client:
         r1 = await client.post(
-            f"/webhook/{sub.id}", data=body, headers=headers,
+            f"/webhook/{sub.id}",
+            data=body,
+            headers=headers,
         )
         r2 = await client.post(
-            f"/webhook/{sub.id}", data=body, headers=headers,
+            f"/webhook/{sub.id}",
+            data=body,
+            headers=headers,
         )
 
     assert r1.status == 202

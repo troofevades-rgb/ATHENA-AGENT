@@ -7,11 +7,11 @@ Interaction-like objects. The adapter is shaped so the testable bits
 (event normalization, approval rendering, send helpers) are
 addressable without spinning a real gateway connection.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
@@ -317,8 +317,12 @@ async def test_render_approval_sends_view_to_channel(tmp_path: Path) -> None:
     a._client = MagicMock()
     a._client.get_channel = MagicMock(return_value=channel)
     req = ApprovalRequest(
-        session_id="s1", tool_name="Bash", tool_args={"cmd": "ls"},
-        request_id="r1", platform="discord", chat_id="42",
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={"cmd": "ls"},
+        request_id="r1",
+        platform="discord",
+        chat_id="42",
     )
     await a._render_approval(req)
     channel.send.assert_awaited_once()
@@ -341,17 +345,24 @@ async def test_render_approval_falls_back_to_router_route(
     now = datetime.now(timezone.utc)
     a.daemon.router.routes = [
         SimpleNamespace(
-            session_id="s1", chat_id="5", platform="discord",
+            session_id="s1",
+            chat_id="5",
+            platform="discord",
             last_seen_at=now - timedelta(hours=1),
         ),
         SimpleNamespace(
-            session_id="s1", chat_id="7", platform="discord",
+            session_id="s1",
+            chat_id="7",
+            platform="discord",
             last_seen_at=now,
         ),
     ]
     req = ApprovalRequest(
-        session_id="s1", tool_name="Bash", tool_args={},
-        request_id="r1", platform="discord",
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
+        request_id="r1",
+        platform="discord",
     )
     await a._render_approval(req)
     a._client.get_channel.assert_called_once_with(7)
@@ -364,8 +375,11 @@ async def test_render_approval_drops_when_no_route(tmp_path: Path) -> None:
     a._client = MagicMock()
     a._client.get_channel = MagicMock(return_value=channel)
     req = ApprovalRequest(
-        session_id="missing", tool_name="Bash", tool_args={},
-        request_id="r1", platform="discord",
+        session_id="missing",
+        tool_name="Bash",
+        tool_args={},
+        request_id="r1",
+        platform="discord",
     )
     await a._render_approval(req)
     channel.send.assert_not_awaited()
@@ -381,8 +395,12 @@ async def test_render_approval_falls_back_to_fetch_channel(
     a._client.get_channel = MagicMock(return_value=None)
     a._client.fetch_channel = AsyncMock(return_value=fetched)
     req = ApprovalRequest(
-        session_id="s", tool_name="Bash", tool_args={},
-        request_id="r", platform="discord", chat_id="99",
+        session_id="s",
+        tool_name="Bash",
+        tool_args={},
+        request_id="r",
+        platform="discord",
+        chat_id="99",
     )
     await a._render_approval(req)
     a._client.fetch_channel.assert_awaited_once_with(99)
@@ -394,8 +412,11 @@ async def test_render_approval_falls_back_to_fetch_channel(
 
 def test_format_approval_body_truncates_long_values() -> None:
     req = ApprovalRequest(
-        session_id="s", tool_name="X", tool_args={"big": "Y" * 5000},
-        request_id="r", platform="discord",
+        session_id="s",
+        tool_name="X",
+        tool_args={"big": "Y" * 5000},
+        request_id="r",
+        platform="discord",
     )
     body = _format_approval_body(req)
     # Discord cap is 2000; we stay well under.
@@ -405,8 +426,11 @@ def test_format_approval_body_truncates_long_values() -> None:
 
 def test_format_approval_body_escapes_triple_backticks() -> None:
     req = ApprovalRequest(
-        session_id="s", tool_name="X", tool_args={"code": "```bash\nrm -rf"},
-        request_id="r", platform="discord",
+        session_id="s",
+        tool_name="X",
+        tool_args={"code": "```bash\nrm -rf"},
+        request_id="r",
+        platform="discord",
     )
     body = _format_approval_body(req)
     assert "```" not in body.split("⚠")[1]
@@ -414,8 +438,11 @@ def test_format_approval_body_escapes_triple_backticks() -> None:
 
 def test_format_approval_body_no_args() -> None:
     req = ApprovalRequest(
-        session_id="s", tool_name="Status", tool_args={},
-        request_id="r", platform="discord",
+        session_id="s",
+        tool_name="Status",
+        tool_args={},
+        request_id="r",
+        platform="discord",
     )
     assert _format_approval_body(req) == "⚠ Run `Status`?"
 
@@ -458,7 +485,9 @@ async def test_approval_view_button_resolves_via_callback(
 async def test_approval_view_deny_button(tmp_path: Path) -> None:
     calls: list[tuple[str, str]] = []
     view = _build_approval_view(
-        "r", on_decision=lambda rid, d: calls.append((rid, d)), timeout=10.0,
+        "r",
+        on_decision=lambda rid, d: calls.append((rid, d)),
+        timeout=10.0,
     )
     interaction = MagicMock()
     interaction.response = MagicMock()

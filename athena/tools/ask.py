@@ -7,11 +7,13 @@ agent loop until the user responds.
 Each question has 2-4 options; the user can also type free-form text via the
 'Other' option. multiSelect=true lets the user pick multiple.
 """
+
 from __future__ import annotations
+
 from typing import Any
 
-from .registry import tool
 from .. import ui
+from .registry import tool
 
 
 def _ask_one(q: dict[str, Any]) -> dict[str, str]:
@@ -28,7 +30,7 @@ def _ask_one(q: dict[str, Any]) -> dict[str, str]:
         label = opt.get("label", "")
         desc = opt.get("description", "")
         ui.console.print(f"  {i}. [bold]{label}[/] — [dim]{desc}[/]")
-    ui.console.print(f"  {len(options)+1}. [dim]Other (type custom answer)[/]")
+    ui.console.print(f"  {len(options) + 1}. [dim]Other (type custom answer)[/]")
 
     while True:
         try:
@@ -90,7 +92,10 @@ def _ask_one(q: dict[str, Any]) -> dict[str, str]:
                     "required": ["question", "options"],
                     "properties": {
                         "question": {"type": "string"},
-                        "header": {"type": "string", "description": "Short label for the chip/tag (max 12 chars)."},
+                        "header": {
+                            "type": "string",
+                            "description": "Short label for the chip/tag (max 12 chars).",
+                        },
                         "multiSelect": {"type": "boolean"},
                         "options": {
                             "type": "array",

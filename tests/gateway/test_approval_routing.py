@@ -10,17 +10,15 @@ These tests verify each path: the async-side request, the
 cross-thread sync bridge, the renderer contract, timeout-as-deny
 fallback, and the late-click / unknown-id / cancel_all edge cases.
 """
+
 from __future__ import annotations
 
 import asyncio
 import threading
 from unittest.mock import AsyncMock
 
-import pytest
-
 from athena.gateway.approval_routing import ApprovalRouter
 from athena.gateway.events import ApprovalRequest
-
 
 # ---- async path -------------------------------------------------------
 
@@ -32,13 +30,13 @@ async def test_request_async_resolves_to_allow_when_user_allows() -> None:
     async def renderer(req: ApprovalRequest) -> None:
         seen_request_ids.append(req.request_id)
         # Simulate user clicking allow shortly after the prompt renders.
-        asyncio.get_running_loop().call_soon(
-            lambda: router.resolve(req.request_id, "allow")
-        )
+        asyncio.get_running_loop().call_soon(lambda: router.resolve(req.request_id, "allow"))
 
     router.set_renderer(renderer)
     decision = await router.request_async(
-        session_id="s1", tool_name="Bash", tool_args={"cmd": "ls"},
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={"cmd": "ls"},
     )
     assert decision == "allow"
     assert len(seen_request_ids) == 1
@@ -49,13 +47,13 @@ async def test_request_async_resolves_to_deny_when_user_denies() -> None:
     router = ApprovalRouter()
 
     async def renderer(req: ApprovalRequest) -> None:
-        asyncio.get_running_loop().call_soon(
-            lambda: router.resolve(req.request_id, "deny")
-        )
+        asyncio.get_running_loop().call_soon(lambda: router.resolve(req.request_id, "deny"))
 
     router.set_renderer(renderer)
     decision = await router.request_async(
-        session_id="s1", tool_name="Write", tool_args={"path": "/etc/passwd"},
+        session_id="s1",
+        tool_name="Write",
+        tool_args={"path": "/etc/passwd"},
     )
     assert decision == "deny"
 
@@ -63,7 +61,9 @@ async def test_request_async_resolves_to_deny_when_user_denies() -> None:
 async def test_no_renderer_installed_auto_denies() -> None:
     router = ApprovalRouter()
     decision = await router.request_async(
-        session_id="s1", tool_name="Bash", tool_args={},
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
     )
     assert decision == "deny"
 
@@ -76,7 +76,9 @@ async def test_renderer_exception_auto_denies() -> None:
 
     router.set_renderer(boom)
     decision = await router.request_async(
-        session_id="s1", tool_name="Bash", tool_args={},
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
     )
     assert decision == "deny"
 
@@ -89,7 +91,9 @@ async def test_timeout_resolves_to_deny() -> None:
 
     router.set_renderer(renderer)
     decision = await router.request_async(
-        session_id="s1", tool_name="Bash", tool_args={},
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
     )
     assert decision == "deny"
     assert router.pending_count == 0
@@ -100,7 +104,10 @@ async def test_custom_per_request_timeout_overrides_default() -> None:
     router.set_renderer(AsyncMock())
 
     decision = await router.request_async(
-        session_id="s1", tool_name="Bash", tool_args={}, timeout=0.05,
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
+        timeout=0.05,
     )
     assert decision == "deny"
 
@@ -120,7 +127,9 @@ async def test_resolve_returns_true_on_first_call_false_after() -> None:
 
     router.set_renderer(renderer)
     await router.request_async(
-        session_id="s1", tool_name="Bash", tool_args={},
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
     )
     assert resolved == [True, False]
 
@@ -138,13 +147,13 @@ async def test_pending_request_returns_record() -> None:
         saw.append(req)
         # Mid-request, the record should be retrievable.
         assert router.pending_request(req.request_id) is req
-        asyncio.get_running_loop().call_soon(
-            lambda: router.resolve(req.request_id, "allow")
-        )
+        asyncio.get_running_loop().call_soon(lambda: router.resolve(req.request_id, "allow"))
 
     router.set_renderer(renderer)
     await router.request_async(
-        session_id="s1", tool_name="Bash", tool_args={},
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
     )
     # After resolution, the record is gone.
     assert router.pending_request(saw[0].request_id) is None
@@ -170,7 +179,9 @@ async def test_request_sync_bridges_into_loop() -> None:
     def worker_thread() -> None:
         result.append(
             router.request_sync(
-                session_id="s1", tool_name="Bash", tool_args={"cmd": "ls"},
+                session_id="s1",
+                tool_name="Bash",
+                tool_args={"cmd": "ls"},
             )
         )
 
@@ -190,7 +201,9 @@ async def test_request_sync_without_loop_returns_deny() -> None:
     router = ApprovalRouter()
     # No bind_loop call.
     result = router.request_sync(
-        session_id="s1", tool_name="Bash", tool_args={},
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
     )
     assert result == "deny"
 
@@ -208,9 +221,7 @@ async def test_request_sync_timeout_returns_deny() -> None:
     result: list[str] = []
 
     def worker() -> None:
-        result.append(
-            router.request_sync(session_id="s", tool_name="Bash", tool_args={})
-        )
+        result.append(router.request_sync(session_id="s", tool_name="Bash", tool_args={}))
 
     t = threading.Thread(target=worker)
     t.start()
@@ -237,7 +248,9 @@ async def test_cancel_all_denies_pending() -> None:
     async def one_request() -> None:
         pending_decisions.append(
             await router.request_async(
-                session_id="s1", tool_name="Bash", tool_args={},
+                session_id="s1",
+                tool_name="Bash",
+                tool_args={},
                 timeout=30.0,
             )
         )
@@ -264,13 +277,13 @@ async def test_request_records_answered_at_and_decision_on_resolve() -> None:
         # Capture state before resolution.
         assert req.answered_at is None
         assert req.decision is None
-        asyncio.get_running_loop().call_soon(
-            lambda: router.resolve(req.request_id, "allow")
-        )
+        asyncio.get_running_loop().call_soon(lambda: router.resolve(req.request_id, "allow"))
 
     router.set_renderer(renderer)
     await router.request_async(
-        session_id="s1", tool_name="Bash", tool_args={},
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
     )
     record = captured[0]
     assert record.decision == "allow"
@@ -286,7 +299,9 @@ async def test_request_records_timeout_decision() -> None:
 
     router.set_renderer(renderer)
     await router.request_async(
-        session_id="s1", tool_name="Bash", tool_args={},
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
     )
     assert captured[0].decision == "deny"
     assert captured[0].answered_at is not None

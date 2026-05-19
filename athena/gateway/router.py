@@ -11,6 +11,7 @@ When :attr:`continuity` is enabled, the router consults the
 ``athena gateway link --canonical <id> --platform <p> --id <pid>``
 share one session across the platforms they appear on.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -90,7 +91,7 @@ class SessionRouter:
     def __init__(
         self,
         profile_dir: Path,
-        session_store: "SessionStore",
+        session_store: SessionStore,
         *,
         profile: str,
         model: str,
@@ -161,15 +162,18 @@ class SessionRouter:
             " created_at, last_seen_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
-                event.platform, event.chat_id, event.user_id,
-                session_id, self.profile, now, now,
+                event.platform,
+                event.chat_id,
+                event.user_id,
+                session_id,
+                self.profile,
+                now,
+                now,
             ),
         )
         self._db.commit()
 
-    def _lookup_via_canonical_user(
-        self, event: MessageEvent
-    ) -> str | None:
+    def _lookup_via_canonical_user(self, event: MessageEvent) -> str | None:
         canonical = self._canonical_user(event.platform, event.user_id)
         if canonical is None:
             return None
@@ -214,7 +218,8 @@ class SessionRouter:
         except Exception:
             logger.exception(
                 "session_store.open_session failed for new route %s/%s",
-                event.platform, event.chat_id,
+                event.platform,
+                event.chat_id,
             )
             raise
         self._record_route(event, session_id)
@@ -245,8 +250,7 @@ class SessionRouter:
         """Remove a platform identity from its canonical user. Returns
         True iff a row was actually deleted."""
         cur = self._db.execute(
-            "DELETE FROM gateway_user_links "
-            "WHERE platform = ? AND platform_user_id = ?",
+            "DELETE FROM gateway_user_links WHERE platform = ? AND platform_user_id = ?",
             (platform, platform_user_id),
         )
         self._db.commit()
@@ -278,12 +282,9 @@ class SessionRouter:
             for row in self._db.execute(sql, params).fetchall()
         ]
 
-    def remove_route(
-        self, platform: str, chat_id: str, user_id: str
-    ) -> bool:
+    def remove_route(self, platform: str, chat_id: str, user_id: str) -> bool:
         cur = self._db.execute(
-            "DELETE FROM gateway_routes "
-            "WHERE platform = ? AND chat_id = ? AND user_id = ?",
+            "DELETE FROM gateway_routes WHERE platform = ? AND chat_id = ? AND user_id = ?",
             (platform, chat_id, user_id),
         )
         self._db.commit()

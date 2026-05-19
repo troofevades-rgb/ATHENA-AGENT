@@ -7,6 +7,7 @@ array (parsed by :mod:`openai_tools`) is what everything ≥ 2024 emits.
 
 Falls back to ``(content, [])`` when the legacy field isn't present.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,9 +19,7 @@ from . import register
 logger = logging.getLogger(__name__)
 
 
-def parse(
-    content: str, raw_response: dict[str, Any]
-) -> tuple[str, list[dict[str, Any]]]:
+def parse(content: str, raw_response: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     msg = raw_response.get("message") if isinstance(raw_response, dict) else None
     if not isinstance(msg, dict):
         return content, []

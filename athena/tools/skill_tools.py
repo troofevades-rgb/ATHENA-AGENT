@@ -11,17 +11,18 @@ Workspace context is read from the file_ops module's global, which the
 Agent sets at startup. That keeps the tool signatures simple and aligned
 with how ``Read`` / ``Write`` / ``Edit`` already operate.
 """
+
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from . import file_ops
-from .registry import tool
-from ..skills import manager, validation
+from ..skills import manager
 from ..skills.archive import SkillNotFoundError
 from ..skills.discovery import discover_skills
 from ..skills.manager import CuratorPolicyError, SkillExistsError
+from . import file_ops
+from .registry import tool
 
 
 def _workspace():
@@ -29,23 +30,27 @@ def _workspace():
 
 
 def _ok(action: str, name: str, message: str = "") -> str:
-    return json.dumps({
-        "success": True,
-        "target": "skill",
-        "action": action,
-        "skill_name": name,
-        "message": message,
-    })
+    return json.dumps(
+        {
+            "success": True,
+            "target": "skill",
+            "action": action,
+            "skill_name": name,
+            "message": message,
+        }
+    )
 
 
 def _err(action: str, name: str, message: str) -> str:
-    return json.dumps({
-        "success": False,
-        "target": "skill",
-        "action": action,
-        "skill_name": name,
-        "message": message,
-    })
+    return json.dumps(
+        {
+            "success": False,
+            "target": "skill",
+            "action": action,
+            "skill_name": name,
+            "message": message,
+        }
+    )
 
 
 @tool(

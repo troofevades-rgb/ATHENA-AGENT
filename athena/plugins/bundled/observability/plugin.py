@@ -26,6 +26,7 @@ emits nothing. The JSON-logging install requires ``python-json-
 logger``; absent the dep, we fall back to keeping the default
 formatter and log a single warning.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,7 +45,6 @@ from .metrics import (
     METRIC_TURN_LATENCY,
 )
 from .redaction import redact_args
-
 
 logger = logging.getLogger("athena.observability")
 
@@ -108,7 +108,7 @@ class ObservabilityPlugin(Plugin):
         else:
             logger.warning(
                 "OpenTelemetry SDK not installed; spans/metrics disabled. "
-                "Install with: pip install -e \".[observability]\""
+                'Install with: pip install -e ".[observability]"'
             )
         self._installed = True
 
@@ -116,9 +116,7 @@ class ObservabilityPlugin(Plugin):
         try:
             from .logging_config import install_json_logging
         except ImportError:  # pragma: no cover
-            logger.warning(
-                "python-json-logger not installed; JSON logging disabled"
-            )
+            logger.warning("python-json-logger not installed; JSON logging disabled")
             return
         try:
             self._log_handler = install_json_logging(
@@ -133,10 +131,12 @@ class ObservabilityPlugin(Plugin):
     def _setup_tracing(self) -> None:
         if not _HAVE_OTEL:
             return
-        resource = Resource.create({
-            "service.name": str(self.config.get("service_name", "athena")),
-            "service.version": "0.2.0",
-        })
+        resource = Resource.create(
+            {
+                "service.name": str(self.config.get("service_name", "athena")),
+                "service.version": "0.2.0",
+            }
+        )
         provider = TracerProvider(resource=resource)
         exporter = self._build_span_exporter()
         provider.add_span_processor(BatchSpanProcessor(exporter))
@@ -150,11 +150,10 @@ class ObservabilityPlugin(Plugin):
                 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
                     OTLPSpanExporter,
                 )
+
                 return OTLPSpanExporter(endpoint=str(endpoint))
             except ImportError:  # pragma: no cover
-                logger.warning(
-                    "OTLP exporter not installed; falling back to stderr"
-                )
+                logger.warning("OTLP exporter not installed; falling back to stderr")
         return ConsoleSpanExporter()
 
     def _setup_metrics(self) -> None:
@@ -166,6 +165,7 @@ class ObservabilityPlugin(Plugin):
                 from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
                     OTLPMetricExporter,
                 )
+
                 exporter = OTLPMetricExporter(endpoint=str(endpoint))
             except ImportError:  # pragma: no cover
                 exporter = ConsoleMetricExporter()
@@ -258,7 +258,9 @@ class ObservabilityPlugin(Plugin):
     # ---- tool dispatch ----
 
     def pre_tool_call(
-        self, tool_name: str, tool_args: dict[str, Any],
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any],
     ) -> bool | None:
         # Plugins on the bus return None to indicate "I observed, did
         # not block". The tool veto path checks for False explicitly.
@@ -267,7 +269,8 @@ class ObservabilityPlugin(Plugin):
         try:
             attrs = {"athena.tool_name": tool_name, **redact_args(tool_args)}
             span = self._tracer.start_span(
-                f"athena.tool_call.{tool_name}", attributes=attrs,
+                f"athena.tool_call.{tool_name}",
+                attributes=attrs,
             )
         except Exception:
             logger.debug("tool span start failed", exc_info=True)
@@ -276,7 +279,9 @@ class ObservabilityPlugin(Plugin):
         # post hook can correlate even if multiple tools fire
         # concurrently.
         self._tool_spans[id(tool_args)] = (
-            span, time.monotonic(), tool_name,
+            span,
+            time.monotonic(),
+            tool_name,
         )
         return None
 
@@ -297,7 +302,8 @@ class ObservabilityPlugin(Plugin):
                     len(result) if isinstance(result, str) else 0,
                 )
                 span.set_attribute(
-                    "athena.tool_call.latency_ms", latency_ms,
+                    "athena.tool_call.latency_ms",
+                    latency_ms,
                 )
                 span.end()
             except Exception:
@@ -316,7 +322,8 @@ class ObservabilityPlugin(Plugin):
         if histogram is not None and latency_ms is not None:
             try:
                 histogram.record(
-                    latency_ms, {"athena.tool_name": tool_name},
+                    latency_ms,
+                    {"athena.tool_name": tool_name},
                 )
             except Exception:
                 logger.debug("tool latency record failed", exc_info=True)

@@ -1,4 +1,5 @@
 """Tests for the search_sessions recall tool."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,16 +23,16 @@ def seeded_store(profile_dir: Path):
     store = SessionStore(profile_dir)
     sid1 = new_session_id()
     sid2 = new_session_id()
-    store.open_session(SessionMeta(
-        session_id=sid1, profile="default", model="qwen", workspace="/proj"
-    ))
+    store.open_session(
+        SessionMeta(session_id=sid1, profile="default", model="qwen", workspace="/proj")
+    )
     store.append_turn(sid1, {"role": "user", "content": "context before"})
     store.append_turn(sid1, {"role": "user", "content": "find the needle here"})
     store.append_turn(sid1, {"role": "user", "content": "context after"})
 
-    store.open_session(SessionMeta(
-        session_id=sid2, profile="default", model="qwen", workspace="/other"
-    ))
+    store.open_session(
+        SessionMeta(session_id=sid2, profile="default", model="qwen", workspace="/other")
+    )
     store.append_turn(sid2, {"role": "user", "content": "the needle in another haystack"})
 
     yield store, sid1, sid2
@@ -65,9 +66,7 @@ def test_search_sessions_filters_workspace_by_default(seeded_store, monkeypatch)
     assert "Found 1" in out
 
 
-def test_search_sessions_empty_workspace_searches_globally(
-    seeded_store, monkeypatch
-) -> None:
+def test_search_sessions_empty_workspace_searches_globally(seeded_store, monkeypatch) -> None:
     store, sid1, sid2 = seeded_store
     monkeypatch.setattr(
         "athena.agent.core.get_current_agent",

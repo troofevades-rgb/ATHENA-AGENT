@@ -12,6 +12,7 @@ other secret on disk. Building a real key-derivation flow for one
 table buys nothing against that adversary and adds operational
 complexity (rotation, master-key management).
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -20,7 +21,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
-
 
 AuthType = Literal["hmac_sha256", "bearer", "none"]
 BindingType = Literal["skill", "prompt"]
@@ -90,17 +90,11 @@ class WebhookSubscription:
         if self.binding_type not in ("skill", "prompt"):
             raise ValueError(f"invalid binding_type: {self.binding_type!r}")
         if self.binding_type == "skill" and not self.skill_name:
-            raise ValueError(
-                "binding_type='skill' requires non-empty skill_name"
-            )
+            raise ValueError("binding_type='skill' requires non-empty skill_name")
         if self.binding_type == "prompt" and not self.prompt_template:
-            raise ValueError(
-                "binding_type='prompt' requires non-empty prompt_template"
-            )
+            raise ValueError("binding_type='prompt' requires non-empty prompt_template")
         if self.auth_type != "none" and not self.auth_secret:
-            raise ValueError(
-                f"auth_type={self.auth_type!r} requires non-empty auth_secret"
-            )
+            raise ValueError(f"auth_type={self.auth_type!r} requires non-empty auth_secret")
         if self.rate_limit_per_minute < 1:
             raise ValueError(
                 f"rate_limit_per_minute must be >= 1, got {self.rate_limit_per_minute}"
@@ -155,7 +149,8 @@ class WebhookStore:
 
     def get(self, id: str) -> WebhookSubscription | None:
         row = self._db.execute(
-            "SELECT * FROM webhook_subscriptions WHERE id = ?", (id,),
+            "SELECT * FROM webhook_subscriptions WHERE id = ?",
+            (id,),
         ).fetchone()
         return _from_row(row) if row else None
 
@@ -173,10 +168,16 @@ class WebhookStore:
             "rate_limit_per_minute=?, enabled=? "
             "WHERE id=?",
             (
-                sub.description, sub.auth_type, sub.auth_secret,
-                sub.binding_type, sub.skill_name, sub.prompt_template,
-                sub.delivery_target, sub.rate_limit_per_minute,
-                1 if sub.enabled else 0, sub.id,
+                sub.description,
+                sub.auth_type,
+                sub.auth_secret,
+                sub.binding_type,
+                sub.skill_name,
+                sub.prompt_template,
+                sub.delivery_target,
+                sub.rate_limit_per_minute,
+                1 if sub.enabled else 0,
+                sub.id,
             ),
         )
         self._db.commit()
@@ -184,7 +185,8 @@ class WebhookStore:
 
     def delete(self, id: str) -> bool:
         cur = self._db.execute(
-            "DELETE FROM webhook_subscriptions WHERE id = ?", (id,),
+            "DELETE FROM webhook_subscriptions WHERE id = ?",
+            (id,),
         )
         self._db.commit()
         return cur.rowcount > 0
@@ -222,10 +224,19 @@ class WebhookStore:
 
 def _from_row(row: tuple) -> WebhookSubscription:
     (
-        id_, description, auth_type, auth_secret, binding_type,
-        skill_name, prompt_template, delivery_target,
-        rate_limit_per_minute, enabled,
-        created_at, last_fired_at, fire_count,
+        id_,
+        description,
+        auth_type,
+        auth_secret,
+        binding_type,
+        skill_name,
+        prompt_template,
+        delivery_target,
+        rate_limit_per_minute,
+        enabled,
+        created_at,
+        last_fired_at,
+        fire_count,
     ) = row
     # Bypass __post_init__ — rows in the DB were validated at insert
     # time, and a corrupted row (e.g. manually edited) shouldn't
@@ -244,9 +255,7 @@ def _from_row(row: tuple) -> WebhookSubscription:
         delivery_target=delivery_target,
         rate_limit_per_minute=rate_limit_per_minute,
         enabled=bool(enabled),
-        created_at=(
-            _parse_iso(created_at) or datetime.now(timezone.utc)
-        ),
+        created_at=(_parse_iso(created_at) or datetime.now(timezone.utc)),
         last_fired_at=_parse_iso(last_fired_at),
         fire_count=fire_count,
     )

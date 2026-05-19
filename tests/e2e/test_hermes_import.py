@@ -4,17 +4,17 @@ We build the fixture under tmp_path rather than checking in synthetic data;
 the README in tests/fixtures/hermes_home_sample/ explains how to anonymize
 real samples if a contributor wants to provide one later.
 """
+
 from __future__ import annotations
 
 import json
 import sqlite3
 from pathlib import Path
-from typing import Callable
 
 import pytest
 import yaml
 
-from athena.migration.hermes_import import DEFAULT_DOMAINS, run_import
+from athena.migration.hermes_import import run_import
 
 
 @pytest.fixture
@@ -54,31 +54,37 @@ def hermes_home_sample(tmp_path: Path) -> Path:
 
     # config.yaml
     (src / "config.yaml").write_text(
-        yaml.safe_dump({
-            "model": "qwen2.5-coder:14b",
-            "ollama_host": "http://localhost:11434",
-            "context_window": 32768,
-            "openai_api_key": "sk-fake",
-            "custom_thing": "preserve me",
-        }),
+        yaml.safe_dump(
+            {
+                "model": "qwen2.5-coder:14b",
+                "ollama_host": "http://localhost:11434",
+                "context_window": 32768,
+                "openai_api_key": "sk-fake",
+                "custom_thing": "preserve me",
+            }
+        ),
         encoding="utf-8",
     )
 
     # mcp.json
     (src / "mcp.json").write_text(
-        json.dumps({
-            "mcpServers": {
-                "fs": {"command": "uvx", "args": ["mcp-fs"]},
-                "remote": {"transport": "http", "url": "http://x"},
+        json.dumps(
+            {
+                "mcpServers": {
+                    "fs": {"command": "uvx", "args": ["mcp-fs"]},
+                    "remote": {"transport": "http", "url": "http://x"},
+                }
             }
-        }),
+        ),
         encoding="utf-8",
     )
 
     # sessions
     (sessions / "session-001.jsonl").write_text(
-        json.dumps({"_meta": {"model": "qwen2.5"}}) + "\n"
-        + json.dumps({"role": "user", "content": "hi"}) + "\n",
+        json.dumps({"_meta": {"model": "qwen2.5"}})
+        + "\n"
+        + json.dumps({"role": "user", "content": "hi"})
+        + "\n",
         encoding="utf-8",
     )
     (sessions / "session-002.jsonl").write_text(
@@ -110,9 +116,7 @@ def hermes_home_sample(tmp_path: Path) -> Path:
     return src
 
 
-def test_full_import_against_fixture_hermes_home(
-    hermes_home_sample: Path, tmp_path: Path
-) -> None:
+def test_full_import_against_fixture_hermes_home(hermes_home_sample: Path, tmp_path: Path) -> None:
     dest = tmp_path / "athena-out"
     report_dir = run_import(hermes_home_sample, dest)
 
@@ -151,14 +155,12 @@ def test_dry_run_makes_no_changes(hermes_home_sample: Path, tmp_path: Path) -> N
     assert (logs[0] / "REPORT.md").exists()
 
 
-def test_report_lists_all_imported_artifacts(
-    hermes_home_sample: Path, tmp_path: Path
-) -> None:
+def test_report_lists_all_imported_artifacts(hermes_home_sample: Path, tmp_path: Path) -> None:
     dest = tmp_path / "athena-out"
     report_dir = run_import(hermes_home_sample, dest)
     summary = json.loads((report_dir / "summary.json").read_text(encoding="utf-8"))
     counts = summary["counts"]
-    assert counts.get("imported_skill", 0) >= 3   # a, b, old-skill
+    assert counts.get("imported_skill", 0) >= 3  # a, b, old-skill
     assert counts.get("imported_memory", 0) == 2
     assert counts.get("imported_session", 0) == 2
     assert counts.get("imported_config", 0) == 1
@@ -170,11 +172,10 @@ def test_report_lists_all_imported_artifacts(
     )
 
 
-def test_post_import_validation_passes(
-    hermes_home_sample: Path, tmp_path: Path
-) -> None:
+def test_post_import_validation_passes(hermes_home_sample: Path, tmp_path: Path) -> None:
     """Every imported skill must parse via the athena v2 validator."""
     from athena.skills.validation import validate_skill
+
     dest = tmp_path / "athena-out"
     run_import(hermes_home_sample, dest)
     for skill_dir in (dest / "skills").iterdir():
@@ -195,17 +196,23 @@ def test_second_run_is_idempotent(hermes_home_sample: Path, tmp_path: Path) -> N
     assert summary["counts"].get("conflict_renamed", 0) == 0
 
 
-def test_cli_entry_point_dispatches(monkeypatch, hermes_home_sample: Path, tmp_path: Path, capsys) -> None:
+def test_cli_entry_point_dispatches(
+    monkeypatch, hermes_home_sample: Path, tmp_path: Path, capsys
+) -> None:
     """athena import-from-hermes --source X --dest Y --no-confirm dispatches
     through __main__.main() and returns 0."""
     from athena import __main__ as main_mod
+
     dest = tmp_path / "athena-out"
     monkeypatch.setattr(
         "sys.argv",
         [
-            "athena", "import-from-hermes",
-            "--source", str(hermes_home_sample),
-            "--dest", str(dest),
+            "athena",
+            "import-from-hermes",
+            "--source",
+            str(hermes_home_sample),
+            "--dest",
+            str(dest),
             "--no-confirm",
         ],
     )

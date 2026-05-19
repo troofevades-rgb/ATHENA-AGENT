@@ -1,4 +1,5 @@
 """Tests for athena.skills.progressive_disclosure.build_catalog."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,9 +11,7 @@ def test_catalog_empty_when_no_skills(isolated_home: Path) -> None:
     assert build_catalog() == ""
 
 
-def test_catalog_only_includes_active_and_stale(
-    isolated_home: Path, write_skill
-) -> None:
+def test_catalog_only_includes_active_and_stale(isolated_home: Path, write_skill) -> None:
     user = isolated_home / ".athena" / "skills"
     user.mkdir(parents=True)
     write_skill(user, "live")
@@ -78,9 +77,7 @@ def test_catalog_marks_stale_explicitly(isolated_home: Path, write_skill) -> Non
     assert "(state:" not in fresh_line
 
 
-def test_catalog_active_pinned_then_active_then_stale(
-    isolated_home: Path, write_skill
-) -> None:
+def test_catalog_active_pinned_then_active_then_stale(isolated_home: Path, write_skill) -> None:
     """Order is: pinned active first, then unpinned active, then stale."""
     user = isolated_home / ".athena" / "skills"
     user.mkdir(parents=True)
@@ -100,6 +97,7 @@ def test_catalog_active_pinned_then_active_then_stale(
 def test_catalog_in_system_prompt(isolated_home: Path, write_skill) -> None:
     """The agent's build_system_prompt() must include the catalog when given."""
     from athena.prompts import build_system_prompt
+
     user = isolated_home / ".athena" / "skills"
     user.mkdir(parents=True)
     write_skill(user, "in-prompt", description="should appear in prompt")

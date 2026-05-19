@@ -16,6 +16,7 @@ Rules, evaluated per-skill in order (first match wins):
 6. ``last_activity_at`` within ``stale_after_days`` AND
    ``state == "stale"`` → reactivate
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -24,8 +25,7 @@ from pathlib import Path
 from . import archive as archive_mod
 from . import loader
 from .discovery import discover_skills
-from .frontmatter import SkillFrontmatter, parse_frontmatter, serialize_frontmatter
-
+from .frontmatter import parse_frontmatter, serialize_frontmatter
 
 _LIFECYCLE_ORIGINS = frozenset({"background_review", "curator"})
 

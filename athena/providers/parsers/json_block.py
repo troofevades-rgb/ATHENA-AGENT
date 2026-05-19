@@ -15,6 +15,7 @@ documentation. Only treats the whole content as a tool call when:
 - with a non-empty string ``name``,
 - and an ``arguments`` value (dict, JSON string, or absent).
 """
+
 from __future__ import annotations
 
 import json
@@ -26,9 +27,7 @@ from .fallback import _coerce_arguments
 logger = logging.getLogger(__name__)
 
 
-def parse(
-    content: str, raw_response: dict[str, Any]
-) -> tuple[str, list[dict[str, Any]]]:
+def parse(content: str, raw_response: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     if not isinstance(content, str):
         return "", []
     stripped = content.strip()
@@ -43,8 +42,10 @@ def parse(
     name = obj.get("name")
     if not isinstance(name, str) or not name:
         return content, []
-    return "", [{
-        "name": name,
-        "arguments": _coerce_arguments(obj.get("arguments")),
-        "id": obj.get("id", "") if isinstance(obj.get("id", ""), str) else "",
-    }]
+    return "", [
+        {
+            "name": name,
+            "arguments": _coerce_arguments(obj.get("arguments")),
+            "id": obj.get("id", "") if isinstance(obj.get("id", ""), str) else "",
+        }
+    ]

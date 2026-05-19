@@ -15,6 +15,7 @@ Differences from OpenAI/Ollama shape:
 
 API auth: ``x-api-key`` header + ``anthropic-version`` pin.
 """
+
 from __future__ import annotations
 
 import itertools
@@ -34,11 +35,11 @@ def _synth_tool_id() -> str:
     """
     return f"toolu_athena_{next(_synth_counter):08d}"
 
+
 import httpx
 
 from . import register_provider
 from .base import Provider, StreamChunk
-
 
 _DEFAULT_VERSION = "2023-06-01"
 _DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
@@ -128,6 +129,7 @@ class AnthropicProvider(Provider):
         Claude 4 vs Claude 3) can specialize. Falls through to the
         anthropic ``claude-*`` parser when the model field is absent."""
         from .parsers import resolve_parser
+
         model = ""
         if isinstance(raw_response, dict):
             m = raw_response.get("model")
@@ -155,7 +157,8 @@ class AnthropicProvider(Provider):
         data = r.json() or {}
         items = data.get("data") or []
         return [
-            item["id"] for item in items
+            item["id"]
+            for item in items
             if isinstance(item, dict) and isinstance(item.get("id"), str)
         ]
 
@@ -185,7 +188,8 @@ class AnthropicProvider(Provider):
             if isinstance(content, list):
                 # join text-block list (rare for our inputs but defensive)
                 content = "".join(
-                    b.get("text", "") for b in content
+                    b.get("text", "")
+                    for b in content
                     if isinstance(b, dict) and b.get("type") == "text"
                 )
             return str(content), list(messages[1:])
@@ -257,12 +261,14 @@ class AnthropicProvider(Provider):
                     if not tc_id:
                         tc_id = _synth_tool_id()
                         pending_synth_ids.append(tc_id)
-                    blocks.append({
-                        "type": "tool_use",
-                        "id": tc_id,
-                        "name": fn.get("name", ""),
-                        "input": args if isinstance(args, dict) else {},
-                    })
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": tc_id,
+                            "name": fn.get("name", ""),
+                            "input": args if isinstance(args, dict) else {},
+                        }
+                    )
                 # If the turn would have zero blocks (no text, no tool
                 # calls — happens on mid-stream interrupt or aggressive
                 # plugin filtering), drop it entirely. Anthropic rejects
@@ -285,25 +291,26 @@ class AnthropicProvider(Provider):
                     if not tc_id:
                         # Pair with the next synth id minted for the
                         # preceding assistant turn.
-                        tc_id = (
-                            pending_synth_ids.pop(0)
-                            if pending_synth_ids else _synth_tool_id()
-                        )
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tc_id,
-                        "content": str(t.get("content") or ""),
-                    })
+                        tc_id = pending_synth_ids.pop(0) if pending_synth_ids else _synth_tool_id()
+                    results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tc_id,
+                            "content": str(t.get("content") or ""),
+                        }
+                    )
                     i += 1
                 out.append({"role": "user", "content": results})
                 continue
 
             # user / system / anything else passes through with content
             # left as-is (string or already-structured blocks).
-            out.append({
-                "role": role or "user",
-                "content": content,
-            })
+            out.append(
+                {
+                    "role": role or "user",
+                    "content": content,
+                }
+            )
             i += 1
         return out
 
@@ -317,11 +324,13 @@ class AnthropicProvider(Provider):
         for t in tools:
             if "function" in t and isinstance(t["function"], dict):
                 fn = t["function"]
-                out.append({
-                    "name": fn.get("name", ""),
-                    "description": fn.get("description", ""),
-                    "input_schema": fn.get("parameters", {}) or {},
-                })
+                out.append(
+                    {
+                        "name": fn.get("name", ""),
+                        "description": fn.get("description", ""),
+                        "input_schema": fn.get("parameters", {}) or {},
+                    }
+                )
             else:
                 # Already Anthropic shape (or unknown — pass through).
                 out.append(t)
@@ -350,7 +359,7 @@ class AnthropicProvider(Provider):
         for raw in response.iter_lines():
             if not raw or not raw.startswith("data: "):
                 continue
-            data = raw[len("data: "):].strip()
+            data = raw[len("data: ") :].strip()
             if data == "[DONE]":
                 break
             try:
@@ -386,11 +395,14 @@ class AnthropicProvider(Provider):
                         args = json.loads(args_raw) if args_raw else {}
                     except json.JSONDecodeError:
                         args = {"_raw": args_raw}
-                    yield StreamChunk("tool_call", {
-                        "name": tool["name"],
-                        "arguments": args,
-                        "id": tool["id"],
-                    })
+                    yield StreamChunk(
+                        "tool_call",
+                        {
+                            "name": tool["name"],
+                            "arguments": args,
+                            "id": tool["id"],
+                        },
+                    )
             elif etype == "message_start":
                 msg = event.get("message") or {}
                 u = msg.get("usage") or {}

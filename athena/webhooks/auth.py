@@ -9,6 +9,7 @@ accepted alongside our own ``X-Webhook-Signature: <hex>`` so the
 same webhook URL can serve a GitHub repo and a custom client
 without the operator caring.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -30,7 +31,9 @@ def verify_hmac_sha256(body: bytes, signature_header: str, secret: str) -> bool:
     if not sig:
         return False
     expected = hmac.new(
-        secret.encode("utf-8"), body, hashlib.sha256,
+        secret.encode("utf-8"),
+        body,
+        hashlib.sha256,
     ).hexdigest()
     # Compare hex strings of identical length (hexdigest always
     # returns 64 chars). compare_digest tolerates length mismatch

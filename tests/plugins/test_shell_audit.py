@@ -1,4 +1,5 @@
 """Bundled shell_audit plugin: writes JSONL per session for shell tool calls."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -12,11 +13,13 @@ def _load_shell_audit_class():
     """Importlib the bundled plugin.py the same way the loader does."""
     plugin_py = (
         Path(__file__).resolve().parents[2]
-        / "athena" / "plugins" / "bundled" / "shell_audit" / "plugin.py"
+        / "athena"
+        / "plugins"
+        / "bundled"
+        / "shell_audit"
+        / "plugin.py"
     )
-    spec = importlib.util.spec_from_file_location(
-        "ocode_plugin__shell_audit_test", plugin_py
-    )
+    spec = importlib.util.spec_from_file_location("ocode_plugin__shell_audit_test", plugin_py)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

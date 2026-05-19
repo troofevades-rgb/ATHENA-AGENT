@@ -26,6 +26,7 @@ API-key-shaped values (``*_api_key``, ``*_token``, ``*_secret``) are moved
 out of the config and into ``<dest>/credentials.json`` so secrets don't
 appear in shareable config diffs.
 """
+
 from __future__ import annotations
 
 import json
@@ -36,7 +37,6 @@ from typing import Any
 import yaml
 
 from .report import Report
-
 
 _KEY_MAP = {
     "model": "model",
@@ -108,10 +108,13 @@ def translate_config(
 ) -> None:
     cfg_path = source / "config.yaml"
     if not cfg_path.exists():
-        report.add("config_warning", {
-            "reason": "no_config_yaml",
-            "path": str(cfg_path),
-        })
+        report.add(
+            "config_warning",
+            {
+                "reason": "no_config_yaml",
+                "path": str(cfg_path),
+            },
+        )
         return
 
     try:
@@ -149,9 +152,12 @@ def translate_config(
                 json.dumps(credentials, indent=2), encoding="utf-8"
             )
 
-    report.add("imported_config", {
-        "known_keys": sorted(known.keys()),
-        "passthrough_keys": sorted(hermes_extras.keys()),
-        "credential_keys": sorted(credentials.keys()),
-        "dry_run": dry_run,
-    })
+    report.add(
+        "imported_config",
+        {
+            "known_keys": sorted(known.keys()),
+            "passthrough_keys": sorted(hermes_extras.keys()),
+            "credential_keys": sorted(credentials.keys()),
+            "dry_run": dry_run,
+        },
+    )

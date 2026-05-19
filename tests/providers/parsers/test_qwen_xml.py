@@ -1,4 +1,5 @@
 """Qwen XML-leakage parser — <tool_call>{...}</tool_call> recovery."""
+
 from __future__ import annotations
 
 from athena.providers.parsers.qwen_xml_leakage import parse
@@ -48,9 +49,13 @@ def test_malformed_json_leaves_block_in_content():
 def test_native_tool_calls_preferred_when_present():
     """Some Ollama versions actually parse Qwen's leak server-side and
     populate raw_response.message.tool_calls. Trust that path."""
-    raw = {"message": {"tool_calls": [
-        {"function": {"name": "FromNative", "arguments": {"k": "v"}}},
-    ]}}
+    raw = {
+        "message": {
+            "tool_calls": [
+                {"function": {"name": "FromNative", "arguments": {"k": "v"}}},
+            ]
+        }
+    }
     content = '<tool_call>{"name": "FromContent", "arguments": {}}</tool_call>'
     cleaned, calls = parse(content, raw)
     assert calls[0]["name"] == "FromNative"

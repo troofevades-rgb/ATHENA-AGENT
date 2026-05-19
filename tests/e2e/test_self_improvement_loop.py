@@ -6,9 +6,9 @@ without a real LLM in the loop. The provider is replaced with a scripted
 FakeClient or the fork itself is monkey-patched, depending on which loop
 is under test.
 """
+
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,7 +18,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from athena.agent.fork import ForkAction, ForkResult
-
 
 # ---- 1. Per-turn review -----------------------------------------------
 
@@ -31,7 +30,8 @@ def test_per_turn_review_creates_memory_entry_after_user_preference(
     addendum. We verify the call shape end-to-end (config → nudge → fork)
     without spinning up a real model."""
     from athena.config import Config
-    from athena.review import nudge as nudge_mod, orchestrator as orch_mod
+    from athena.review import nudge as nudge_mod
+    from athena.review import orchestrator as orch_mod
 
     nudge_mod.reset_all()
 
@@ -58,11 +58,13 @@ def test_per_turn_review_creates_memory_entry_after_user_preference(
         captured.append(kwargs)
         return ForkResult(
             final_response="wrote memory",
-            actions=[ForkAction(
-                action="create",
-                target="memory",
-                name="always-check-lint",
-            )],
+            actions=[
+                ForkAction(
+                    action="create",
+                    target="memory",
+                    name="always-check-lint",
+                )
+            ],
         )
 
     monkeypatch.setattr("athena.agent.fork.fork", fake_fork)
@@ -87,7 +89,10 @@ def test_per_turn_review_creates_memory_entry_after_user_preference(
 
 
 def test_curator_consolidates_two_session_codename_skills_into_umbrella(
-    isolated_home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, write_skill,
+    isolated_home: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    write_skill,
 ) -> None:
     """A curator run that returns valid YAML is committed: report files
     appear under the configured logs root and .curator_state advances."""
@@ -106,7 +111,9 @@ def test_curator_consolidates_two_session_codename_skills_into_umbrella(
 
     cfg = Config()
     cfg.curator = CuratorConfig(
-        interval_hours=168, min_idle_hours=2, max_iterations=99,
+        interval_hours=168,
+        min_idle_hours=2,
+        max_iterations=99,
     )
     store = MagicMock()
     store.most_recent_other_session.return_value = None
@@ -169,7 +176,8 @@ runs:
 
 
 def test_lifecycle_transitions_archive_unused_skill_after_90_days(
-    isolated_home: Path, write_skill,
+    isolated_home: Path,
+    write_skill,
 ) -> None:
     """A background-review-origin skill last touched >90 days ago must be
     archived on the lifecycle pass."""
@@ -185,6 +193,7 @@ def test_lifecycle_transitions_archive_unused_skill_after_90_days(
     )
 
     from athena.skills.state_machine_runner import run_lifecycle
+
     actions = run_lifecycle()
     assert "abandoned" in actions["archived"]
     assert not (user_skills / "abandoned").exists()

@@ -1,4 +1,5 @@
 """/review — code review of pending changes (or a specified diff)."""
+
 from __future__ import annotations
 
 from . import command

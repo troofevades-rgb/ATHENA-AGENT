@@ -12,14 +12,16 @@ Concurrency model:
       - stderr thread: collects stderr lines into a ring buffer for diagnostics.
     The public API (initialize / list_tools / call_tool / request) is synchronous.
 """
+
 from __future__ import annotations
+
 import json
 import os
 import subprocess
 import threading
-from concurrent.futures import Future, TimeoutError as FutTimeout
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutTimeout
 from typing import Any
-
 
 PROTOCOL_VERSION = "2024-11-05"
 
@@ -80,7 +82,9 @@ class MCPStdioClient:
         self._initialized = False
 
         self._reader = threading.Thread(target=self._read_loop, name=f"mcp-{name}-rd", daemon=True)
-        self._stderr_reader = threading.Thread(target=self._stderr_loop, name=f"mcp-{name}-err", daemon=True)
+        self._stderr_reader = threading.Thread(
+            target=self._stderr_loop, name=f"mcp-{name}-err", daemon=True
+        )
         self._reader.start()
         self._stderr_reader.start()
 
@@ -148,7 +152,9 @@ class MCPStdioClient:
 
     # ---- low-level send/recv -------------------------------------------
 
-    def request(self, method: str, params: dict | None = None, timeout: float | None = None) -> dict[str, Any]:
+    def request(
+        self, method: str, params: dict | None = None, timeout: float | None = None
+    ) -> dict[str, Any]:
         with self._id_lock:
             req_id = self._next_id
             self._next_id += 1
@@ -260,8 +266,10 @@ def format_tool_result(result: dict[str, Any]) -> str:
         if btype == "text":
             parts.append(block.get("text", ""))
         elif btype == "image":
-            parts.append(f"[image: {block.get('mimeType', '?')}, "
-                         f"{len(block.get('data', '')) // 1024}KB base64 omitted]")
+            parts.append(
+                f"[image: {block.get('mimeType', '?')}, "
+                f"{len(block.get('data', '')) // 1024}KB base64 omitted]"
+            )
         elif btype == "resource":
             res = block.get("resource", {}) or {}
             parts.append(f"[resource: {res.get('uri', '?')}]")

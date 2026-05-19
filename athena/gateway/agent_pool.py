@@ -14,13 +14,15 @@ The actual Agent constructor is injected via ``factory`` so the pool
 can be unit-tested without spinning up a real provider. Phase 10.8
 plugs in the real factory.
 """
+
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import logging
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..agent.core import Agent
@@ -52,7 +54,7 @@ class AgentPool:
             raise ValueError(f"max_size must be >= 1, got {max_size}")
         self._factory = factory
         self.max_size = max_size
-        self._cache: OrderedDict[str, "Agent"] = OrderedDict()
+        self._cache: OrderedDict[str, Agent] = OrderedDict()
         self._lock = asyncio.Lock()
         # Per-session instantiation locks so two simultaneous resolve()
         # calls for the same session_id don't both ask the factory.
@@ -67,7 +69,7 @@ class AgentPool:
         # kept for tests and back-compat but does not pin.
         self._inflight: dict[str, int] = {}
 
-    async def get(self, session_id: str) -> "Agent":
+    async def get(self, session_id: str) -> Agent:
         """Return the agent for ``session_id``, instantiating if absent.
 
         On a cache hit, the entry moves to the most-recently-used
@@ -79,8 +81,11 @@ class AgentPool:
         return await self._get_internal(session_id, pin=False)
 
     async def _get_internal(
-        self, session_id: str, *, pin: bool,
-    ) -> "Agent":
+        self,
+        session_id: str,
+        *,
+        pin: bool,
+    ) -> Agent:
         """Get + (optionally) atomically pin under a single lock pass.
 
         The pin must be visible to ``_evict_if_full_unlocked`` before
@@ -92,13 +97,9 @@ class AgentPool:
             if session_id in self._cache:
                 self._cache.move_to_end(session_id)
                 if pin:
-                    self._inflight[session_id] = (
-                        self._inflight.get(session_id, 0) + 1
-                    )
+                    self._inflight[session_id] = self._inflight.get(session_id, 0) + 1
                 return self._cache[session_id]
-            inst_lock = self._instantiation_locks.setdefault(
-                session_id, asyncio.Lock()
-            )
+            inst_lock = self._instantiation_locks.setdefault(session_id, asyncio.Lock())
 
         async with inst_lock:
             # Re-check under the inst lock: another caller may have
@@ -107,9 +108,7 @@ class AgentPool:
                 if session_id in self._cache:
                     self._cache.move_to_end(session_id)
                     if pin:
-                        self._inflight[session_id] = (
-                            self._inflight.get(session_id, 0) + 1
-                        )
+                        self._inflight[session_id] = self._inflight.get(session_id, 0) + 1
                     return self._cache[session_id]
 
             agent = await self._factory(session_id)
@@ -119,9 +118,7 @@ class AgentPool:
                 self._cache.move_to_end(session_id)
                 self._instantiation_locks.pop(session_id, None)
                 if pin:
-                    self._inflight[session_id] = (
-                        self._inflight.get(session_id, 0) + 1
-                    )
+                    self._inflight[session_id] = self._inflight.get(session_id, 0) + 1
                 await self._evict_if_full_unlocked()
 
             return agent
@@ -211,7 +208,7 @@ class AgentPool:
             finally:
                 await self._lock.acquire()
 
-    async def _close_agent(self, agent: "Agent", session_id: str) -> None:
+    async def _close_agent(self, agent: Agent, session_id: str) -> None:
         try:
             close = getattr(agent, "close", None)
             if close is None:
@@ -220,9 +217,7 @@ class AgentPool:
             if asyncio.iscoroutine(result):
                 await result
         except Exception:
-            logger.exception(
-                "agent.close failed during eviction for %s", session_id
-            )
+            logger.exception("agent.close failed during eviction for %s", session_id)
 
     # ---- inspection ----
 

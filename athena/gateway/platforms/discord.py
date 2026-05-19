@@ -20,17 +20,20 @@ Like the other adapters, the discord.py imports are inside
 :meth:`start` so a headless install (no ``gateway`` extra) doesn't
 import-error just because someone runs ``athena``.
 """
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from ..base import GatewayAdapter
 from ..events import ApprovalRequest, MessageEvent, MessageType
 
 if TYPE_CHECKING:
     import discord
+
     from ..daemon import GatewayDaemon
 
 logger = logging.getLogger(__name__)
@@ -48,7 +51,7 @@ class DiscordAdapter(GatewayAdapter):
 
     def __init__(
         self,
-        daemon: "GatewayDaemon",
+        daemon: GatewayDaemon,
         *,
         bot_token: str,
         attachment_dir: Path | None = None,
@@ -62,7 +65,7 @@ class DiscordAdapter(GatewayAdapter):
             if attachment_dir is not None
             else daemon.profile_dir / "gateway_attachments" / self.name
         )
-        self._client: "discord.Client" | None = None
+        self._client: discord.Client | None = None
         self._tree: Any = None  # discord.app_commands.CommandTree
         # Approval timeout for the ui.View; matches ApprovalRouter
         # default. Phase 10.8 will pass a tighter timeout when
@@ -95,13 +98,12 @@ class DiscordAdapter(GatewayAdapter):
             name="athena",
             description="Send a prompt to the athena agent.",
         )
-        async def _athena_cmd(
-            interaction: "discord.Interaction", prompt: str
-        ) -> None:
+        async def _athena_cmd(interaction: discord.Interaction, prompt: str) -> None:
             await self._on_slash_command(interaction, prompt)
 
         self.daemon.approvals.register_platform_renderer(
-            self.name, self._render_approval,
+            self.name,
+            self._render_approval,
         )
 
         await self._client.start(self.bot_token)
@@ -125,7 +127,9 @@ class DiscordAdapter(GatewayAdapter):
             )
         except Exception:
             logger.warning(
-                "[%s] slash command sync failed", self.name, exc_info=True,
+                "[%s] slash command sync failed",
+                self.name,
+                exc_info=True,
             )
 
     async def stop(self) -> None:
@@ -135,18 +139,19 @@ class DiscordAdapter(GatewayAdapter):
                 await self._client.close()
             except Exception:
                 logger.debug(
-                    "[%s] client.close raised", self.name, exc_info=True,
+                    "[%s] client.close raised",
+                    self.name,
+                    exc_info=True,
                 )
 
     # ---- inbound message ----
 
-    async def _on_message(self, message: "discord.Message") -> None:
+    async def _on_message(self, message: discord.Message) -> None:
         # Filter our own bot's posts so we don't talk to ourselves.
-        if (
-            self._client is not None
-            and message.author.id == getattr(
-                getattr(self._client, "user", None), "id", None,
-            )
+        if self._client is not None and message.author.id == getattr(
+            getattr(self._client, "user", None),
+            "id",
+            None,
         ):
             return
         if getattr(message.author, "bot", False):
@@ -161,7 +166,8 @@ class DiscordAdapter(GatewayAdapter):
         await self.handle_inbound(event)
 
     async def _event_from_message(
-        self, message: "discord.Message",
+        self,
+        message: discord.Message,
     ) -> MessageEvent:
         import discord
 
@@ -175,7 +181,8 @@ class DiscordAdapter(GatewayAdapter):
             reply_to_id = str(ref.message_id)
 
         attachments, message_type, augmented_text = await self._classify_and_download(
-            message, chat_id,
+            message,
+            chat_id,
         )
 
         return MessageEvent(
@@ -191,7 +198,9 @@ class DiscordAdapter(GatewayAdapter):
         )
 
     async def _classify_and_download(
-        self, message: "discord.Message", chat_id: str,
+        self,
+        message: discord.Message,
+        chat_id: str,
     ) -> tuple[list[Path], MessageType, str]:
         """Classify the message by its first attachment's mime, then
         eagerly save every attachment to disk. Returns
@@ -206,9 +215,7 @@ class DiscordAdapter(GatewayAdapter):
         if not attachments:
             return [], MessageType.TEXT, text
 
-        first_mime = (
-            (getattr(attachments[0], "content_type", "") or "").lower()
-        )
+        first_mime = (getattr(attachments[0], "content_type", "") or "").lower()
         if first_mime.startswith("image/"):
             message_type = MessageType.PHOTO
         elif first_mime.startswith("audio/"):
@@ -223,9 +230,7 @@ class DiscordAdapter(GatewayAdapter):
 
         out: list[Path] = []
         for att in attachments:
-            name = getattr(att, "filename", None) or str(
-                getattr(att, "id", "discord-attachment")
-            )
+            name = getattr(att, "filename", None) or str(getattr(att, "id", "discord-attachment"))
             dest = chat_dir / name
             try:
                 save = getattr(att, "save", None)
@@ -238,7 +243,9 @@ class DiscordAdapter(GatewayAdapter):
             except Exception:
                 logger.warning(
                     "[%s] failed to save discord attachment %s",
-                    self.name, getattr(att, "id", "?"), exc_info=True,
+                    self.name,
+                    getattr(att, "id", "?"),
+                    exc_info=True,
                 )
 
         return out, message_type, text
@@ -247,7 +254,7 @@ class DiscordAdapter(GatewayAdapter):
 
     async def _on_slash_command(
         self,
-        interaction: "discord.Interaction",
+        interaction: discord.Interaction,
         prompt: str,
     ) -> None:
         """``/athena <prompt>``: feed the prompt through the same
@@ -258,7 +265,9 @@ class DiscordAdapter(GatewayAdapter):
             await interaction.response.defer(thinking=False)
         except Exception:
             logger.debug(
-                "[%s] slash defer failed", self.name, exc_info=True,
+                "[%s] slash defer failed",
+                self.name,
+                exc_info=True,
             )
         try:
             event = self._event_from_interaction(interaction, prompt)
@@ -269,7 +278,7 @@ class DiscordAdapter(GatewayAdapter):
 
     def _event_from_interaction(
         self,
-        interaction: "discord.Interaction",
+        interaction: discord.Interaction,
         prompt: str,
     ) -> MessageEvent:
         import discord
@@ -303,7 +312,8 @@ class DiscordAdapter(GatewayAdapter):
         if chat_id is None:
             logger.warning(
                 "[%s] no discord route for session %s; cannot render approval",
-                self.name, request.session_id,
+                self.name,
+                request.session_id,
             )
             return
         try:
@@ -311,7 +321,8 @@ class DiscordAdapter(GatewayAdapter):
         except Exception:
             logger.exception(
                 "[%s] failed to fetch channel %s for approval",
-                self.name, chat_id,
+                self.name,
+                chat_id,
             )
             return
         if channel is None:
@@ -327,7 +338,8 @@ class DiscordAdapter(GatewayAdapter):
         except Exception:
             logger.exception(
                 "[%s] failed to send approval %s",
-                self.name, request.request_id,
+                self.name,
+                request.request_id,
             )
 
     def _resolve_chat_id(self, request: ApprovalRequest) -> str | None:
@@ -359,7 +371,9 @@ class DiscordAdapter(GatewayAdapter):
         return await self._client.fetch_channel(cid)
 
     async def _on_approval_button(
-        self, request_id: str, decision: str,
+        self,
+        request_id: str,
+        decision: str,
     ) -> None:
         if decision not in {"allow", "deny"}:
             return
@@ -379,16 +393,16 @@ class DiscordAdapter(GatewayAdapter):
     async def send_text(self, chat_id: str, text: str) -> str:
         channel = await self._fetch_channel(chat_id)
         if channel is None:
-            raise RuntimeError(
-                f"DiscordAdapter.send_text: no channel for chat_id={chat_id}"
-            )
+            raise RuntimeError(f"DiscordAdapter.send_text: no channel for chat_id={chat_id}")
         if len(text) > self._DISCORD_HARD_LIMIT:
             keep = self._DISCORD_HARD_LIMIT - len(self._DISCORD_TRUNC_SUFFIX)
             text = text[:keep] + self._DISCORD_TRUNC_SUFFIX
             logger.warning(
                 "[%s] send_text truncated payload to %d chars for %s "
                 "(caller bypassed body_cap chunking)",
-                self.name, len(text), chat_id,
+                self.name,
+                len(text),
+                chat_id,
             )
         msg = await channel.send(text)
         return str(msg.id)
@@ -403,9 +417,7 @@ class DiscordAdapter(GatewayAdapter):
 
         channel = await self._fetch_channel(chat_id)
         if channel is None:
-            raise RuntimeError(
-                f"DiscordAdapter.send_file: no channel for chat_id={chat_id}"
-            )
+            raise RuntimeError(f"DiscordAdapter.send_file: no channel for chat_id={chat_id}")
         msg = await channel.send(
             content=caption or None,
             file=discord.File(str(file_path)),
@@ -428,7 +440,9 @@ class DiscordAdapter(GatewayAdapter):
                 pass
         except Exception:
             logger.debug(
-                "[%s] channel.typing raised", self.name, exc_info=True,
+                "[%s] channel.typing raised",
+                self.name,
+                exc_info=True,
             )
 
 
@@ -460,7 +474,7 @@ def _build_approval_view(
     *,
     on_decision: Callable[[str, str], Any],
     timeout: float,
-) -> "discord.ui.View":
+) -> discord.ui.View:
     """Construct a discord.ui.View with allow/deny buttons.
 
     ``on_decision(request_id, decision)`` is invoked from the button
@@ -468,7 +482,6 @@ def _build_approval_view(
     daemon's ApprovalRouter also enforces its own timeout, so the
     user sees an auto-deny either way.
     """
-    import discord
     from discord import ButtonStyle, ui
 
     class _ApprovalView(ui.View):
@@ -479,22 +492,22 @@ def _build_approval_view(
         @ui.button(label="✅ Allow", style=ButtonStyle.success)
         async def allow_button(  # type: ignore[override]
             self,
-            interaction: "discord.Interaction",
-            button: "discord.ui.Button",
+            interaction: discord.Interaction,
+            button: discord.ui.Button,
         ) -> None:
             await self._resolve(interaction, "allow")
 
         @ui.button(label="✖ Deny", style=ButtonStyle.danger)
         async def deny_button(  # type: ignore[override]
             self,
-            interaction: "discord.Interaction",
-            button: "discord.ui.Button",
+            interaction: discord.Interaction,
+            button: discord.ui.Button,
         ) -> None:
             await self._resolve(interaction, "deny")
 
         async def _resolve(
             self,
-            interaction: "discord.Interaction",
+            interaction: discord.Interaction,
             decision: str,
         ) -> None:
             result = on_decision(self._request_id, decision)
@@ -507,7 +520,8 @@ def _build_approval_view(
                 )
             except Exception:
                 logger.debug(
-                    "approval interaction.response failed", exc_info=True,
+                    "approval interaction.response failed",
+                    exc_info=True,
                 )
             # Disable both buttons so the prompt can't be re-clicked.
             for child in self.children:

@@ -9,6 +9,7 @@ separate threads call ``GLOBAL_STEER_QUEUE.push(session_id, message)`` and
 the agent's run loop calls ``GLOBAL_STEER_QUEUE.drain(session_id)`` before
 sending the next user message to the model.
 """
+
 from __future__ import annotations
 
 import threading

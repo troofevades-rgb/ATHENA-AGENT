@@ -1,10 +1,10 @@
 """SignalAdapter — signal-cli-rest-api HTTP integration."""
+
 from __future__ import annotations
 
 import base64
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -76,7 +76,9 @@ def test_construct_requires_rest_url(tmp_path: Path) -> None:
 def test_construct_requires_account(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         SignalAdapter(
-            _FakeDaemon(tmp_path), rest_url=REST_URL, account_number="",
+            _FakeDaemon(tmp_path),
+            rest_url=REST_URL,
+            account_number="",
         )
 
 
@@ -145,7 +147,8 @@ async def test_non_data_envelope_returns_none(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     envelope = {
         "envelope": {
-            "source": "+1", "timestamp": 0,
+            "source": "+1",
+            "timestamp": 0,
             "receiptMessage": {"type": "READ"},
         }
     }
@@ -170,13 +173,19 @@ async def test_attachment_image_classified_and_downloaded(
             )
             envelope = {
                 "envelope": {
-                    "source": "+1", "sourceUuid": "u", "timestamp": 1,
+                    "source": "+1",
+                    "sourceUuid": "u",
+                    "timestamp": 1,
                     "dataMessage": {
-                        "timestamp": 1, "message": "look",
-                        "attachments": [{
-                            "id": "att-1", "contentType": "image/jpeg",
-                            "filename": "pic.jpg",
-                        }],
+                        "timestamp": 1,
+                        "message": "look",
+                        "attachments": [
+                            {
+                                "id": "att-1",
+                                "contentType": "image/jpeg",
+                                "filename": "pic.jpg",
+                            }
+                        ],
                     },
                 }
             }
@@ -197,17 +206,21 @@ async def test_attachment_download_failure_falls_through(
     a._client = httpx.AsyncClient(timeout=5.0)
     try:
         async with respx.mock(base_url=REST_URL) as mock:
-            mock.get("/v1/attachments/att-x").mock(
-                return_value=httpx.Response(403)
-            )
+            mock.get("/v1/attachments/att-x").mock(return_value=httpx.Response(403))
             envelope = {
                 "envelope": {
-                    "source": "+1", "sourceUuid": "u", "timestamp": 1,
+                    "source": "+1",
+                    "sourceUuid": "u",
+                    "timestamp": 1,
                     "dataMessage": {
-                        "timestamp": 1, "message": "broken",
-                        "attachments": [{
-                            "id": "att-x", "contentType": "image/jpeg",
-                        }],
+                        "timestamp": 1,
+                        "message": "broken",
+                        "attachments": [
+                            {
+                                "id": "att-x",
+                                "contentType": "image/jpeg",
+                            }
+                        ],
                     },
                 }
             }
@@ -229,9 +242,14 @@ async def test_dispatch_intercepts_pending_approval(tmp_path: Path) -> None:
     # Pretend we previously sent an approval prompt to user u-1.
     a.record_pending("u-1", "rid-1")
 
-    await a._dispatch(MessageEvent(
-        platform="signal", chat_id="c", user_id="u-1", text="/allow",
-    ))
+    await a._dispatch(
+        MessageEvent(
+            platform="signal",
+            chat_id="c",
+            user_id="u-1",
+            text="/allow",
+        )
+    )
     a.handle_inbound.assert_not_awaited()
     assert a.daemon.approvals.resolves == [("rid-1", "allow")]
 
@@ -239,9 +257,14 @@ async def test_dispatch_intercepts_pending_approval(tmp_path: Path) -> None:
 async def test_dispatch_with_no_pending_routes_normally(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a.handle_inbound = AsyncMock()  # type: ignore[method-assign]
-    await a._dispatch(MessageEvent(
-        platform="signal", chat_id="c", user_id="u", text="/allow",
-    ))
+    await a._dispatch(
+        MessageEvent(
+            platform="signal",
+            chat_id="c",
+            user_id="u",
+            text="/allow",
+        )
+    )
     # No pending mapping → falls through (the slash command will be
     # caught by base.handle_inbound's bypass logic if applicable).
     a.handle_inbound.assert_awaited_once()
@@ -257,9 +280,14 @@ async def test_dispatch_ignores_non_approval_text_with_pending(
     a.handle_inbound = AsyncMock()  # type: ignore[method-assign]
     a.record_pending("u-1", "rid-1")
 
-    await a._dispatch(MessageEvent(
-        platform="signal", chat_id="c", user_id="u-1", text="actually nevermind",
-    ))
+    await a._dispatch(
+        MessageEvent(
+            platform="signal",
+            chat_id="c",
+            user_id="u-1",
+            text="actually nevermind",
+        )
+    )
     a.handle_inbound.assert_awaited_once()
     assert a.daemon.approvals.resolves == []
     # Pending stays so the next /allow|/deny still resolves.
@@ -276,18 +304,28 @@ async def test_render_approval_sends_text_and_records_pending(
 
     a = _adapter(tmp_path)
     a._client = MagicMock()
-    a._client.post = AsyncMock(return_value=MagicMock(
-        raise_for_status=MagicMock(), content=b"{}", json=lambda: {"timestamp": "1"},
-    ))
+    a._client.post = AsyncMock(
+        return_value=MagicMock(
+            raise_for_status=MagicMock(),
+            content=b"{}",
+            json=lambda: {"timestamp": "1"},
+        )
+    )
     a.daemon.router.routes = [
         SimpleNamespace(
-            session_id="s1", chat_id="+15559999999", user_id="abc-uuid",
-            platform="signal", last_seen_at=datetime.now(timezone.utc),
+            session_id="s1",
+            chat_id="+15559999999",
+            user_id="abc-uuid",
+            platform="signal",
+            last_seen_at=datetime.now(timezone.utc),
         )
     ]
     req = ApprovalRequest(
-        session_id="s1", tool_name="Bash", tool_args={"cmd": "ls"},
-        request_id="rid-7", platform="signal",
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={"cmd": "ls"},
+        request_id="rid-7",
+        platform="signal",
     )
     await a._render_approval(req)
     a._client.post.assert_awaited_once()
@@ -302,8 +340,11 @@ async def test_render_approval_drops_when_no_route(tmp_path: Path) -> None:
     a._client = MagicMock()
     a._client.post = AsyncMock()
     req = ApprovalRequest(
-        session_id="missing", tool_name="Bash", tool_args={},
-        request_id="r", platform="signal",
+        session_id="missing",
+        tool_name="Bash",
+        tool_args={},
+        request_id="r",
+        platform="signal",
     )
     await a._render_approval(req)
     a._client.post.assert_not_awaited()
@@ -319,7 +360,8 @@ async def test_send_text_calls_v2_send(tmp_path: Path) -> None:
         async with respx.mock(base_url=REST_URL) as mock:
             mock.post("/v2/send").mock(
                 return_value=httpx.Response(
-                    200, json={"timestamp": "1700000000000"},
+                    200,
+                    json={"timestamp": "1700000000000"},
                 )
             )
             ts = await a.send_text("+15559999999", "hello")
@@ -327,6 +369,7 @@ async def test_send_text_calls_v2_send(tmp_path: Path) -> None:
             req = mock.calls.last.request
             body = httpx.Request("POST", "/", content=req.content)
             import json
+
             payload = json.loads(req.content)
             assert payload["number"] == ACCOUNT
             assert payload["recipients"] == ["+15559999999"]
@@ -348,12 +391,11 @@ async def test_send_file_base64_encodes(tmp_path: Path) -> None:
     a._client = httpx.AsyncClient(timeout=5.0)
     try:
         async with respx.mock(base_url=REST_URL) as mock:
-            mock.post("/v2/send").mock(
-                return_value=httpx.Response(200, json={"timestamp": "1"})
-            )
+            mock.post("/v2/send").mock(return_value=httpx.Response(200, json={"timestamp": "1"}))
             await a.send_file("+15559999999", f, caption="check this")
             req = mock.calls.last.request
             import json
+
             payload = json.loads(req.content)
             assert payload["message"] == "check this"
             assert "base64_attachments" in payload
@@ -373,9 +415,7 @@ async def test_show_typing_is_best_effort(tmp_path: Path) -> None:
     a._client = httpx.AsyncClient(timeout=5.0)
     try:
         async with respx.mock(base_url=REST_URL) as mock:
-            mock.put(f"/v1/typing-indicator/{ACCOUNT}").mock(
-                return_value=httpx.Response(404)
-            )
+            mock.put(f"/v1/typing-indicator/{ACCOUNT}").mock(return_value=httpx.Response(404))
             await a.show_typing("+15559999999")  # no exception
     finally:
         await a._client.aclose()

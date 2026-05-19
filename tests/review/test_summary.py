@@ -1,4 +1,5 @@
 """Tests for the review-summary extractor and user-facing formatter."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -47,15 +48,20 @@ def test_format_for_user_empty_summary() -> None:
 
 
 def test_format_for_user_pluralizes_correctly() -> None:
-    one = {"memory_writes": [{"name": "a", "action": "create", "detail": None}],
-           "skill_changes": []}
+    one = {
+        "memory_writes": [{"name": "a", "action": "create", "detail": None}],
+        "skill_changes": [],
+    }
     assert format_for_user(one).startswith("Background review:")
     assert "1 memory entry" in format_for_user(one)
 
-    two = {"memory_writes": [
-        {"name": "a", "action": "create", "detail": None},
-        {"name": "b", "action": "create", "detail": None},
-    ], "skill_changes": []}
+    two = {
+        "memory_writes": [
+            {"name": "a", "action": "create", "detail": None},
+            {"name": "b", "action": "create", "detail": None},
+        ],
+        "skill_changes": [],
+    }
     assert "2 memory entries" in format_for_user(two)
 
 
@@ -74,6 +80,7 @@ def test_format_for_user_combines_both_buckets() -> None:
 
 def test_works_with_duck_typed_result() -> None:
     """Anything with .actions iterable of ForkAction-like objects is OK."""
+
     @dataclass
     class _R:
         actions: list

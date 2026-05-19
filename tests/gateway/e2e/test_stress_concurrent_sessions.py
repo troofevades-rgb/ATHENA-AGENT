@@ -16,23 +16,20 @@ Specifically:
 The agent is a deterministic stub — we're not measuring LLM
 throughput here, only the gateway's plumbing.
 """
+
 from __future__ import annotations
 
 import asyncio
 import time
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
 from athena.config import Config, GatewayConfig
+from athena.gateway import registry as gw_registry
 from athena.gateway.base import GatewayAdapter
 from athena.gateway.daemon import GatewayDaemon
 from athena.gateway.events import MessageEvent
-from athena.gateway import registry as gw_registry
-
 
 # ---- doubles ---------------------------------------------------------
 
@@ -86,7 +83,10 @@ class _RecordingAdapter(GatewayAdapter):
         return "msg-id"
 
     async def send_file(
-        self, chat_id: str, file_path: Path, caption: str | None = None,
+        self,
+        chat_id: str,
+        file_path: Path,
+        caption: str | None = None,
     ) -> str:
         return "msg-id"
 
@@ -152,10 +152,7 @@ async def test_100_concurrent_sessions_complete_without_deadlock(
         await asyncio.gather(*(adapter.handle_inbound(e) for e in inbound))
         # Give spawned _process tasks time to drain.
         deadline = start + 30.0
-        while (
-            len(adapter.sent_text) < n_sessions
-            and time.monotonic() < deadline
-        ):
+        while len(adapter.sent_text) < n_sessions and time.monotonic() < deadline:
             await asyncio.sleep(0.05)
     finally:
         await daemon.stop()
@@ -195,10 +192,7 @@ async def test_burst_to_same_session_merges_into_pending(
         await adapter.handle_inbound(events[2])
         # Wait for pending drain.
         deadline = time.monotonic() + 5.0
-        while (
-            len(adapter.sent_text) < 2
-            and time.monotonic() < deadline
-        ):
+        while len(adapter.sent_text) < 2 and time.monotonic() < deadline:
             await asyncio.sleep(0.01)
     finally:
         await daemon.stop()
@@ -224,9 +218,14 @@ async def test_daemon_stop_drains_pool_completely(
     await daemon.start()
 
     for i in range(5):
-        await adapter.handle_inbound(MessageEvent(
-            platform="stub", chat_id=f"c{i}", user_id=f"u{i}", text=f"hi {i}",
-        ))
+        await adapter.handle_inbound(
+            MessageEvent(
+                platform="stub",
+                chat_id=f"c{i}",
+                user_id=f"u{i}",
+                text=f"hi {i}",
+            )
+        )
         await asyncio.sleep(0.01)
     # Let turns finish.
     await asyncio.sleep(0.5)

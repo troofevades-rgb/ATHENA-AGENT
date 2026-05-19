@@ -12,13 +12,13 @@ Stdio MCP servers are inspectable too — ``list`` shows them and
 ``test`` initializes them — but the auth flow only applies to
 HTTP/SSE entries.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import logging
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -72,16 +72,13 @@ def cmd_auth(args: argparse.Namespace) -> int:
     """Run the OAuth authorization flow for one configured server."""
     servers = _load_server_configs(args.config)
     if args.server not in servers:
-        sys.stderr.write(
-            f"error: no server named {args.server!r} in mcp.json\n"
-        )
+        sys.stderr.write(f"error: no server named {args.server!r} in mcp.json\n")
         return 2
     scfg = servers[args.server]
     oauth_raw = scfg.get("oauth")
     if not oauth_raw:
         sys.stderr.write(
-            f"error: server {args.server!r} has no [oauth] config — "
-            "stdio servers don't need auth\n"
+            f"error: server {args.server!r} has no [oauth] config — stdio servers don't need auth\n"
         )
         return 2
 
@@ -98,9 +95,7 @@ def cmd_auth(args: argparse.Namespace) -> int:
         sys.stderr.write(f"error: oauth config missing key {e}\n")
         return 2
 
-    sys.stdout.write(
-        f"opening browser for {args.server} (timeout {args.timeout}s)...\n"
-    )
+    sys.stdout.write(f"opening browser for {args.server} (timeout {args.timeout}s)...\n")
     sys.stdout.flush()
     try:
         token = oauth.run_authorization_flow(
@@ -112,9 +107,7 @@ def cmd_auth(args: argparse.Namespace) -> int:
         sys.stderr.write(f"error: oauth flow failed: {e}\n")
         return 1
     oauth.save_token(args.server, token)
-    sys.stdout.write(
-        f"saved token for {args.server} (expires at {token.expires_at.isoformat()})\n"
-    )
+    sys.stdout.write(f"saved token for {args.server} (expires at {token.expires_at.isoformat()})\n")
     return 0
 
 
@@ -141,9 +134,7 @@ def cmd_token_status(args: argparse.Namespace) -> int:
             human = f"expires in {delta // 3600}h{(delta % 3600) // 60}m"
         refresh = "yes" if info["has_refresh_token"] else "no"
         scope = info["scope"] or "(none)"
-        sys.stdout.write(
-            f"{server_id:24}  {human:24}  refresh={refresh}  scope={scope}\n"
-        )
+        sys.stdout.write(f"{server_id:24}  {human:24}  refresh={refresh}  scope={scope}\n")
     return 0
 
 
@@ -167,15 +158,11 @@ def cmd_test(args: argparse.Namespace) -> int:
     tool catalog. Useful first-run validation."""
     servers = _load_server_configs(args.config)
     if args.server not in servers:
-        sys.stderr.write(
-            f"error: no server named {args.server!r} in mcp.json\n"
-        )
+        sys.stderr.write(f"error: no server named {args.server!r} in mcp.json\n")
         return 2
     scfg = servers[args.server]
     if scfg.get("disabled"):
-        sys.stdout.write(
-            f"warning: server {args.server!r} is disabled in mcp.json\n"
-        )
+        sys.stdout.write(f"warning: server {args.server!r} is disabled in mcp.json\n")
     try:
         client = open_transport(args.server, scfg)
     except (ValueError, Exception) as e:
@@ -243,21 +230,27 @@ def _build_parser() -> argparse.ArgumentParser:
     p_list = sub.add_parser("list", help="List every configured MCP server.")
     p_list.add_argument("--config", help="Extra mcp.json path to merge.")
     p_list.add_argument(
-        "--json", action="store_true", help="JSON output for scripting.",
+        "--json",
+        action="store_true",
+        help="JSON output for scripting.",
     )
     p_list.set_defaults(handler=cmd_list)
 
     p_auth = sub.add_parser(
-        "auth", help="Run the OAuth flow for an HTTP/SSE server.",
+        "auth",
+        help="Run the OAuth flow for an HTTP/SSE server.",
     )
     p_auth.add_argument("server", help="server_id from mcp.json")
     p_auth.add_argument("--config", help="Extra mcp.json path to merge.")
     p_auth.add_argument(
-        "--no-browser", action="store_true",
+        "--no-browser",
+        action="store_true",
         help="Print the auth URL instead of opening a browser.",
     )
     p_auth.add_argument(
-        "--timeout", type=int, default=300,
+        "--timeout",
+        type=int,
+        default=300,
         help="Seconds to wait for the callback (default 300).",
     )
     p_auth.set_defaults(handler=cmd_auth)
@@ -270,7 +263,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_status.set_defaults(handler=cmd_token_status)
 
     p_revoke = sub.add_parser(
-        "revoke", help="Delete the stored token for a server.",
+        "revoke",
+        help="Delete the stored token for a server.",
     )
     p_revoke.add_argument("server", help="server_id whose token to delete")
     p_revoke.set_defaults(handler=cmd_revoke)

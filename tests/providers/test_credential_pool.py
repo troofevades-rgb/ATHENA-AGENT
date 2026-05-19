@@ -1,9 +1,10 @@
 """CredentialPool: get/round-robin/cooldown/persist/redact."""
+
 from __future__ import annotations
 
 import json
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -35,8 +36,11 @@ def test_credential_redacted_strips_to_last_4():
 def test_credential_round_trips_via_dict():
     when = datetime(2026, 5, 16, 12, 0, tzinfo=timezone.utc)
     c = Credential(
-        key="k", label="l", fail_count=3,
-        last_429_at=when, last_used_at=when,
+        key="k",
+        label="l",
+        fail_count=3,
+        last_429_at=when,
+        last_used_at=when,
     )
     d = c.to_dict()
     c2 = Credential.from_dict(d)

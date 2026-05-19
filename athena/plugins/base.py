@@ -10,6 +10,7 @@ hook for correctness — a broken plugin must never break the agent. Errors
 inside hook calls are caught by the :class:`HookDispatcher`, logged, and
 swallowed; the loop proceeds as if the failing plugin returned the default.
 """
+
 from __future__ import annotations
 
 from abc import ABC
@@ -46,9 +47,7 @@ class Plugin(ABC):
     def on_session_start(self, session_id: str, profile: str) -> None:
         """Called at the start of every session."""
 
-    def on_session_end(
-        self, session_id: str, completed: bool, interrupted: bool
-    ) -> None:
+    def on_session_end(self, session_id: str, completed: bool, interrupted: bool) -> None:
         """Called at the end of every session.
 
         ``completed`` is True if the session finished cleanly; ``interrupted``
@@ -57,9 +56,7 @@ class Plugin(ABC):
 
     # ---- Tool dispatch ----
 
-    def pre_tool_call(
-        self, tool_name: str, tool_args: dict[str, Any]
-    ) -> bool | None:
+    def pre_tool_call(self, tool_name: str, tool_args: dict[str, Any]) -> bool | None:
         """Return ``False`` to block the tool call.
 
         ``None`` or ``True`` allow it. First plugin to return ``False`` wins;
@@ -68,9 +65,7 @@ class Plugin(ABC):
         """
         return None
 
-    def post_tool_call(
-        self, tool_name: str, tool_args: dict[str, Any], result: str
-    ) -> None:
+    def post_tool_call(self, tool_name: str, tool_args: dict[str, Any], result: str) -> None:
         """Observe tool call results. Cannot affect control flow."""
 
     # ---- Message hooks ----

@@ -8,6 +8,7 @@ actually changed on disk. Three drift classes are tracked:
 - ``unexpected_archive``: archived on disk but YAML didn't say so.
 - ``no_op_after_keep``: YAML said KEEP_AS_IS but state changed.
 """
+
 from __future__ import annotations
 
 from athena.curator.reconciliation import (

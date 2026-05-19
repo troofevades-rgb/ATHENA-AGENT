@@ -5,9 +5,10 @@ install :data:`AUTO_DENY` at thread entry so a background fork cannot deadlock
 on a confirmation it has no way to satisfy. Plug-in replacements (e.g. the
 gateway adapter in Phase 10) can route prompts to chat platforms.
 """
+
 import contextvars
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ ApprovalFn = Callable[[str, dict], str]
 def _interactive_approval(tool_name: str, args: dict) -> str:
     """Default: interactive prompt via ``ui.confirm``."""
     from .. import ui  # local import — avoids circular at module load
+
     return "allow" if ui.confirm(f"Run {tool_name}?", default=False) else "deny"
 
 
@@ -27,9 +29,7 @@ def AUTO_DENY(tool_name: str, args: dict) -> str:
     Used by forks. The denial is logged at WARNING so background forks that
     repeatedly try to escalate are visible in observability.
     """
-    logger.warning(
-        "fork auto-denied confirmation prompt: tool=%s args=%s", tool_name, args
-    )
+    logger.warning("fork auto-denied confirmation prompt: tool=%s args=%s", tool_name, args)
     return "deny"
 
 

@@ -8,6 +8,7 @@ operator-facing diagnostics).
 The configuration is opt-in via the plugin so users not running with
 observability enabled keep the human-friendly default format.
 """
+
 from __future__ import annotations
 
 import logging

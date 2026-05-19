@@ -25,13 +25,15 @@ The dispatch callback is injected at construction
 module doesn't pull in :mod:`.delivery` at import time. Phase 15.3
 wires the real callback; tests stub it.
 """
+
 from __future__ import annotations
 
 import asyncio
 import base64
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
@@ -58,7 +60,9 @@ DispatchFn = Callable[
 
 
 async def _noop_dispatch(
-    _sub: WebhookSubscription, _payload: dict, _headers: dict,
+    _sub: WebhookSubscription,
+    _payload: dict,
+    _headers: dict,
 ) -> None:
     """Placeholder dispatch used by tests that only care about the
     HTTP-layer behavior. Production wires this to
@@ -76,7 +80,7 @@ class WebhookServer:
 
     def __init__(
         self,
-        daemon: "GatewayDaemon | None",
+        daemon: GatewayDaemon | None,
         store: WebhookStore,
         *,
         host: str = DEFAULT_HOST,
@@ -94,7 +98,8 @@ class WebhookServer:
 
         self.app = web.Application()
         self.app.router.add_post(
-            "/webhook/{webhook_id}", self._handle,
+            "/webhook/{webhook_id}",
+            self._handle,
         )
         # Health endpoint — operators want to verify the listener
         # bound correctly without firing a real webhook.
@@ -116,7 +121,9 @@ class WebhookServer:
         self._site = web.TCPSite(self._runner, self.host, self.port)
         await self._site.start()
         logger.info(
-            "webhook server listening on http://%s:%d", self.host, self.port,
+            "webhook server listening on http://%s:%d",
+            self.host,
+            self.port,
         )
 
     async def stop(self) -> None:
@@ -141,10 +148,12 @@ class WebhookServer:
     # ---- request handlers ----
 
     async def _health(self, _request: web.Request) -> web.Response:
-        return web.json_response({
-            "status": "ok",
-            "webhooks": len(self.store.list()),
-        })
+        return web.json_response(
+            {
+                "status": "ok",
+                "webhooks": len(self.store.list()),
+            }
+        )
 
     async def _handle(self, request: web.Request) -> web.Response:
         webhook_id = request.match_info["webhook_id"]
@@ -164,22 +173,28 @@ class WebhookServer:
         # 2. Idempotency check (only when sender supplies the header).
         idem_key = request.headers.get("X-Webhook-Idempotency-Key")
         if idem_key and not self.idempotency.check_and_record(
-            webhook_id, idem_key,
+            webhook_id,
+            idem_key,
         ):
             logger.debug(
-                "[%s] idempotency duplicate (key=%s)", webhook_id, idem_key,
+                "[%s] idempotency duplicate (key=%s)",
+                webhook_id,
+                idem_key,
             )
             return web.Response(
-                status=200, text="duplicate; no-op",
+                status=200,
+                text="duplicate; no-op",
             )
 
         # 3. Rate limit.
         if not self.rate_limiter.check(
-            webhook_id, sub.rate_limit_per_minute,
+            webhook_id,
+            sub.rate_limit_per_minute,
         ):
             logger.warning(
                 "[%s] rate-limited (per_minute=%d)",
-                webhook_id, sub.rate_limit_per_minute,
+                webhook_id,
+                sub.rate_limit_per_minute,
             )
             return web.Response(status=429, text="rate limited")
 
@@ -221,7 +236,8 @@ class WebhookServer:
             return verify_hmac_sha256(body, sig, sub.auth_secret)
         if sub.auth_type == "bearer":
             return verify_bearer(
-                request.headers.get("Authorization", ""), sub.auth_secret,
+                request.headers.get("Authorization", ""),
+                sub.auth_secret,
             )
         return False
 
@@ -237,7 +253,8 @@ class WebhookServer:
             raise
         except Exception:
             logger.exception(
-                "webhook dispatch failed for %s", sub.id,
+                "webhook dispatch failed for %s",
+                sub.id,
             )
 
 

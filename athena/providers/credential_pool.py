@@ -20,17 +20,17 @@ pulling credentials don't both get the same one.
 A module-level :data:`GLOBAL_CREDENTIAL_POOL` is the singleton most
 callers reach for. Tests construct their own pool with a tmp path.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import tempfile
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-
 
 _DEFAULT_COOLDOWN = 60  # seconds
 
@@ -46,6 +46,7 @@ class Credential:
     parse errors, anything non-429 that suggests the credential is
     broken).
     """
+
     key: str
     label: str = ""
     last_429_at: datetime | None = None
@@ -63,7 +64,7 @@ class Credential:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Credential":
+    def from_dict(cls, d: dict[str, Any]) -> Credential:
         kwargs: dict[str, Any] = dict(d)
         for k in ("last_429_at", "last_used_at"):
             v = kwargs.get(k)
@@ -85,13 +86,9 @@ class Credential:
             "key_suffix": f"...{suffix}",
             "label": self.label,
             "fail_count": self.fail_count,
-            "last_used_at": (
-                self.last_used_at.isoformat() if self.last_used_at else None
-            ),
+            "last_used_at": (self.last_used_at.isoformat() if self.last_used_at else None),
             "in_cooldown": self.last_429_at is not None,
-            "last_429_at": (
-                self.last_429_at.isoformat() if self.last_429_at else None
-            ),
+            "last_429_at": (self.last_429_at.isoformat() if self.last_429_at else None),
         }
 
 
@@ -179,9 +176,7 @@ class CredentialPool:
             bucket.append(cred)
             self._save()
 
-    def remove_credential(
-        self, provider_name: str, key_or_match: str
-    ) -> int:
+    def remove_credential(self, provider_name: str, key_or_match: str) -> int:
         """Remove credentials matching ``key_or_match``.
 
         Match priority: exact key first, then prefix, then suffix.
@@ -213,9 +208,7 @@ class CredentialPool:
             self._save()
             return 1
 
-    def list_credentials(
-        self, provider_name: str | None = None
-    ) -> dict[str, list[dict[str, Any]]]:
+    def list_credentials(self, provider_name: str | None = None) -> dict[str, list[dict[str, Any]]]:
         """Return a redacted view of every credential.
 
         Without ``provider_name``: ``{provider: [{...redacted}]}`` for
@@ -227,8 +220,7 @@ class CredentialPool:
                 bucket = self._creds.get(provider_name) or []
                 return {provider_name: [c.redacted() for c in bucket]}
             return {
-                name: [c.redacted() for c in bucket]
-                for name, bucket in sorted(self._creds.items())
+                name: [c.redacted() for c in bucket] for name, bucket in sorted(self._creds.items())
             }
 
     def providers(self) -> list[str]:
@@ -243,9 +235,7 @@ class CredentialPool:
             return False
         return (now - cred.last_429_at) < self._cooldown
 
-    def _find_locked(
-        self, provider_name: str, key: str
-    ) -> Credential | None:
+    def _find_locked(self, provider_name: str, key: str) -> Credential | None:
         bucket = self._creds.get(provider_name) or []
         for cred in bucket:
             if cred.key == key:
@@ -280,10 +270,7 @@ class CredentialPool:
         """Atomic write: tmp-then-rename so a crash mid-write can't
         leave a half-written file."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            name: [c.to_dict() for c in bucket]
-            for name, bucket in self._creds.items()
-        }
+        payload = {name: [c.to_dict() for c in bucket] for name, bucket in self._creds.items()}
         # tempfile in the same directory so rename is atomic on POSIX
         # and Windows alike.
         fd, tmp = tempfile.mkstemp(
@@ -319,6 +306,7 @@ def global_pool() -> CredentialPool:
     with _GLOBAL_LOCK:
         if _GLOBAL_POOL is None:
             from ..config import CONFIG_DIR
+
             _GLOBAL_POOL = CredentialPool(CONFIG_DIR / "credentials.json")
         return _GLOBAL_POOL
 

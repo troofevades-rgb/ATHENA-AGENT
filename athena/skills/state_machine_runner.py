@@ -5,10 +5,11 @@ Phase 1's :mod:`athena.skills.state_machine` exposes the pure-function
 per session start, surfaces a summary, and never raises into the agent
 init path — a failed lifecycle pass is a warning, not a fatal error.
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from . import state_machine

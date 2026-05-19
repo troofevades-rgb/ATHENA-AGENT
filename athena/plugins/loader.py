@@ -18,6 +18,7 @@ The loader is intentionally silent on missing dependencies (skips them with
 an ``info`` log) and noisy on cycles (raises). Missing deps are recoverable
 when the user installs them; cycles are a manifest bug that must be fixed.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -118,14 +119,11 @@ def _find_plugin_subclass(module) -> type[Plugin]:
             continue
         candidates.append(obj)
     if not candidates:
-        raise ImportError(
-            f"{module.__name__}: no Plugin subclass defined in plugin.py"
-        )
+        raise ImportError(f"{module.__name__}: no Plugin subclass defined in plugin.py")
     if len(candidates) > 1:
         names = ", ".join(c.__name__ for c in candidates)
         raise ImportError(
-            f"{module.__name__}: multiple Plugin subclasses ({names}); "
-            "exactly one is required"
+            f"{module.__name__}: multiple Plugin subclasses ({names}); exactly one is required"
         )
     return candidates[0]
 
@@ -138,8 +136,8 @@ def _mark_installed(plugin_name: str, marker_path: Path) -> bool:
     if marker_path.exists():
         try:
             existing = {
-                line.strip() for line in
-                marker_path.read_text(encoding="utf-8").splitlines()
+                line.strip()
+                for line in marker_path.read_text(encoding="utf-8").splitlines()
                 if line.strip()
             }
         except OSError:
@@ -184,9 +182,7 @@ def load_plugins(
                 try:
                     instance.on_install()
                 except Exception:
-                    logger.exception(
-                        "plugin %s on_install raised; continuing", manifest.name
-                    )
+                    logger.exception("plugin %s on_install raised; continuing", manifest.name)
             out.append(instance)
         except Exception:
             logger.exception("plugin %s failed to load; skipping", manifest.name)

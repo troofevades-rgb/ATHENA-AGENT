@@ -1,7 +1,6 @@
 """Trajectory extraction + auto-classification."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from athena.transform.classifier import (
     Trajectory,
@@ -63,8 +62,7 @@ def test_extract_skips_synthetic_steer_messages():
     """A [/steer] user message extends the prior turn, doesn't start a new one."""
     messages = [
         _user("original prompt"),
-        _assistant("partial",
-                   tool_calls=[{"function": {"name": "Read", "arguments": "{}"}}]),
+        _assistant("partial", tool_calls=[{"function": {"name": "Read", "arguments": "{}"}}]),
         _tool("Read", "data"),
         {"role": "user", "content": "[/steer] focus on tests"},
         _assistant("recovered final response"),
@@ -84,8 +82,7 @@ def test_extract_drops_unterminated_trajectory():
         _user("first"),
         _assistant("done"),
         _user("unfinished work"),
-        _assistant("calling",
-                   tool_calls=[{"function": {"name": "X", "arguments": "{}"}}]),
+        _assistant("calling", tool_calls=[{"function": {"name": "X", "arguments": "{}"}}]),
         _tool("X", "..."),
         # No final assistant message — turn interrupted.
     ]
@@ -109,7 +106,8 @@ def test_extract_only_system_message():
 def test_auto_classify_good_trajectory_via_positive_followup():
     traj = Trajectory(
         session_id="s",
-        turn_start=0, turn_end=1,
+        turn_start=0,
+        turn_end=1,
         turns=[_user("q"), _assistant("a")],
     )
     label = auto_classify(traj, next_user_message=_user("thanks, perfect!"))
@@ -119,7 +117,8 @@ def test_auto_classify_good_trajectory_via_positive_followup():
 def test_auto_classify_good_via_emoji_followup():
     traj = Trajectory(
         session_id="s",
-        turn_start=0, turn_end=1,
+        turn_start=0,
+        turn_end=1,
         turns=[_user("q"), _assistant("a")],
     )
     label = auto_classify(traj, next_user_message=_user("👍"))
@@ -130,7 +129,8 @@ def test_auto_classify_bad_trajectory_with_error_propagation():
     """Final tool result was an error → bad."""
     traj = Trajectory(
         session_id="s",
-        turn_start=0, turn_end=3,
+        turn_start=0,
+        turn_end=3,
         turns=[
             _user("read x"),
             _assistant("", tool_calls=[{"function": {"name": "Read", "arguments": "{}"}}]),
@@ -144,11 +144,12 @@ def test_auto_classify_bad_trajectory_with_error_propagation():
 def test_auto_classify_bad_via_traceback_signature():
     traj = Trajectory(
         session_id="s",
-        turn_start=0, turn_end=3,
+        turn_start=0,
+        turn_end=3,
         turns=[
             _user("run"),
             _assistant("", tool_calls=[{"function": {"name": "Bash", "arguments": "{}"}}]),
-            _tool("Bash", "Traceback (most recent call last):\n  File \"x.py\", line 1, in <module>"),
+            _tool("Bash", 'Traceback (most recent call last):\n  File "x.py", line 1, in <module>'),
             _assistant("script failed"),
         ],
     )
@@ -158,7 +159,8 @@ def test_auto_classify_bad_via_traceback_signature():
 def test_auto_classify_bad_via_negative_followup():
     traj = Trajectory(
         session_id="s",
-        turn_start=0, turn_end=1,
+        turn_start=0,
+        turn_end=1,
         turns=[_user("q"), _assistant("a")],
     )
     label = auto_classify(traj, next_user_message=_user("no, that's wrong"))
@@ -169,7 +171,8 @@ def test_auto_classify_preference_pair_with_steer_recovery():
     """Trajectory with /steer mid-flight and a clean final answer."""
     traj = Trajectory(
         session_id="s",
-        turn_start=0, turn_end=4,
+        turn_start=0,
+        turn_end=4,
         turns=[
             _user("original"),
             _assistant("", tool_calls=[{"function": {"name": "Read", "arguments": "{}"}}]),
@@ -185,7 +188,8 @@ def test_auto_classify_steer_without_recovery_falls_through():
     """A steer followed by a tool error doesn't count as recovery."""
     traj = Trajectory(
         session_id="s",
-        turn_start=0, turn_end=5,
+        turn_start=0,
+        turn_end=5,
         turns=[
             _user("q"),
             {"role": "user", "content": "[/steer] try again"},
@@ -202,7 +206,8 @@ def test_auto_classify_returns_unreviewed_for_ambiguous():
     """No errors, no positive/negative follow-up → unreviewed."""
     traj = Trajectory(
         session_id="s",
-        turn_start=0, turn_end=1,
+        turn_start=0,
+        turn_end=1,
         turns=[_user("q"), _assistant("a")],
     )
     assert auto_classify(traj) == "unreviewed"
@@ -214,7 +219,8 @@ def test_auto_classify_recovery_after_intermediate_error_still_good():
     finished. Last tool isn't an error → not bad."""
     traj = Trajectory(
         session_id="s",
-        turn_start=0, turn_end=5,
+        turn_start=0,
+        turn_end=5,
         turns=[
             _user("read it"),
             _assistant("", tool_calls=[{"function": {"name": "Read", "arguments": "{}"}}]),

@@ -33,7 +33,9 @@ Events:
 `matcher` is a regex matched against tool_name (substring fallback if the
 regex fails to compile). Empty/missing matcher matches all tools.
 """
+
 from __future__ import annotations
+
 import json
 import os
 import re
@@ -44,7 +46,6 @@ from typing import Any
 
 from . import ui
 from .config import CONFIG_DIR
-
 
 SETTINGS_NAME = "settings.json"
 USER_SETTINGS = CONFIG_DIR / SETTINGS_NAME
@@ -95,7 +96,9 @@ def load_hooks(workspace: Path) -> list[Hook]:
                 cmd = entry.get("command")
                 if not isinstance(cmd, str) or not cmd.strip():
                     if cmd is not None:
-                        ui.error(f"{p}: hook command must be a non-empty string, got {type(cmd).__name__}")
+                        ui.error(
+                            f"{p}: hook command must be a non-empty string, got {type(cmd).__name__}"
+                        )
                     continue
                 _HOOKS.append(
                     Hook(
@@ -119,7 +122,9 @@ def _matches(hook: Hook, tool_name: str) -> bool:
         return hook.matcher in tool_name
 
 
-def fire(event: str, *, tool_name: str = "", payload: dict[str, Any] | None = None) -> tuple[bool, str]:
+def fire(
+    event: str, *, tool_name: str = "", payload: dict[str, Any] | None = None
+) -> tuple[bool, str]:
     """Fire all hooks matching this event.
 
     Returns (allow, message). For PreToolUse / UserPromptSubmit, allow=False

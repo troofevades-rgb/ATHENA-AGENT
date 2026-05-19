@@ -1,12 +1,9 @@
 """ReviewSession: enumeration, persistence, resume."""
+
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
-
-import pytest
 
 from athena.sessions.store import SessionMeta, SessionStore
 from athena.transform.classifier import Label, Trajectory
@@ -15,7 +12,6 @@ from athena.transform.review import (
     load_labels,
     save_label,
 )
-
 
 # ---- Helpers ----------------------------------------------------------
 
@@ -141,14 +137,20 @@ def test_pending_hydrates_auto_label(tmp_path: Path):
     """auto_classify runs over every trajectory and the result lands on the
     Trajectory before it's yielded."""
     store = _make_store(tmp_path)
-    _write_session(store, "s1", [
-        _user("read x"),
-        {"role": "assistant", "content": "", "tool_calls": [
-            {"function": {"name": "Read", "arguments": "{}"}}
-        ]},
-        {"role": "tool", "name": "Read", "content": "Error: file not found"},
-        _assistant("could not read"),
-    ])
+    _write_session(
+        store,
+        "s1",
+        [
+            _user("read x"),
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"function": {"name": "Read", "arguments": "{}"}}],
+            },
+            {"role": "tool", "name": "Read", "content": "Error: file not found"},
+            _assistant("could not read"),
+        ],
+    )
     review = ReviewSession(store.profile_dir, store=store)
     try:
         pending = list(review.pending())
@@ -167,8 +169,10 @@ def _scripted_prompt(labels: list[Label]):
     Raises IndexError if the loop asks for more decisions than scripted.
     """
     iter_ = iter(labels)
+
     def _prompt(trajectory: Trajectory, suggestion: Label) -> Label:
         return next(iter_)
+
     return _prompt
 
 
@@ -232,11 +236,18 @@ def test_resume_after_partial_review(tmp_path: Path):
     """Labeling stops mid-way; a second pass picks up where the first
     left off."""
     store = _make_store(tmp_path)
-    _write_session(store, "s1", [
-        _user("a"), _assistant("b"),
-        _user("c"), _assistant("d"),
-        _user("e"), _assistant("f"),
-    ])
+    _write_session(
+        store,
+        "s1",
+        [
+            _user("a"),
+            _assistant("b"),
+            _user("c"),
+            _assistant("d"),
+            _user("e"),
+            _assistant("f"),
+        ],
+    )
     # First pass labels one, then quits.
     review = ReviewSession(store.profile_dir, store=store)
     try:

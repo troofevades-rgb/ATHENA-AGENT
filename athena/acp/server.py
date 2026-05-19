@@ -24,13 +24,15 @@ its own task so a slow handler doesn't head-of-line block other
 messages. stdout writes are serialized by an asyncio.Lock so two
 notifications never interleave bytes on the wire.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import sys
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -78,16 +80,20 @@ class ACPServer:
 
     def method(self, name: str):
         """Decorator: register an async handler for an inbound request."""
+
         def deco(fn: MethodHandler) -> MethodHandler:
             self._methods[name] = fn
             return fn
+
         return deco
 
     def notification(self, name: str):
         """Decorator: register an async handler for an inbound notification."""
+
         def deco(fn: NotificationHandler) -> NotificationHandler:
             self._notifications[name] = fn
             return fn
+
         return deco
 
     # ---- main loop ----
@@ -133,11 +139,13 @@ class ACPServer:
         def _pump() -> None:
             for line in sys.stdin:
                 loop.call_soon_threadsafe(
-                    reader.feed_data, line.encode("utf-8"),
+                    reader.feed_data,
+                    line.encode("utf-8"),
                 )
             loop.call_soon_threadsafe(reader.feed_eof)
 
         import threading
+
         threading.Thread(target=_pump, daemon=True, name="acp-stdin").start()
         self._reader = reader
 
@@ -170,7 +178,8 @@ class ACPServer:
         msg_id = msg.get("id")
         if msg_id is None or msg_id not in self._pending_client_responses:
             logger.warning(
-                "received response with no matching pending id: %r", msg_id,
+                "received response with no matching pending id: %r",
+                msg_id,
             )
             return
         future = self._pending_client_responses.pop(msg_id)
@@ -190,12 +199,17 @@ class ACPServer:
             await self._dispatch_notification(method, params)
 
     async def _dispatch_request(
-        self, msg_id: Any, method: str, params: dict[str, Any],
+        self,
+        msg_id: Any,
+        method: str,
+        params: dict[str, Any],
     ) -> None:
         handler = self._methods.get(method)
         if handler is None:
             await self._send_error(
-                msg_id, ERR_METHOD_NOT_FOUND, f"method not found: {method}",
+                msg_id,
+                ERR_METHOD_NOT_FOUND,
+                f"method not found: {method}",
             )
             return
         try:
@@ -209,7 +223,9 @@ class ACPServer:
         await self._send_response(msg_id, result)
 
     async def _dispatch_notification(
-        self, method: str, params: dict[str, Any],
+        self,
+        method: str,
+        params: dict[str, Any],
     ) -> None:
         handler = self._notifications.get(method)
         if handler is None:
@@ -223,7 +239,9 @@ class ACPServer:
     # ---- outbound ----
 
     async def send_notification(
-        self, method: str, params: dict[str, Any],
+        self,
+        method: str,
+        params: dict[str, Any],
     ) -> None:
         msg = {"jsonrpc": "2.0", "method": method, "params": params}
         await self._write_message(msg)
@@ -243,9 +261,7 @@ class ACPServer:
         """
         self._client_request_id += 1
         msg_id = self._client_request_id
-        future: asyncio.Future[Any] = (
-            asyncio.get_event_loop().create_future()
-        )
+        future: asyncio.Future[Any] = asyncio.get_event_loop().create_future()
         self._pending_client_responses[msg_id] = future
         msg = {
             "jsonrpc": "2.0",
@@ -305,7 +321,9 @@ class ACPServer:
         self._tasks.clear()
         if tasks:
             _done, pending = await asyncio.wait(
-                tasks, timeout=5.0, return_when=asyncio.ALL_COMPLETED,
+                tasks,
+                timeout=5.0,
+                return_when=asyncio.ALL_COMPLETED,
             )
             for task in pending:
                 task.cancel()
@@ -314,17 +332,17 @@ class ACPServer:
 
         for future in list(self._pending_client_responses.values()):
             if not future.done():
-                future.set_exception(ACPError(
-                    {"code": ERR_INTERNAL, "message": "server shutting down"}
-                ))
+                future.set_exception(
+                    ACPError({"code": ERR_INTERNAL, "message": "server shutting down"})
+                )
         self._pending_client_responses.clear()
         # Resolve any pending client-bound futures so callers waiting
         # on them unwind rather than hang.
         for future in list(self._pending_client_responses.values()):
             if not future.done():
-                future.set_exception(ACPError(
-                    {"code": ERR_INTERNAL, "message": "server shutting down"}
-                ))
+                future.set_exception(
+                    ACPError({"code": ERR_INTERNAL, "message": "server shutting down"})
+                )
         self._pending_client_responses.clear()
 
 

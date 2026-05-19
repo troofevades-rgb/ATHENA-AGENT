@@ -1,4 +1,5 @@
 """Tests for athena.sessions.store.SessionStore."""
+
 from __future__ import annotations
 
 import json
@@ -9,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from athena.sessions.store import (
-    SearchHit,
     SessionMeta,
     SessionStore,
     new_session_id,
@@ -132,6 +132,7 @@ def test_session_ids_are_time_ordered() -> None:
     """UUIDv7 sorts lexicographically by ms timestamp prefix. Within the same
     ms the random tail can re-order — sleep enough to roll into a new ms."""
     import time
+
     a = new_session_id()
     time.sleep(0.005)
     b = new_session_id()
@@ -142,16 +143,21 @@ def test_session_ids_are_time_ordered() -> None:
 def test_assistant_tool_calls_are_searchable(store: SessionStore) -> None:
     meta = _meta()
     store.open_session(meta)
-    store.append_turn(meta.session_id, {
-        "role": "assistant",
-        "content": "running it",
-        "tool_calls": [{
-            "function": {
-                "name": "Bash",
-                "arguments": {"command": "ls /tmp/exoticdir"},
-            },
-        }],
-    })
+    store.append_turn(
+        meta.session_id,
+        {
+            "role": "assistant",
+            "content": "running it",
+            "tool_calls": [
+                {
+                    "function": {
+                        "name": "Bash",
+                        "arguments": {"command": "ls /tmp/exoticdir"},
+                    },
+                }
+            ],
+        },
+    )
     hits = store.search("exoticdir")
     assert len(hits) == 1
     assert hits[0].role == "assistant"

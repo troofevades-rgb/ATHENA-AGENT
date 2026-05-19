@@ -13,6 +13,7 @@ Otherwise: scan content for ``<tool_call>{...}</tool_call>`` blocks,
 extract each, strip from content, preserve the assistant's natural-
 language preamble around them.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,9 +33,7 @@ _TOOL_CALL_RE = re.compile(
 )
 
 
-def parse(
-    content: str, raw_response: dict[str, Any]
-) -> tuple[str, list[dict[str, Any]]]:
+def parse(content: str, raw_response: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     # If the provider already pulled out native tool_calls, prefer those.
     native = _native_tool_calls(raw_response) if isinstance(raw_response, dict) else []
     if native:
@@ -47,7 +46,7 @@ def parse(
     cleaned_parts: list[str] = []
     last_end = 0
     for m in _TOOL_CALL_RE.finditer(content):
-        cleaned_parts.append(content[last_end:m.start()])
+        cleaned_parts.append(content[last_end : m.start()])
         try:
             obj = json.loads(m.group(1))
         except json.JSONDecodeError:
@@ -65,11 +64,13 @@ def parse(
             cleaned_parts.append(m.group(0))
             last_end = m.end()
             continue
-        tool_calls.append({
-            "name": name,
-            "arguments": _coerce_arguments(obj.get("arguments")),
-            "id": obj.get("id", "") if isinstance(obj.get("id", ""), str) else "",
-        })
+        tool_calls.append(
+            {
+                "name": name,
+                "arguments": _coerce_arguments(obj.get("arguments")),
+                "id": obj.get("id", "") if isinstance(obj.get("id", ""), str) else "",
+            }
+        )
         last_end = m.end()
     cleaned_parts.append(content[last_end:])
     cleaned = "".join(cleaned_parts).strip()

@@ -23,6 +23,7 @@ The Agent runs in a worker thread (``asyncio.to_thread``) because
 ``_process_message_background`` uses. ``daemon`` (when present)
 provides the gateway adapter lookup; tests pass ``None``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -64,8 +65,8 @@ Payload:
 
 
 async def dispatch_webhook(
-    daemon: "GatewayDaemon | None",
-    sub: "WebhookSubscription",
+    daemon: GatewayDaemon | None,
+    sub: WebhookSubscription,
     payload: dict[str, Any],
     headers: dict[str, str],
     *,
@@ -86,7 +87,8 @@ async def dispatch_webhook(
         prompt = _build_prompt(sub, payload, headers)
     except Exception:
         logger.exception(
-            "webhook %s: failed to build prompt", sub.id,
+            "webhook %s: failed to build prompt",
+            sub.id,
         )
         return
 
@@ -94,7 +96,8 @@ async def dispatch_webhook(
         response = await _run_agent(sub, prompt, agent_factory=agent_factory)
     except Exception:
         logger.exception(
-            "webhook %s: agent run failed", sub.id,
+            "webhook %s: agent run failed",
+            sub.id,
         )
         return
 
@@ -103,7 +106,8 @@ async def dispatch_webhook(
     except Exception:
         logger.exception(
             "webhook %s: delivery failed for target %s",
-            sub.id, sub.delivery_target,
+            sub.id,
+            sub.delivery_target,
         )
 
 
@@ -111,7 +115,7 @@ async def dispatch_webhook(
 
 
 def _build_prompt(
-    sub: "WebhookSubscription",
+    sub: WebhookSubscription,
     payload: dict[str, Any],
     headers: dict[str, str],
 ) -> str:
@@ -121,9 +125,7 @@ def _build_prompt(
 
     if sub.binding_type == "skill":
         if not sub.skill_name:
-            raise ValueError(
-                f"webhook {sub.id}: binding_type='skill' but no skill_name"
-            )
+            raise ValueError(f"webhook {sub.id}: binding_type='skill' but no skill_name")
         return _SKILL_PROMPT.format(
             skill_name=sub.skill_name,
             headers_json=headers_json,
@@ -133,14 +135,10 @@ def _build_prompt(
     if sub.binding_type == "prompt":
         template = sub.prompt_template or ""
         if not template:
-            raise ValueError(
-                f"webhook {sub.id}: binding_type='prompt' but no template"
-            )
+            raise ValueError(f"webhook {sub.id}: binding_type='prompt' but no template")
         return _substitute_template(template, payload, headers)
 
-    raise ValueError(
-        f"webhook {sub.id}: unknown binding_type {sub.binding_type!r}"
-    )
+    raise ValueError(f"webhook {sub.id}: unknown binding_type {sub.binding_type!r}")
 
 
 def _substitute_template(
@@ -163,9 +161,7 @@ def _substitute_template(
     ):
         for v in variants:
             if v in out:
-                replacement = (
-                    payload_json if "payload" in v else headers_json
-                )
+                replacement = payload_json if "payload" in v else headers_json
                 out = out.replace(v, replacement)
     return out
 
@@ -174,7 +170,7 @@ def _substitute_template(
 
 
 async def _run_agent(
-    sub: "WebhookSubscription",
+    sub: WebhookSubscription,
     prompt: str,
     *,
     agent_factory=None,
@@ -187,7 +183,8 @@ async def _run_agent(
     agent = await asyncio.to_thread(agent_factory)
     try:
         await asyncio.to_thread(
-            agent.run_until_done, prompt,
+            agent.run_until_done,
+            prompt,
             max_iterations=_AGENT_MAX_ITERATIONS,
         )
         return agent.last_assistant_message() or ""
@@ -198,7 +195,9 @@ async def _run_agent(
                 await asyncio.to_thread(close)
             except Exception:
                 logger.debug(
-                    "webhook %s: agent.close raised", sub.id, exc_info=True,
+                    "webhook %s: agent.close raised",
+                    sub.id,
+                    exc_info=True,
                 )
 
 
@@ -222,7 +221,7 @@ def _parse_gateway_target(target: str) -> tuple[str, str] | None:
     """``gateway://<platform>/<chat_id>`` → ``(platform, chat_id)``."""
     if not target.startswith(_GATEWAY_PREFIX):
         return None
-    rest = target[len(_GATEWAY_PREFIX):]
+    rest = target[len(_GATEWAY_PREFIX) :]
     if "/" not in rest:
         return None
     platform, chat_id = rest.split("/", 1)
@@ -232,8 +231,8 @@ def _parse_gateway_target(target: str) -> tuple[str, str] | None:
 
 
 async def _deliver(
-    daemon: "GatewayDaemon | None",
-    sub: "WebhookSubscription",
+    daemon: GatewayDaemon | None,
+    sub: WebhookSubscription,
     response: str,
 ) -> None:
     """Route ``response`` per ``sub.delivery_target``."""
@@ -242,7 +241,8 @@ async def _deliver(
     if target == "log" or not response:
         logger.info(
             "webhook %s response: %s",
-            sub.id, (response or "(empty)")[:500],
+            sub.id,
+            (response or "(empty)")[:500],
         )
         return
 
@@ -250,7 +250,7 @@ async def _deliver(
         return
 
     if target.startswith(_FILE_PREFIX):
-        await _deliver_file(sub, response, target[len(_FILE_PREFIX):])
+        await _deliver_file(sub, response, target[len(_FILE_PREFIX) :])
         return
 
     if target.startswith(_GATEWAY_PREFIX):
@@ -259,13 +259,14 @@ async def _deliver(
 
     logger.warning(
         "webhook %s: unknown delivery_target %r — falling back to log",
-        sub.id, target,
+        sub.id,
+        target,
     )
     logger.info("webhook %s response: %s", sub.id, response[:500])
 
 
 async def _deliver_file(
-    sub: "WebhookSubscription",
+    sub: WebhookSubscription,
     response: str,
     path_str: str,
 ) -> None:
@@ -276,7 +277,9 @@ async def _deliver_file(
     # Use asyncio.to_thread for the actual write so we don't block
     # the loop on disk I/O.
     await asyncio.to_thread(
-        _append_text, path, delimiter + response + "\n",
+        _append_text,
+        path,
+        delimiter + response + "\n",
     )
 
 
@@ -286,8 +289,8 @@ def _append_text(path: Path, text: str) -> None:
 
 
 async def _deliver_gateway(
-    daemon: "GatewayDaemon | None",
-    sub: "WebhookSubscription",
+    daemon: GatewayDaemon | None,
+    sub: WebhookSubscription,
     response: str,
     target: str,
 ) -> None:
@@ -295,7 +298,8 @@ async def _deliver_gateway(
     if parsed is None:
         logger.warning(
             "webhook %s: malformed gateway target %r",
-            sub.id, target,
+            sub.id,
+            target,
         )
         return
     platform, chat_id = parsed
@@ -304,7 +308,8 @@ async def _deliver_gateway(
         logger.warning(
             "webhook %s: gateway target %s but no daemon attached "
             "(running outside `athena gateway run`?)",
-            sub.id, target,
+            sub.id,
+            target,
         )
         return
 
@@ -312,7 +317,8 @@ async def _deliver_gateway(
     if adapter is None:
         logger.warning(
             "webhook %s: no %r adapter registered on the gateway",
-            sub.id, platform,
+            sub.id,
+            platform,
         )
         return
 
@@ -320,5 +326,7 @@ async def _deliver_gateway(
         await adapter.send_text(chat_id, response)
     except Exception:
         logger.exception(
-            "webhook %s: gateway send to %s failed", sub.id, target,
+            "webhook %s: gateway send to %s failed",
+            sub.id,
+            target,
         )

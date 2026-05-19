@@ -1,5 +1,7 @@
 """Configuration loading. Reads ~/.athena/config.toml; falls back to defaults."""
+
 from __future__ import annotations
+
 import json
 import os
 import sys
@@ -64,17 +66,19 @@ def mcp_config_paths(workspace: Path) -> list[Path]:
 @dataclass
 class ReviewConfig:
     """Per-turn background review settings."""
-    nudge_interval: int = 10        # fire review every N tool calls
+
+    nudge_interval: int = 10  # fire review every N tool calls
     disabled: bool = False
-    max_iterations: int = 8         # fork loop cap
+    max_iterations: int = 8  # fork loop cap
 
 
 @dataclass
 class CuratorConfig:
     """Curator (umbrella consolidation) settings."""
-    interval_hours: int = 168       # default 7 days between runs
-    min_idle_hours: int = 2         # don't run if a session ended within this window
-    max_iterations: int = 9999      # fork loop cap; effectively unbounded
+
+    interval_hours: int = 168  # default 7 days between runs
+    min_idle_hours: int = 2  # don't run if a session ended within this window
+    max_iterations: int = 9999  # fork loop cap; effectively unbounded
 
 
 @dataclass
@@ -82,6 +86,7 @@ class WebhookServerConfig:
     """Webhook listener settings (Phase 15). Lives inside
     GatewayConfig because the listener shares the gateway daemon's
     process — start gateway, get webhooks for free (when enabled)."""
+
     enabled: bool = False
     host: str = "127.0.0.1"
     port: int = 4747
@@ -105,6 +110,7 @@ class GatewayConfig:
     they need (bot tokens, app tokens, intents) directly from there,
     keeping the dataclass platform-agnostic.
     """
+
     max_warm_agents: int = 50
     continuity: bool = False
     platforms: dict[str, Any] = field(default_factory=dict)
@@ -158,13 +164,15 @@ class Config:
     # Phase 17 [safety] settings. Keys preserved in a sub-dict so
     # athena.safety modules can read them without growing the top-
     # level Config surface for every new option.
-    safety: dict[str, Any] = field(default_factory=lambda: {
-        "snapshot_foreground": False,
-        "retention_days": 90,
-        "retention_count": 5_000,
-        "retention_bytes": 5 * 1024**3,
-        "extra_denylist": [],
-    })
+    safety: dict[str, Any] = field(
+        default_factory=lambda: {
+            "snapshot_foreground": False,
+            "retention_days": 90,
+            "retention_count": 5_000,
+            "retention_bytes": 5 * 1024**3,
+            "extra_denylist": [],
+        }
+    )
     # Hard cap on tool-call rounds per user turn. Stops runaway loops.
     max_turn_steps: int = 25
     # Plugin configuration. ``plugins["enabled"]`` is a {plugin_name: bool}
@@ -226,6 +234,7 @@ def _assign_field(cfg: Any, key: str, value: Any) -> None:
     swallowed here.
     """
     import dataclasses as _dc
+
     current = getattr(cfg, key)
     if _dc.is_dataclass(current) and not _dc.is_dataclass(type(value)) and isinstance(value, dict):
         # Merge TOML dict into the existing dataclass instance.
@@ -255,17 +264,26 @@ def _normalize_ollama_host(raw: str) -> str:
     # Replace 0.0.0.0 / :: in the authority section with 127.0.0.1.
     # We don't touch the path/query — just the netloc.
     from urllib.parse import urlsplit, urlunsplit
+
     parts = urlsplit(host)
     netloc = parts.netloc or parts.path  # `http://0.0.0.0:11434` style only
     if netloc:
         # netloc may have :port; preserve it.
         if netloc.startswith("0.0.0.0"):
-            netloc = "127.0.0.1" + netloc[len("0.0.0.0"):]
+            netloc = "127.0.0.1" + netloc[len("0.0.0.0") :]
         elif netloc.startswith("[::]"):
-            netloc = "[::1]" + netloc[len("[::]"):]
+            netloc = "[::1]" + netloc[len("[::]") :]
         elif netloc.startswith("[0:0:0:0:0:0:0:0]"):
-            netloc = "[::1]" + netloc[len("[0:0:0:0:0:0:0:0]"):]
-    return urlunsplit((parts.scheme or "http", netloc, parts.path if parts.netloc else "", parts.query, parts.fragment))
+            netloc = "[::1]" + netloc[len("[0:0:0:0:0:0:0:0]") :]
+    return urlunsplit(
+        (
+            parts.scheme or "http",
+            netloc,
+            parts.path if parts.netloc else "",
+            parts.query,
+            parts.fragment,
+        )
+    )
 
 
 def load_plugin_state() -> dict[str, Any]:

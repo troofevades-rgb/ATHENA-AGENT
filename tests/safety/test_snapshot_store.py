@@ -1,4 +1,5 @@
 """SnapshotStore — content-addressed tarball pre-state preservation."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -11,12 +12,10 @@ import pytest
 from athena.provenance import (
     BACKGROUND_REVIEW,
     CURATOR,
-    FOREGROUND,
     reset_current_write_origin,
     set_current_write_origin,
 )
 from athena.safety.snapshots import (
-    Snapshot,
     SnapshotError,
     SnapshotStore,
     _path_covers,
@@ -50,7 +49,8 @@ def _write_skill_tree(workspace: Path, name: str = "demo") -> Path:
     refs = skill_root / "references"
     refs.mkdir(exist_ok=True)
     (refs / "background.md").write_text(
-        "original reference content", encoding="utf-8",
+        "original reference content",
+        encoding="utf-8",
     )
     return skill_root
 
@@ -59,7 +59,8 @@ def _write_skill_tree(workspace: Path, name: str = "demo") -> Path:
 
 
 def test_snapshot_round_trip_bit_exact(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     """Snapshot a tree, mutate, restore — files identical to pre-state."""
     skill = _write_skill_tree(workspace)
@@ -69,7 +70,9 @@ def test_snapshot_round_trip_bit_exact(
     token = set_current_write_origin(CURATOR)
     try:
         with store.snapshot_and_mutate(
-            [skill], tool_name="skill_manage", session_id="s1",
+            [skill],
+            tool_name="skill_manage",
+            session_id="s1",
         ) as snap:
             # Mutate.
             (skill / "SKILL.md").write_text("after consolidation\n", "utf-8")
@@ -87,13 +90,12 @@ def test_snapshot_round_trip_bit_exact(
 
     # Bit-exact.
     assert (skill / "SKILL.md").read_bytes() == original_body
-    assert (
-        skill / "references" / "background.md"
-    ).read_bytes() == original_ref
+    assert (skill / "references" / "background.md").read_bytes() == original_ref
 
 
 def test_snapshot_persists_when_mutation_raises(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     """The snapshot survives a failed mutation — that's the audit
     trail."""
@@ -103,7 +105,8 @@ def test_snapshot_persists_when_mutation_raises(
     try:
         try:
             with store.snapshot_and_mutate(
-                [skill], tool_name="skill_manage",
+                [skill],
+                tool_name="skill_manage",
             ) as snap:
                 captured["snap"] = snap
                 raise RuntimeError("simulated mutation failure")
@@ -121,7 +124,8 @@ def test_snapshot_persists_when_mutation_raises(
 
 
 def test_same_pre_state_same_second_collapses(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     """Identical pre-state under the same write_origin at the same
     timestamp produces one tarball on disk, not two."""
@@ -144,7 +148,8 @@ def test_same_pre_state_same_second_collapses(
 
 
 def test_different_origin_changes_id(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill = _write_skill_tree(workspace)
     token = set_current_write_origin(CURATOR)
@@ -170,7 +175,8 @@ def test_different_origin_changes_id(
 
 
 def test_sidecar_carries_every_field(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill = _write_skill_tree(workspace)
     token = set_current_write_origin(CURATOR)
@@ -199,7 +205,8 @@ def test_sidecar_carries_every_field(
 
 
 def test_sidecar_paths_resolved_to_absolute(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     """Tarball arcnames are relative; sidecar paths are absolute so
     audit consumers can identify the original location."""
@@ -218,7 +225,8 @@ def test_sidecar_paths_resolved_to_absolute(
 
 
 def test_list_snapshots_returns_newest_first(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill_a = _write_skill_tree(workspace, "a")
     skill_b = _write_skill_tree(workspace, "b")
@@ -239,7 +247,8 @@ def test_list_snapshots_returns_newest_first(
 
 
 def test_list_filters_by_write_origin(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill = _write_skill_tree(workspace)
     token = set_current_write_origin(CURATOR)
@@ -263,7 +272,8 @@ def test_list_filters_by_write_origin(
 
 
 def test_list_filters_by_path(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill_a = _write_skill_tree(workspace, "alpha")
     skill_b = _write_skill_tree(workspace, "beta")
@@ -282,7 +292,8 @@ def test_list_filters_by_path(
 
 
 def test_list_limit(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill = _write_skill_tree(workspace)
     token = set_current_write_origin(CURATOR)
@@ -299,7 +310,8 @@ def test_list_limit(
 
 
 def test_find_most_recent_for_skill_root(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill = _write_skill_tree(workspace)
     token = set_current_write_origin(CURATOR)
@@ -314,7 +326,8 @@ def test_find_most_recent_for_skill_root(
 
 
 def test_find_most_recent_for_nested_path_uses_ancestor(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     """find_most_recent_for(skill_md_file) returns the snapshot that
     captured the parent dir."""
@@ -332,7 +345,8 @@ def test_find_most_recent_for_nested_path_uses_ancestor(
 
 
 def test_find_returns_none_for_unrelated_path(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     _ = _write_skill_tree(workspace, "alpha")
     token = set_current_write_origin(CURATOR)
@@ -349,7 +363,8 @@ def test_find_returns_none_for_unrelated_path(
 
 
 def test_pin_then_unpin(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill = _write_skill_tree(workspace)
     token = set_current_write_origin(CURATOR)
@@ -374,7 +389,8 @@ def test_pin_unknown_returns_false(store: SnapshotStore) -> None:
 
 
 def test_restore_path_filter_only_extracts_subtree(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     """Filter the restore to a specific file under the snapshot."""
     skill = _write_skill_tree(workspace)
@@ -389,20 +405,21 @@ def test_restore_path_filter_only_extracts_subtree(
     (skill / "references" / "background.md").write_text("clobbered", "utf-8")
 
     restored = store.restore(
-        snap, path_filter=skill / "SKILL.md",
-        dest_root=workspace, confirm=lambda _: True,
+        snap,
+        path_filter=skill / "SKILL.md",
+        dest_root=workspace,
+        confirm=lambda _: True,
     )
     # Only SKILL.md restored; references/background.md still
     # clobbered.
     assert (skill / "SKILL.md").read_text().startswith("---\nname:")
-    assert (
-        skill / "references" / "background.md"
-    ).read_text() == "clobbered"
+    assert (skill / "references" / "background.md").read_text() == "clobbered"
     assert any(str(p).endswith("SKILL.md") for p in restored)
 
 
 def test_restore_confirm_false_aborts(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill = _write_skill_tree(workspace)
     token = set_current_write_origin(CURATOR)
@@ -414,7 +431,9 @@ def test_restore_confirm_false_aborts(
     (skill / "SKILL.md").write_text("changed", encoding="utf-8")
 
     restored = store.restore(
-        snap, dest_root=workspace, confirm=lambda _: False,
+        snap,
+        dest_root=workspace,
+        confirm=lambda _: False,
     )
     assert restored == []
     # Live filesystem untouched.
@@ -422,7 +441,8 @@ def test_restore_confirm_false_aborts(
 
 
 def test_restore_missing_tarball_raises(
-    store: SnapshotStore, workspace: Path,
+    store: SnapshotStore,
+    workspace: Path,
 ) -> None:
     skill = _write_skill_tree(workspace)
     token = set_current_write_origin(CURATOR)
@@ -440,7 +460,8 @@ def test_restore_missing_tarball_raises(
 
 
 def test_prune_respects_retention_days(
-    snapshot_root: Path, workspace: Path,
+    snapshot_root: Path,
+    workspace: Path,
 ) -> None:
     """Snapshots older than retention_days get pruned; younger ones
     keep. Pinned ones always survive."""
@@ -479,10 +500,12 @@ def test_prune_respects_retention_days(
 
 
 def test_prune_skips_pinned(
-    snapshot_root: Path, workspace: Path,
+    snapshot_root: Path,
+    workspace: Path,
 ) -> None:
     store = SnapshotStore(
-        root=snapshot_root, retention_days=30,
+        root=snapshot_root,
+        retention_days=30,
         relative_to=workspace,
     )
     skill = _write_skill_tree(workspace)
@@ -495,9 +518,7 @@ def test_prune_skips_pinned(
 
     # Age + pin it.
     payload = json.loads(snap.sidecar_path.read_text(encoding="utf-8"))
-    payload["created_at"] = (
-        dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=120)
-    ).isoformat()
+    payload["created_at"] = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=120)).isoformat()
     payload["pinned"] = True
     snap.sidecar_path.write_text(json.dumps(payload, default=str), encoding="utf-8")
 
@@ -508,7 +529,8 @@ def test_prune_skips_pinned(
 
 
 def test_prune_respects_count(
-    snapshot_root: Path, workspace: Path,
+    snapshot_root: Path,
+    workspace: Path,
 ) -> None:
     """retention_count=2 + 4 snapshots → prune 2 oldest unpinned."""
     store = SnapshotStore(

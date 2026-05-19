@@ -1,8 +1,6 @@
 """Provider ABC + StreamChunk + registry semantics."""
-from __future__ import annotations
 
-from collections.abc import Iterator
-from typing import Any
+from __future__ import annotations
 
 import pytest
 
@@ -15,7 +13,6 @@ from athena.providers import (
     register_provider,
     unregister,
 )
-
 
 # ---- StreamChunk -------------------------------------------------------
 
@@ -50,6 +47,7 @@ def test_provider_subclass_must_implement_stream_chat():
 
         def parse_tool_calls(self, content, raw_response):
             return content, []
+
         # No stream_chat — instantiation must fail.
 
     with pytest.raises(TypeError, match="abstract"):
@@ -63,6 +61,7 @@ def test_provider_subclass_must_implement_parse_tool_calls():
         def stream_chat(self, *, model, messages, tools=None, **kwargs):
             if False:
                 yield
+
         # No parse_tool_calls — instantiation must fail.
 
     with pytest.raises(TypeError, match="abstract"):
@@ -88,11 +87,14 @@ def test_complete_subclass_instantiates():
 def test_count_tokens_default_heuristic():
     class P(Provider):
         name = "x"
+
         def stream_chat(self, *, model, messages, tools=None, **kwargs):
             if False:
                 yield
+
         def parse_tool_calls(self, content, raw_response):
             return content, []
+
     p = P()
     # Word-count / 0.75 → 6 words → 8 tokens.
     assert p.count_tokens("a b c d e f") == 8
@@ -105,11 +107,14 @@ def test_count_tokens_default_heuristic():
 def test_close_is_default_noop():
     class P(Provider):
         name = "noop"
+
         def stream_chat(self, *, model, messages, tools=None, **kwargs):
             if False:
                 yield
+
         def parse_tool_calls(self, content, raw_response):
             return content, []
+
     P().close()  # no exception, returns None
 
 
@@ -118,12 +123,15 @@ def test_close_is_default_noop():
 
 def _scratch_provider(name: str) -> type[Provider]:
     """Build a minimal Provider subclass for registry tests."""
+
     class _Scratch(Provider):
         def stream_chat(self, *, model, messages, tools=None, **kwargs):
             if False:
                 yield
+
         def parse_tool_calls(self, content, raw_response):
             return content, []
+
     _Scratch.name = name
     return _Scratch
 
@@ -141,11 +149,14 @@ def test_register_and_lookup_roundtrip():
 def test_register_requires_nonempty_name():
     class Anon(Provider):
         name = ""
+
         def stream_chat(self, *, model, messages, tools=None, **kwargs):
             if False:
                 yield
+
         def parse_tool_calls(self, content, raw_response):
             return content, []
+
     with pytest.raises(ValueError, match="non-empty"):
         register_provider(Anon)
 
@@ -193,7 +204,11 @@ def test_pkg_exports_canonical_symbols():
     """The top-level package exposes Provider, StreamChunk, and the
     registry helpers."""
     for name in (
-        "Provider", "StreamChunk", "register_provider",
-        "get_provider_class", "list_providers", "unregister",
+        "Provider",
+        "StreamChunk",
+        "register_provider",
+        "get_provider_class",
+        "list_providers",
+        "unregister",
     ):
         assert hasattr(providers_pkg, name), f"missing export: {name}"

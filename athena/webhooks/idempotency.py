@@ -20,11 +20,11 @@ TTL is short (default 10 minutes); worst case the user's webhook
 source retries once after a restart and we fire twice. Persisting
 the cache would mean SQLite + invalidation logic for marginal gain.
 """
+
 from __future__ import annotations
 
 import threading
 import time
-
 
 DEFAULT_TTL_SECONDS = 600.0  # 10 minutes
 
@@ -67,10 +67,7 @@ class IdempotencyCache:
     def _purge_expired_unlocked(self, now: float) -> None:
         """Drop entries past their TTL. Called inline on every
         check_and_record; the cache stays small so this is fine."""
-        expired = [
-            pair for pair, expires_at in self._entries.items()
-            if expires_at < now
-        ]
+        expired = [pair for pair, expires_at in self._entries.items() if expires_at < now]
         for pair in expired:
             self._entries.pop(pair, None)
 

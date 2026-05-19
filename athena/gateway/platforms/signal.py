@@ -24,18 +24,18 @@ then register or link the account number via the bridge's
 ``/v1/qrcodelink`` or ``/v1/register`` endpoints before pointing
 athena at it.
 """
+
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from ..events import ApprovalRequest, MessageEvent, MessageType
 from ..base import GatewayAdapter
+from ..events import ApprovalRequest, MessageEvent, MessageType
 from ._text_approval import TextApprovalState
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,8 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
     async def start(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(_DEFAULT_RECEIVE_TIMEOUT))
         self.daemon.approvals.register_platform_renderer(
-            self.name, self._render_approval,
+            self.name,
+            self._render_approval,
         )
         backoff = _RECONNECT_BASE
         while not self._stop.is_set():
@@ -90,7 +91,8 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
             except Exception:
                 logger.exception(
                     "[%s] receive loop crashed; backoff %.1fs",
-                    self.name, backoff,
+                    self.name,
+                    backoff,
                 )
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=backoff)
@@ -116,7 +118,8 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
                     event = await self._event_from_envelope(envelope)
                 except Exception:
                     logger.exception(
-                        "[%s] event normalization failed", self.name,
+                        "[%s] event normalization failed",
+                        self.name,
                     )
                     continue
                 if event is None:
@@ -131,7 +134,9 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
                 await self._client.aclose()
             except Exception:
                 logger.debug(
-                    "[%s] client.aclose raised", self.name, exc_info=True,
+                    "[%s] client.aclose raised",
+                    self.name,
+                    exc_info=True,
                 )
 
     # ---- inbound ----
@@ -142,7 +147,8 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
         await self.handle_inbound(event)
 
     async def _event_from_envelope(
-        self, envelope: dict[str, Any],
+        self,
+        envelope: dict[str, Any],
     ) -> MessageEvent | None:
         """Parse a signal-cli-rest-api envelope into a MessageEvent.
 
@@ -175,7 +181,8 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
             is_dm = True
 
         attachments, message_type = await self._download_attachments(
-            attachments_raw, chat_id,
+            attachments_raw,
+            chat_id,
         )
 
         return MessageEvent(
@@ -199,8 +206,7 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
             return [], MessageType.TEXT
 
         first_mime = (
-            attachments_raw[0].get("contentType")
-            or attachments_raw[0].get("contentType", "")
+            attachments_raw[0].get("contentType") or attachments_raw[0].get("contentType", "")
         ).lower()
         if first_mime.startswith("image/"):
             mt = MessageType.PHOTO
@@ -230,7 +236,9 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
             except Exception:
                 logger.warning(
                     "[%s] attachment %s download failed",
-                    self.name, att_id, exc_info=True,
+                    self.name,
+                    att_id,
+                    exc_info=True,
                 )
         return out, mt
 
@@ -243,7 +251,8 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
         if chat_id is None:
             logger.warning(
                 "[%s] no signal route for session %s; cannot render approval",
-                self.name, request.session_id,
+                self.name,
+                request.session_id,
             )
             return
         body = self.format_text_approval_prompt(request)
@@ -252,14 +261,16 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
         except Exception:
             logger.exception(
                 "[%s] approval send failed for %s",
-                self.name, request.request_id,
+                self.name,
+                request.request_id,
             )
             return
         if user_id:
             self.record_pending(user_id, request.request_id)
 
     def _resolve_chat_and_user(
-        self, request: ApprovalRequest,
+        self,
+        request: ApprovalRequest,
     ) -> tuple[str | None, str | None]:
         if request.chat_id:
             # We don't always know the per-user id from chat_id alone
@@ -286,7 +297,8 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
             "message": text,
         }
         r = await self._client.post(
-            f"{self.rest_url}/v2/send", json=payload,
+            f"{self.rest_url}/v2/send",
+            json=payload,
         )
         r.raise_for_status()
         data: Any = r.json() if r.content else {}
@@ -315,7 +327,8 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
             ],
         }
         r = await self._client.post(
-            f"{self.rest_url}/v2/send", json=payload,
+            f"{self.rest_url}/v2/send",
+            json=payload,
         )
         r.raise_for_status()
         out: Any = r.json() if r.content else {}
@@ -337,14 +350,13 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
             )
         except Exception:
             logger.debug(
-                "[%s] typing-indicator raised", self.name, exc_info=True,
+                "[%s] typing-indicator raised",
+                self.name,
+                exc_info=True,
             )
 
 
 def _sanitize_for_path(value: str) -> str:
     """Strip filesystem-unfriendly characters from chat / file names."""
-    safe = "".join(
-        ch if ch.isalnum() or ch in "-._" else "_"
-        for ch in value
-    )
+    safe = "".join(ch if ch.isalnum() or ch in "-._" else "_" for ch in value)
     return safe or "anon"

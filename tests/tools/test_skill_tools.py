@@ -3,6 +3,7 @@
 The tools dispatch to athena.skills.manager; these tests exercise the wiring
 plus the per-action contract (response shape, error mapping, write_origin
 policy from the curator)."""
+
 from __future__ import annotations
 
 import json
@@ -79,12 +80,14 @@ def test_skill_view_missing(workspace_set: Path) -> None:
 
 
 def test_skill_manage_create_with_foreground_origin(workspace_set: Path) -> None:
-    out = _parse(skill_tools.skill_manage(
-        action="create",
-        name="from-tool",
-        frontmatter={"description": "made by tool"},
-        body="hi\n",
-    ))
+    out = _parse(
+        skill_tools.skill_manage(
+            action="create",
+            name="from-tool",
+            frontmatter={"description": "made by tool"},
+            body="hi\n",
+        )
+    )
     assert out["success"] is True
     assert out["action"] == "create"
     skill_md = workspace_set / ".athena" / "skills" / "from-tool" / "SKILL.md"
@@ -95,7 +98,9 @@ def test_skill_manage_create_with_foreground_origin(workspace_set: Path) -> None
 
 def test_skill_manage_create_duplicate_returns_error(workspace_set: Path) -> None:
     skill_tools.skill_manage(action="create", name="dup", frontmatter={"description": "x"})
-    out = _parse(skill_tools.skill_manage(action="create", name="dup", frontmatter={"description": "x"}))
+    out = _parse(
+        skill_tools.skill_manage(action="create", name="dup", frontmatter={"description": "x"})
+    )
     assert out["success"] is False
     assert "SkillExistsError" in out["message"]
 
@@ -132,12 +137,14 @@ def test_skill_manage_pin_sets_pinned_true(workspace_set: Path) -> None:
 
 def test_skill_manage_write_file_under_references(workspace_set: Path) -> None:
     skill_tools.skill_manage(action="create", name="wf", frontmatter={"description": "x"})
-    out = _parse(skill_tools.skill_manage(
-        action="write_file",
-        name="wf",
-        file_path="references/notes.md",
-        file_content="hi\n",
-    ))
+    out = _parse(
+        skill_tools.skill_manage(
+            action="write_file",
+            name="wf",
+            file_path="references/notes.md",
+            file_content="hi\n",
+        )
+    )
     assert out["success"] is True
     p = workspace_set / ".athena" / "skills" / "wf" / "references" / "notes.md"
     assert p.read_text(encoding="utf-8") == "hi\n"
@@ -145,12 +152,14 @@ def test_skill_manage_write_file_under_references(workspace_set: Path) -> None:
 
 def test_skill_manage_write_file_rejects_bad_path(workspace_set: Path) -> None:
     skill_tools.skill_manage(action="create", name="wf-bad", frontmatter={"description": "x"})
-    out = _parse(skill_tools.skill_manage(
-        action="write_file",
-        name="wf-bad",
-        file_path="references/../escape.md",
-        file_content="x",
-    ))
+    out = _parse(
+        skill_tools.skill_manage(
+            action="write_file",
+            name="wf-bad",
+            file_path="references/../escape.md",
+            file_content="x",
+        )
+    )
     assert out["success"] is False
 
 
@@ -167,11 +176,13 @@ def test_skill_manage_curator_delete_requires_absorbed_into(workspace_set: Path)
         assert "CuratorPolicyError" in out["message"]
 
         # With absorbed_into provided, curator may proceed.
-        out2 = _parse(skill_tools.skill_manage(
-            action="delete",
-            name="curatable",
-            absorbed_into="umbrella-skill",
-        ))
+        out2 = _parse(
+            skill_tools.skill_manage(
+                action="delete",
+                name="curatable",
+                absorbed_into="umbrella-skill",
+            )
+        )
         assert out2["success"] is True
     finally:
         reset_current_write_origin(token)
@@ -184,10 +195,13 @@ def test_skill_manage_curator_cannot_patch_foreground_skill(workspace_set: Path)
     )  # foreground
     token = set_current_write_origin(CURATOR)
     try:
-        out = _parse(skill_tools.skill_manage(
-            action="patch", name="user-skill",
-            frontmatter={"description": "curator wants this"},
-        ))
+        out = _parse(
+            skill_tools.skill_manage(
+                action="patch",
+                name="user-skill",
+                frontmatter={"description": "curator wants this"},
+            )
+        )
         assert out["success"] is False
         assert "foreground-authored" in out["message"]
     finally:
@@ -209,11 +223,10 @@ def test_skill_manage_curator_cannot_pin(workspace_set: Path) -> None:
 
 def test_skill_manage_background_review_cannot_pin(workspace_set: Path) -> None:
     from athena.provenance import BACKGROUND_REVIEW
+
     token = set_current_write_origin(BACKGROUND_REVIEW)
     try:
-        skill_tools.skill_manage(
-            action="create", name="br-skill", frontmatter={"description": "x"}
-        )
+        skill_tools.skill_manage(action="create", name="br-skill", frontmatter={"description": "x"})
         out = _parse(skill_tools.skill_manage(action="pin", name="br-skill"))
         assert out["success"] is False
         assert "foreground-only" in out["message"]
@@ -222,12 +235,13 @@ def test_skill_manage_background_review_cannot_pin(workspace_set: Path) -> None:
 
 
 def test_skill_manage_foreground_can_do_anything(workspace_set: Path) -> None:
-    skill_tools.skill_manage(
-        action="create", name="multi", frontmatter={"description": "x"}
-    )
+    skill_tools.skill_manage(action="create", name="multi", frontmatter={"description": "x"})
     # create, patch, pin, unpin, delete — all succeed under foreground.
-    out = _parse(skill_tools.skill_manage(action="patch", name="multi",
-                                          frontmatter={"description": "edited"}))
+    out = _parse(
+        skill_tools.skill_manage(
+            action="patch", name="multi", frontmatter={"description": "edited"}
+        )
+    )
     assert out["success"] is True
     out = _parse(skill_tools.skill_manage(action="pin", name="multi"))
     assert out["success"] is True
@@ -237,7 +251,9 @@ def test_skill_manage_foreground_can_do_anything(workspace_set: Path) -> None:
     assert out["success"] is True
 
 
-def test_skill_manage_curator_cannot_delete_migration_origin(workspace_set: Path, write_skill) -> None:
+def test_skill_manage_curator_cannot_delete_migration_origin(
+    workspace_set: Path, write_skill
+) -> None:
     """Migration-origin skills are write-protected against curator deletion
     until they have local activity newer than imported_at — Phase 1 invariant
     7. (For now we assert the curator policy error path; tighter enforcement

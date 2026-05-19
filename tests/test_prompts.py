@@ -7,7 +7,6 @@ from athena.prompts.system import (
     build_system_prompt,
 )
 
-
 WORKSPACE = Path("/tmp")
 MODEL = "test-model"
 

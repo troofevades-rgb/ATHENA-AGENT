@@ -29,6 +29,7 @@ The async functions are the actual implementations; the sync wrappers
 internally so callers from synchronous MCP code (athena/mcp/client.py
 is sync) don't need to be aware of asyncio.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -94,9 +95,7 @@ class StoredToken:
 
     @property
     def needs_refresh(self) -> bool:
-        return (
-            self.expires_at - datetime.now(timezone.utc)
-        ) < _REFRESH_GRACE
+        return (self.expires_at - datetime.now(timezone.utc)) < _REFRESH_GRACE
 
 
 # ---- helpers ----------------------------------------------------------
@@ -109,13 +108,9 @@ def _gen_pkce_pair() -> tuple[str, str]:
     bytes → 43 chars after base64-encoding and stripping ``=``.
     The challenge is the S256 hash of the verifier.
     """
-    verifier = (
-        base64.urlsafe_b64encode(secrets.token_bytes(32))
-        .rstrip(b"=").decode()
-    )
+    verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
     challenge = (
-        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
-        .rstrip(b"=").decode()
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     )
     return verifier, challenge
 
@@ -131,7 +126,11 @@ def _find_free_port() -> int:
 
 
 def _build_authorization_url(
-    cfg: OAuthConfig, *, redirect_uri: str, state: str, challenge: str,
+    cfg: OAuthConfig,
+    *,
+    redirect_uri: str,
+    state: str,
+    challenge: str,
 ) -> str:
     """Compose the authorization endpoint URL from PKCE inputs."""
     from urllib.parse import urlencode
@@ -171,7 +170,10 @@ async def run_authorization_flow_async(
     state = secrets.token_urlsafe(16)
 
     auth_url = _build_authorization_url(
-        cfg, redirect_uri=redirect_uri, state=state, challenge=challenge,
+        cfg,
+        redirect_uri=redirect_uri,
+        state=state,
+        challenge=challenge,
     )
 
     if open_browser:
@@ -185,13 +187,19 @@ async def run_authorization_flow_async(
 
     code = await _await_callback(port, state, timeout_seconds=timeout_seconds)
     return await _exchange_code_for_token(
-        cfg, code=code, verifier=verifier, redirect_uri=redirect_uri,
+        cfg,
+        code=code,
+        verifier=verifier,
+        redirect_uri=redirect_uri,
         transport=transport,
     )
 
 
 async def _await_callback(
-    port: int, state: str, *, timeout_seconds: int,
+    port: int,
+    state: str,
+    *,
+    timeout_seconds: int,
 ) -> str:
     """Bind a one-shot HTTP server on 127.0.0.1:port; wait for
     ``GET /callback?code=…&state=…``. Returns the code on success or
@@ -220,7 +228,8 @@ async def _await_callback(
             qs = parse_qs(urlparse(parts[1]).query)
             if "error" in qs:
                 _write_simple(
-                    writer, 400,
+                    writer,
+                    400,
                     f"<h1>OAuth error: {qs['error'][0]}</h1>",
                 )
                 if not code_fut.done():
@@ -240,7 +249,8 @@ async def _await_callback(
                     code_fut.set_exception(OAuthError("no code"))
                 return
             _write_simple(
-                writer, 200,
+                writer,
+                200,
                 "<h1>Authentication complete. You can close this tab.</h1>",
             )
             if not code_fut.done():
@@ -309,10 +319,7 @@ async def _exchange_code_for_token(
             },
         )
         if r.status_code >= 400:
-            raise OAuthError(
-                f"token endpoint returned {r.status_code}: "
-                f"{(r.text or '')[:500]}"
-            )
+            raise OAuthError(f"token endpoint returned {r.status_code}: {(r.text or '')[:500]}")
         body = r.json()
 
     return _stored_token_from_response(body)
@@ -353,9 +360,7 @@ async def refresh_async(
             },
         )
         if r.status_code >= 400:
-            raise OAuthError(
-                f"refresh failed {r.status_code}: {(r.text or '')[:500]}"
-            )
+            raise OAuthError(f"refresh failed {r.status_code}: {(r.text or '')[:500]}")
         body = r.json()
     new_token = _stored_token_from_response(body)
     # Preserve the rotation chain when the provider doesn't issue a
@@ -415,13 +420,16 @@ def save_token(server_id: str, token: StoredToken) -> None:
     """
     TOKENS_DIR.mkdir(parents=True, exist_ok=True)
     path = _token_path(server_id)
-    payload = json.dumps({
-        "access_token": token.access_token,
-        "refresh_token": token.refresh_token,
-        "expires_at": token.expires_at.isoformat(),
-        "token_type": token.token_type,
-        "scope": token.scope,
-    }, indent=2)
+    payload = json.dumps(
+        {
+            "access_token": token.access_token,
+            "refresh_token": token.refresh_token,
+            "expires_at": token.expires_at.isoformat(),
+            "token_type": token.token_type,
+            "scope": token.scope,
+        },
+        indent=2,
+    )
 
     tmp = path.with_suffix(".tmp")
     tmp.write_text(payload, encoding="utf-8")
@@ -458,7 +466,9 @@ def load_token(server_id: str) -> StoredToken | None:
         )
     except (KeyError, ValueError, TypeError):
         logger.warning(
-            "token file %s missing required fields", path, exc_info=True,
+            "token file %s missing required fields",
+            path,
+            exc_info=True,
         )
         return None
 

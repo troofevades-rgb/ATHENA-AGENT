@@ -1,4 +1,5 @@
 """Tests for the per-turn review nudge counter."""
+
 from __future__ import annotations
 
 import threading

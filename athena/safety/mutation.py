@@ -12,12 +12,13 @@ Where ``ctx.record`` writes the MutationRecord after capturing
 small without leaking the snapshot/audit details into the mutation
 modules.
 """
+
 from __future__ import annotations
 
 import contextlib
 import dataclasses
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Iterable, Iterator
 
 from ..provenance import get_current_write_origin
 from .audit import (
@@ -58,19 +59,21 @@ class MutationContext:
         except (TypeError, ValueError):
             before_bytes_int = 0
         byte_delta = after_bytes - before_bytes_int
-        self.audit.append(MutationRecord(
-            timestamp=now_iso(),
-            write_origin=get_current_write_origin(),
-            session_id=self.session_id,
-            parent_session_id=self.parent_session_id,
-            tool_name=self.tool_name,
-            tool_call_id=self.tool_call_id or "",
-            path=path_str,
-            snapshot_id=self.snapshot.snapshot_id,
-            sha_before=sha_before,
-            sha_after=sha_after,
-            byte_delta=byte_delta,
-        ))
+        self.audit.append(
+            MutationRecord(
+                timestamp=now_iso(),
+                write_origin=get_current_write_origin(),
+                session_id=self.session_id,
+                parent_session_id=self.parent_session_id,
+                tool_name=self.tool_name,
+                tool_call_id=self.tool_call_id or "",
+                path=path_str,
+                snapshot_id=self.snapshot.snapshot_id,
+                sha_before=sha_before,
+                sha_after=sha_after,
+                byte_delta=byte_delta,
+            )
+        )
 
 
 @contextlib.contextmanager
@@ -104,9 +107,7 @@ def snapshot_and_record(
             if skill_md.exists():
                 sha_before_by_path[str(skill_md)] = sha_of_file(skill_md)
                 try:
-                    sha_before_by_path[str(skill_md) + ":bytes"] = (
-                        skill_md.stat().st_size  # type: ignore[assignment]
-                    )
+                    sha_before_by_path[str(skill_md) + ":bytes"] = skill_md.stat().st_size  # type: ignore[assignment]
                 except OSError:
                     pass
         else:

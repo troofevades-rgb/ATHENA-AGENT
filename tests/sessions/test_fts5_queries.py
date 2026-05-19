@@ -1,4 +1,5 @@
 """Tests for the FTS5 search semantics (matching, filters, ordering)."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -29,18 +30,22 @@ def _meta(session_id: str, **over) -> dict:
 def db() -> sqlite3.Connection:
     con = sqlite3.connect(":memory:")
     idx.init_schema(con)
-    idx.insert_session(con, _meta("s-foo", workspace="/foo",
-                                  started_at=datetime(2026, 3, 1, tzinfo=timezone.utc)))
-    idx.insert_session(con, _meta("s-bar", workspace="/bar",
-                                  started_at=datetime(2026, 5, 1, tzinfo=timezone.utc)))
-    idx.insert_turn(con, "s-foo", 0, "user", "the quick brown fox jumps",
-                    None, "2026-03-01T00:00:00Z")
-    idx.insert_turn(con, "s-foo", 1, "assistant", "elephants are also fast",
-                    None, "2026-03-01T00:00:01Z")
-    idx.insert_turn(con, "s-bar", 0, "user", "do quick foxes jump? running fast.",
-                    None, "2026-05-01T00:00:00Z")
-    idx.insert_turn(con, "s-bar", 1, "tool", "the tool result text", "Bash",
-                    "2026-05-01T00:00:01Z")
+    idx.insert_session(
+        con, _meta("s-foo", workspace="/foo", started_at=datetime(2026, 3, 1, tzinfo=timezone.utc))
+    )
+    idx.insert_session(
+        con, _meta("s-bar", workspace="/bar", started_at=datetime(2026, 5, 1, tzinfo=timezone.utc))
+    )
+    idx.insert_turn(
+        con, "s-foo", 0, "user", "the quick brown fox jumps", None, "2026-03-01T00:00:00Z"
+    )
+    idx.insert_turn(
+        con, "s-foo", 1, "assistant", "elephants are also fast", None, "2026-03-01T00:00:01Z"
+    )
+    idx.insert_turn(
+        con, "s-bar", 0, "user", "do quick foxes jump? running fast.", None, "2026-05-01T00:00:00Z"
+    )
+    idx.insert_turn(con, "s-bar", 1, "tool", "the tool result text", "Bash", "2026-05-01T00:00:01Z")
     return con
 
 
@@ -67,7 +72,8 @@ def test_filter_by_workspace(db: sqlite3.Connection) -> None:
 
 def test_filter_by_since(db: sqlite3.Connection) -> None:
     hits = idx.fts5_search(
-        db, "fox",
+        db,
+        "fox",
         since=datetime(2026, 4, 1, tzinfo=timezone.utc),
     )
     assert {row[0] for row in hits} == {"s-bar"}

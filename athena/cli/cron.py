@@ -8,6 +8,7 @@ immediately if the daemon process is the one running the command).
 ``daemon`` runs the scheduler in foreground until Ctrl-C — suitable for
 local dev. Production setups would launch it as a systemd unit.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,7 +16,6 @@ import json
 import signal
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import CONFIG_DIR
@@ -36,14 +36,15 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p_add = sub.add_parser("add", help="Add a scheduled job.")
-    p_add.add_argument("--schedule", required=True,
-                       help="Cron expression, e.g. '0 9 * * *'.")
+    p_add.add_argument("--schedule", required=True, help="Cron expression, e.g. '0 9 * * *'.")
     p_add.add_argument("--skill", help="Agent mode: skill name to invoke.")
     p_add.add_argument("--prompt", help="Agent mode: explicit prompt.")
     p_add.add_argument("--script", help="Watchdog mode: shell command.")
-    p_add.add_argument("--deliver", default="log",
-                       help="Delivery target: log | file:<path> | "
-                            "gateway://platform/chat_id (Phase 10).")
+    p_add.add_argument(
+        "--deliver",
+        default="log",
+        help="Delivery target: log | file:<path> | gateway://platform/chat_id (Phase 10).",
+    )
     p_add.add_argument("--description", default="")
 
     sub.add_parser("list", help="List every scheduled job.")
@@ -57,8 +58,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_logs.add_argument("--tail", type=int, default=10)
 
     p_daemon = sub.add_parser("daemon", help="Run the scheduler in foreground.")
-    p_daemon.add_argument("--once", action="store_true",
-                          help="Start, register every persisted job, then exit (test affordance).")
+    p_daemon.add_argument(
+        "--once",
+        action="store_true",
+        help="Start, register every persisted job, then exit (test affordance).",
+    )
 
     return ap
 
@@ -118,10 +122,7 @@ def _cmd_list(args) -> int:
             next_str = next_run.isoformat() if next_run else "—"
             target = j.skill or (j.prompt or "")[:40] or (j.script or "")[:40]
             state = "on" if j.enabled else "off"
-            print(
-                f"{j.id[:8]}  {state}  '{j.cron_expr}'  {j.mode}  "
-                f"next={next_str}  {target}"
-            )
+            print(f"{j.id[:8]}  {state}  '{j.cron_expr}'  {j.mode}  next={next_str}  {target}")
     finally:
         scheduler.stop()
     return 0
@@ -136,8 +137,7 @@ def _resolve_id(store: JobStore, prefix_or_id: str) -> CronJob | None:
         return matches[0]
     if len(matches) > 1:
         print(
-            f"error: prefix {prefix_or_id!r} is ambiguous: "
-            f"{', '.join(m.id[:8] for m in matches)}",
+            f"error: prefix {prefix_or_id!r} is ambiguous: {', '.join(m.id[:8] for m in matches)}",
             file=sys.stderr,
         )
     return None
@@ -227,10 +227,7 @@ def _cmd_daemon(args) -> int:
     scheduler.start()
     jobs = scheduler.list_jobs()
     enabled = sum(1 for j in jobs if j.enabled)
-    print(
-        f"cron daemon started — {enabled}/{len(jobs)} jobs enabled. "
-        "Press Ctrl-C to stop."
-    )
+    print(f"cron daemon started — {enabled}/{len(jobs)} jobs enabled. Press Ctrl-C to stop.")
     if args.once:
         scheduler.stop()
         return 0

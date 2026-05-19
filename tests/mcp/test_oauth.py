@@ -1,13 +1,12 @@
 """OAuth 2.1 PKCE flow + token storage."""
+
 from __future__ import annotations
 
 import asyncio
 import base64
 import hashlib
-import json
 import socket
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -15,7 +14,6 @@ import pytest
 import respx
 
 from athena.mcp import oauth
-
 
 # ---- PKCE pair generation -------------------------------------------
 
@@ -30,8 +28,7 @@ def test_pkce_pair_verifier_is_url_safe_base64() -> None:
 def test_pkce_pair_challenge_is_s256_of_verifier() -> None:
     verifier, challenge = oauth._gen_pkce_pair()
     expected = (
-        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
-        .rstrip(b"=").decode()
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     )
     assert challenge == expected
 
@@ -94,8 +91,10 @@ def test_build_authorization_url_omits_audience_when_unset() -> None:
         scopes=[],
     )
     url = oauth._build_authorization_url(
-        cfg, redirect_uri="http://127.0.0.1:1/cb",
-        state="s", challenge="c",
+        cfg,
+        redirect_uri="http://127.0.0.1:1/cb",
+        state="s",
+        challenge="c",
     )
     assert "audience" not in parse_qs(urlparse(url).query)
 
@@ -112,8 +111,7 @@ async def test_await_callback_returns_code_on_success() -> None:
     await asyncio.sleep(0.05)
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
     writer.write(
-        b"GET /callback?code=auth-code-123&state=my-state HTTP/1.1\r\n"
-        b"Host: 127.0.0.1\r\n\r\n"
+        b"GET /callback?code=auth-code-123&state=my-state HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
     )
     await writer.drain()
     await reader.read()  # drain response so server can shut
@@ -133,9 +131,7 @@ async def test_await_callback_rejects_state_mismatch() -> None:
     )
     await asyncio.sleep(0.05)
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    writer.write(
-        b"GET /callback?code=c&state=wrong HTTP/1.1\r\nHost: x\r\n\r\n"
-    )
+    writer.write(b"GET /callback?code=c&state=wrong HTTP/1.1\r\nHost: x\r\n\r\n")
     await writer.drain()
     await reader.read()
     writer.close()
@@ -155,9 +151,7 @@ async def test_await_callback_rejects_oauth_error_param() -> None:
     )
     await asyncio.sleep(0.05)
     reader, writer = await asyncio.open_connection("127.0.0.1", port)
-    writer.write(
-        b"GET /callback?error=access_denied&state=x HTTP/1.1\r\nHost:x\r\n\r\n"
-    )
+    writer.write(b"GET /callback?error=access_denied&state=x HTTP/1.1\r\nHost:x\r\n\r\n")
     await writer.drain()
     await reader.read()
     writer.close()
@@ -192,16 +186,22 @@ async def test_exchange_code_returns_stored_token() -> None:
     cfg = _cfg()
     async with respx.mock(base_url="https://auth.example.com") as mock:
         mock.post("/token").mock(
-            return_value=httpx.Response(200, json={
-                "access_token": "AT-123",
-                "refresh_token": "RT-456",
-                "expires_in": 3600,
-                "token_type": "Bearer",
-                "scope": "read",
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "access_token": "AT-123",
+                    "refresh_token": "RT-456",
+                    "expires_in": 3600,
+                    "token_type": "Bearer",
+                    "scope": "read",
+                },
+            )
         )
         token = await oauth._exchange_code_for_token(
-            cfg, code="c", verifier="v", redirect_uri="http://127.0.0.1:1/cb",
+            cfg,
+            code="c",
+            verifier="v",
+            redirect_uri="http://127.0.0.1:1/cb",
         )
 
     assert token.access_token == "AT-123"
@@ -215,12 +215,13 @@ async def test_exchange_code_returns_stored_token() -> None:
 async def test_exchange_code_failure_raises_oauth_error() -> None:
     cfg = _cfg()
     async with respx.mock(base_url="https://auth.example.com") as mock:
-        mock.post("/token").mock(
-            return_value=httpx.Response(400, text='{"error":"invalid_grant"}')
-        )
+        mock.post("/token").mock(return_value=httpx.Response(400, text='{"error":"invalid_grant"}'))
         with pytest.raises(oauth.OAuthError, match="invalid_grant"):
             await oauth._exchange_code_for_token(
-                cfg, code="c", verifier="v", redirect_uri="x",
+                cfg,
+                code="c",
+                verifier="v",
+                redirect_uri="x",
             )
 
 
@@ -234,11 +235,14 @@ async def test_refresh_returns_new_token() -> None:
     )
     async with respx.mock(base_url="https://auth.example.com") as mock:
         mock.post("/token").mock(
-            return_value=httpx.Response(200, json={
-                "access_token": "NEW",
-                "refresh_token": "RT-new",
-                "expires_in": 1800,
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "access_token": "NEW",
+                    "refresh_token": "RT-new",
+                    "expires_in": 1800,
+                },
+            )
         )
         new = await oauth.refresh_async(cfg, old)
     assert new.access_token == "NEW"
@@ -249,16 +253,21 @@ async def test_refresh_preserves_prior_refresh_token_when_omitted() -> None:
     """If the provider doesn't rotate refresh tokens, keep ours."""
     cfg = _cfg()
     old = oauth.StoredToken(
-        access_token="OLD", refresh_token="RT-old",
-        expires_at=datetime.now(timezone.utc), scope="read",
+        access_token="OLD",
+        refresh_token="RT-old",
+        expires_at=datetime.now(timezone.utc),
+        scope="read",
     )
     async with respx.mock(base_url="https://auth.example.com") as mock:
         mock.post("/token").mock(
-            return_value=httpx.Response(200, json={
-                "access_token": "NEW",
-                "expires_in": 600,
-                # No refresh_token in response.
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "access_token": "NEW",
+                    "expires_in": 600,
+                    # No refresh_token in response.
+                },
+            )
         )
         new = await oauth.refresh_async(cfg, old)
     assert new.refresh_token == "RT-old"
@@ -267,14 +276,20 @@ async def test_refresh_preserves_prior_refresh_token_when_omitted() -> None:
 async def test_refresh_preserves_scope_when_omitted() -> None:
     cfg = _cfg()
     old = oauth.StoredToken(
-        access_token="OLD", refresh_token="RT",
-        expires_at=datetime.now(timezone.utc), scope="read:all",
+        access_token="OLD",
+        refresh_token="RT",
+        expires_at=datetime.now(timezone.utc),
+        scope="read:all",
     )
     async with respx.mock(base_url="https://auth.example.com") as mock:
         mock.post("/token").mock(
-            return_value=httpx.Response(200, json={
-                "access_token": "NEW", "expires_in": 600,
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "access_token": "NEW",
+                    "expires_in": 600,
+                },
+            )
         )
         new = await oauth.refresh_async(cfg, old)
     assert new.scope == "read:all"
@@ -283,7 +298,8 @@ async def test_refresh_preserves_scope_when_omitted() -> None:
 async def test_refresh_raises_when_no_refresh_token() -> None:
     cfg = _cfg()
     old = oauth.StoredToken(
-        access_token="OLD", refresh_token=None,
+        access_token="OLD",
+        refresh_token=None,
         expires_at=datetime.now(timezone.utc),
     )
     with pytest.raises(oauth.OAuthError, match="no refresh_token"):
@@ -293,7 +309,8 @@ async def test_refresh_raises_when_no_refresh_token() -> None:
 async def test_refresh_failure_raises() -> None:
     cfg = _cfg()
     old = oauth.StoredToken(
-        access_token="OLD", refresh_token="RT",
+        access_token="OLD",
+        refresh_token="RT",
         expires_at=datetime.now(timezone.utc),
     )
     async with respx.mock(base_url="https://auth.example.com") as mock:
@@ -307,7 +324,8 @@ async def test_refresh_failure_raises() -> None:
 
 def test_needs_refresh_true_within_grace() -> None:
     token = oauth.StoredToken(
-        access_token="x", refresh_token="r",
+        access_token="x",
+        refresh_token="r",
         expires_at=datetime.now(timezone.utc) + timedelta(seconds=30),
     )
     assert token.needs_refresh is True
@@ -315,7 +333,8 @@ def test_needs_refresh_true_within_grace() -> None:
 
 def test_needs_refresh_false_when_fresh() -> None:
     token = oauth.StoredToken(
-        access_token="x", refresh_token="r",
+        access_token="x",
+        refresh_token="r",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
     )
     assert token.needs_refresh is False
@@ -323,7 +342,8 @@ def test_needs_refresh_false_when_fresh() -> None:
 
 def test_needs_refresh_true_when_already_expired() -> None:
     token = oauth.StoredToken(
-        access_token="x", refresh_token="r",
+        access_token="x",
+        refresh_token="r",
         expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
     )
     assert token.needs_refresh is True

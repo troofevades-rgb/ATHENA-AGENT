@@ -10,15 +10,15 @@ Mirrors Hermes Agent's ``agent/curator.py`` state shape so the same
 ``athena curator status`` UX (last run summary, "show once per launch"
 gating, report path quick-jump) lights up.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-
 
 _STATE_FILENAME = ".curator_state"
 

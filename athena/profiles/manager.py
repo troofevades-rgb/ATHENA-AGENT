@@ -15,6 +15,7 @@ Functions for the ``athena profile`` CLI surface:
 Every function operates on the user-scope ``PROFILES_DIR``. None of
 them touch profile contents — they manipulate the directory itself.
 """
+
 from __future__ import annotations
 
 import logging
@@ -77,8 +78,7 @@ def create_profile(name: str, *, copy_from: str | None = None) -> Path:
     """
     if not is_valid_profile_name(name):
         raise ValueError(
-            f"invalid profile name: {name!r} "
-            "(lowercase alphanumerics + _ - only, max 64 chars)"
+            f"invalid profile name: {name!r} (lowercase alphanumerics + _ - only, max 64 chars)"
         )
     dest = profile_dir(name)
     if dest.exists():
@@ -115,8 +115,7 @@ def delete_profile(name: str, confirm_token: str) -> None:
         raise ValueError(f"invalid profile name: {name!r}")
     if name == DEFAULT_PROFILE:
         raise ValueError(
-            f"cannot delete the {DEFAULT_PROFILE!r} profile "
-            "(auto-created; serves as the fallback)"
+            f"cannot delete the {DEFAULT_PROFILE!r} profile (auto-created; serves as the fallback)"
         )
     if confirm_token != name:
         raise ValueError(
@@ -160,13 +159,9 @@ def rename_profile(old: str, new: str) -> None:
     same after the rename.
     """
     if not is_valid_profile_name(old) or not is_valid_profile_name(new):
-        raise ValueError(
-            f"invalid profile name(s): old={old!r}, new={new!r}"
-        )
+        raise ValueError(f"invalid profile name(s): old={old!r}, new={new!r}")
     if old == DEFAULT_PROFILE:
-        raise ValueError(
-            f"cannot rename the {DEFAULT_PROFILE!r} profile"
-        )
+        raise ValueError(f"cannot rename the {DEFAULT_PROFILE!r} profile")
     if not profile_exists(old):
         raise FileNotFoundError(f"profile not found: {old}")
     dest = profile_dir(new)

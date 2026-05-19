@@ -1,4 +1,5 @@
 """End-to-end tests for ``athena cron`` CLI subcommands."""
+
 from __future__ import annotations
 
 import io
@@ -17,9 +18,7 @@ def cli_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Pa
     """Redirect the CLI's default scheduler + jobs DB to tmp_path."""
     sched_db = tmp_path / "scheduler.db"
     jobs_db = tmp_path / "cron_jobs.db"
-    monkeypatch.setattr(
-        cron_cli, "_default_paths", lambda: (sched_db, jobs_db)
-    )
+    monkeypatch.setattr(cron_cli, "_default_paths", lambda: (sched_db, jobs_db))
     return sched_db, jobs_db
 
 
@@ -39,11 +38,17 @@ def _run(argv: list[str]) -> tuple[int, str, str]:
 
 
 def test_add_watchdog_job(cli_paths):
-    rc, stdout, _ = _run([
-        "add", "--schedule", "* * * * *",
-        "--script", "echo hi",
-        "--description", "test script",
-    ])
+    rc, stdout, _ = _run(
+        [
+            "add",
+            "--schedule",
+            "* * * * *",
+            "--script",
+            "echo hi",
+            "--description",
+            "test script",
+        ]
+    )
     assert rc == 0
     assert "added cron job" in stdout
     # Job is in the store.
@@ -53,10 +58,15 @@ def test_add_watchdog_job(cli_paths):
 
 
 def test_add_agent_prompt_job(cli_paths):
-    rc, _, _ = _run([
-        "add", "--schedule", "0 9 * * *",
-        "--prompt", "morning status",
-    ])
+    rc, _, _ = _run(
+        [
+            "add",
+            "--schedule",
+            "0 9 * * *",
+            "--prompt",
+            "morning status",
+        ]
+    )
     assert rc == 0
     job = JobStore(cli_paths[1]).list_jobs()[0]
     assert job.mode == "agent"
@@ -70,11 +80,17 @@ def test_add_rejects_missing_target(cli_paths):
 
 
 def test_add_rejects_script_with_prompt(cli_paths):
-    rc, _, err = _run([
-        "add", "--schedule", "* * * * *",
-        "--script", "echo x",
-        "--prompt", "y",
-    ])
+    rc, _, err = _run(
+        [
+            "add",
+            "--schedule",
+            "* * * * *",
+            "--script",
+            "echo x",
+            "--prompt",
+            "y",
+        ]
+    )
     assert rc != 0
     assert "mutually exclusive" in err
 
@@ -121,10 +137,15 @@ def test_disable_then_enable(cli_paths):
 
 
 def test_run_now_watchdog(cli_paths):
-    _run([
-        "add", "--schedule", "* * * * *",
-        "--script", f'{sys.executable} -c "print(\'hello\')"',
-    ])
+    _run(
+        [
+            "add",
+            "--schedule",
+            "* * * * *",
+            "--script",
+            f"{sys.executable} -c \"print('hello')\"",
+        ]
+    )
     job = JobStore(cli_paths[1]).list_jobs()[0]
     rc, stdout, _ = _run(["run-now", job.id])
     assert rc == 0
@@ -132,8 +153,7 @@ def test_run_now_watchdog(cli_paths):
 
 
 def test_logs_shows_status(cli_paths):
-    _run(["add", "--schedule", "* * * * *",
-          "--script", f'{sys.executable} -c "pass"'])
+    _run(["add", "--schedule", "* * * * *", "--script", f'{sys.executable} -c "pass"'])
     job = JobStore(cli_paths[1]).list_jobs()[0]
     _run(["run-now", job.id])
     rc, stdout, _ = _run(["logs", job.id])

@@ -1,10 +1,9 @@
 """Ollama deploy: Modelfile writing, ollama-create invocation, switch_model."""
+
 from __future__ import annotations
 
 import sys
 from pathlib import Path
-
-import pytest
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -23,7 +22,8 @@ def test_writes_modelfile(tmp_path: Path):
     gguf = tmp_path / "model.gguf"
     gguf.write_text("fake gguf data", encoding="utf-8")
     register_with_ollama(
-        gguf, "test-model",
+        gguf,
+        "test-model",
         base_system_prompt="be terse",
         runner=lambda cmd: 0,
     )
@@ -101,8 +101,10 @@ def test_list_local_models_parses_ollama_output():
         "qwen2.5-coder:14b       abc123          8.0 GB  3 days ago\n"
         "llama3.1:8b             def456          4.5 GB  yesterday\n"
     )
+
     def fake_call(cmd):
         return 0, sample
+
     models = list_local_models(runner=fake_call)
     assert len(models) == 2
     assert models[0]["name"] == "qwen2.5-coder:14b"
@@ -114,21 +116,26 @@ def test_list_local_models_parses_ollama_output():
 def test_list_local_models_empty_output():
     def fake_call(cmd):
         return 0, "NAME  ID  SIZE  MODIFIED\n"
+
     assert list_local_models(runner=fake_call) == []
 
 
 def test_list_local_models_nonzero_exit_returns_empty(caplog):
     import logging
+
     def fake_call(cmd):
         return 1, ""
+
     with caplog.at_level(logging.WARNING):
         assert list_local_models(runner=fake_call) == []
 
 
 def test_list_local_models_missing_binary_returns_empty(caplog):
     import logging
+
     def fake_call(cmd):
         raise FileNotFoundError("ollama not on PATH")
+
     with caplog.at_level(logging.WARNING):
         assert list_local_models(runner=fake_call) == []
     assert any("ollama" in r.message for r in caplog.records)
@@ -137,6 +144,7 @@ def test_list_local_models_missing_binary_returns_empty(caplog):
 def test_show_model_returns_stdout():
     def fake_call(cmd):
         return 0, "Modelfile: FROM qwen2.5-coder:14b\nSYSTEM ...\n"
+
     out = show_model("qwen2.5-coder:14b", runner=fake_call)
     assert "FROM" in out
 
@@ -144,4 +152,5 @@ def test_show_model_returns_stdout():
 def test_show_model_nonzero_returns_empty():
     def fake_call(cmd):
         return 1, ""
+
     assert show_model("x", runner=fake_call) == ""

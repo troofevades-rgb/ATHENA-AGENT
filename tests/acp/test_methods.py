@@ -1,12 +1,11 @@
 """ACP method handlers."""
+
 from __future__ import annotations
 
 import asyncio
 import io
 import json
-from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -27,18 +26,17 @@ class _Writer:
 
     @property
     def lines(self) -> list[dict[str, Any]]:
-        return [
-            json.loads(line)
-            for line in self.buf.getvalue().splitlines()
-            if line.strip()
-        ]
+        return [json.loads(line) for line in self.buf.getvalue().splitlines() if line.strip()]
 
 
 class _FakeAgent:
     """Synchronous stub replicating the agent surface methods.py uses."""
 
     def __init__(
-        self, *, response: str = "stub response", session_id: str = "child-1",
+        self,
+        *,
+        response: str = "stub response",
+        session_id: str = "child-1",
     ) -> None:
         self.session_id = session_id
         self.response = response
@@ -49,7 +47,10 @@ class _FakeAgent:
         self.goal: str | None = None
 
     def run_until_done(
-        self, user_input: str = "", *, max_iterations: int | None = None,
+        self,
+        user_input: str = "",
+        *,
+        max_iterations: int | None = None,
     ) -> None:
         self.run_calls.append(user_input)
 
@@ -71,7 +72,9 @@ def _server() -> tuple[ACPServer, _Writer]:
 
 
 async def _invoke(
-    server: ACPServer, method: str, params: dict | None = None,
+    server: ACPServer,
+    method: str,
+    params: dict | None = None,
 ) -> dict:
     handler = server._methods[method]
     return await handler(params or {})
@@ -106,7 +109,9 @@ async def test_session_new_accepts_caller_session_id() -> None:
     server, _ = _server()
     sessions = register(server, agent_factory=_FakeAgent)
     result = await _invoke(
-        server, "session/new", {"session_id": "ide-supplied"},
+        server,
+        "session/new",
+        {"session_id": "ide-supplied"},
     )
     assert result["session_id"] == "ide-supplied"
     assert "ide-supplied" in sessions
@@ -147,10 +152,14 @@ async def test_send_message_runs_agent_and_streams_final(
     fake = _FakeAgent(response="final answer")
     sessions = register(server, agent_factory=lambda: fake)
     await _invoke(server, "session/new", {"session_id": "s"})
-    result = await _invoke(server, "session/send_message", {
-        "session_id": "s",
-        "message": "do the thing",
-    })
+    result = await _invoke(
+        server,
+        "session/send_message",
+        {
+            "session_id": "s",
+            "message": "do the thing",
+        },
+    )
     assert result == {"completed": True, "reason": "stop"}
     assert fake.run_calls == ["do the thing"]
     # Stream sequence: turn_started, text_block_start, text_delta,
@@ -173,9 +182,14 @@ async def test_send_message_runs_agent_and_streams_final(
 async def test_send_message_unknown_session_returns_error() -> None:
     server, _ = _server()
     register(server, agent_factory=_FakeAgent)
-    result = await _invoke(server, "session/send_message", {
-        "session_id": "ghost", "message": "hi",
-    })
+    result = await _invoke(
+        server,
+        "session/send_message",
+        {
+            "session_id": "ghost",
+            "message": "hi",
+        },
+    )
     assert "error" in result and "no such session" in result["error"]
 
 
@@ -188,16 +202,19 @@ async def test_send_message_agent_exception_surfaces() -> None:
 
     sessions = register(server, agent_factory=_Crash)
     await _invoke(server, "session/new", {"session_id": "s"})
-    result = await _invoke(server, "session/send_message", {
-        "session_id": "s", "message": "go",
-    })
+    result = await _invoke(
+        server,
+        "session/send_message",
+        {
+            "session_id": "s",
+            "message": "go",
+        },
+    )
     assert result["completed"] is False
     assert "simulated crash" in result["error"]
     # turn_completed still fires with reason=error so the IDE clears
     # its spinner.
-    completions = [
-        m for m in writer.lines if m["method"] == "session/turn_completed"
-    ]
+    completions = [m for m in writer.lines if m["method"] == "session/turn_completed"]
     assert completions and completions[0]["params"]["reason"] == "error"
 
 
@@ -212,11 +229,17 @@ async def test_send_message_surfaces_tool_calls(
     ]
     register(server, agent_factory=lambda: fake)
     await _invoke(server, "session/new", {"session_id": "s"})
-    await _invoke(server, "session/send_message", {
-        "session_id": "s", "message": "go",
-    })
+    await _invoke(
+        server,
+        "session/send_message",
+        {
+            "session_id": "s",
+            "message": "go",
+        },
+    )
     tool_starts = [
-        m for m in writer.lines
+        m
+        for m in writer.lines
         if m["method"] == "session/content_block_start"
         and m["params"]["block"]["type"] == "tool_use"
     ]
@@ -232,9 +255,14 @@ async def test_send_message_reports_cancelled_reason_when_flag_set(
     fake.cancel_pending = True
     register(server, agent_factory=lambda: fake)
     await _invoke(server, "session/new", {"session_id": "s"})
-    result = await _invoke(server, "session/send_message", {
-        "session_id": "s", "message": "go",
-    })
+    result = await _invoke(
+        server,
+        "session/send_message",
+        {
+            "session_id": "s",
+            "message": "go",
+        },
+    )
     assert result["reason"] == "cancelled"
 
 
@@ -266,9 +294,15 @@ async def test_slash_command_routed(tmp_path) -> None:
     server, _ = _server()
     register(server, agent_factory=_FakeAgent)
     await _invoke(server, "session/new", {"session_id": "s"})
-    result = await _invoke(server, "session/slash_command", {
-        "session_id": "s", "command": "steer", "argument": "focus on tests",
-    })
+    result = await _invoke(
+        server,
+        "session/slash_command",
+        {
+            "session_id": "s",
+            "command": "steer",
+            "argument": "focus on tests",
+        },
+    )
     assert "steer queued" in result["result"]
 
 

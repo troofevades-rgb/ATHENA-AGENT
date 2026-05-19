@@ -1,4 +1,5 @@
 """Profile lifecycle — list, create, delete, switch, rename."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,17 +11,22 @@ from athena.profiles import manager, resolution
 
 @pytest.fixture(autouse=True)
 def isolated_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
     home = tmp_path / "athena_home"
     home.mkdir()
     monkeypatch.setattr(resolution, "PROFILES_DIR", home / "profiles")
     monkeypatch.setattr(
-        resolution, "ACTIVE_PROFILE_FILE", home / "active_profile",
+        resolution,
+        "ACTIVE_PROFILE_FILE",
+        home / "active_profile",
     )
     monkeypatch.setattr(manager, "PROFILES_DIR", home / "profiles")
     monkeypatch.setattr(
-        manager, "ACTIVE_PROFILE_FILE", home / "active_profile",
+        manager,
+        "ACTIVE_PROFILE_FILE",
+        home / "active_profile",
     )
     monkeypatch.delenv("ATHENA_PROFILE", raising=False)
     monkeypatch.delenv("OCODE_PROFILE", raising=False)
@@ -89,7 +95,8 @@ def test_create_with_copy_from(isolated_home: Path) -> None:
     # the copy worked.
     (src / "skills" / "my-skill").mkdir()
     (src / "skills" / "my-skill" / "SKILL.md").write_text(
-        "---\nname: my-skill\n---\n", encoding="utf-8",
+        "---\nname: my-skill\n---\n",
+        encoding="utf-8",
     )
     (src / "memory" / "notes.md").write_text("private", encoding="utf-8")
 

@@ -11,17 +11,17 @@ Honcho / Mem0 / byterover providers are not directly readable — when we
 detect those (via ``<source>/memory_provider``) we record a WARNING in
 the report and exit the memory phase without writing anything.
 """
+
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .report import Report
-
 
 _NON_SLUG = re.compile(r"[^a-z0-9]+")
 
@@ -83,7 +83,10 @@ def _write_memory_md(target: Path, row: dict[str, Any]) -> None:
         fm_lines.append(f"last_used_at: {last}")
     fm_lines.append("---")
     body = row.get("body") or ""
-    target.write_text("\n".join(fm_lines) + "\n" + body + ("\n" if not body.endswith("\n") else ""), encoding="utf-8")
+    target.write_text(
+        "\n".join(fm_lines) + "\n" + body + ("\n" if not body.endswith("\n") else ""),
+        encoding="utf-8",
+    )
 
 
 def _rebuild_index(memory_dir: Path) -> None:
@@ -110,23 +113,29 @@ def export_memory(
     """Read Hermes memory.db and write per-row Markdown files at the destination."""
     unknown = _detect_unknown_provider(source)
     if unknown is not None:
-        report.add("memory_warning", {
-            "reason": "unsupported_provider",
-            "provider": unknown,
-            "message": (
-                f"Hermes is configured with memory provider {unknown!r}; "
-                "athena v2 cannot read it directly. Export manually."
-            ),
-        })
+        report.add(
+            "memory_warning",
+            {
+                "reason": "unsupported_provider",
+                "provider": unknown,
+                "message": (
+                    f"Hermes is configured with memory provider {unknown!r}; "
+                    "athena v2 cannot read it directly. Export manually."
+                ),
+            },
+        )
         return
 
     db_path = source / "memory.db"
     if not db_path.exists():
-        report.add("memory_warning", {
-            "reason": "no_db",
-            "path": str(db_path),
-            "message": "no memory.db at Hermes source; skipping memory phase",
-        })
+        report.add(
+            "memory_warning",
+            {
+                "reason": "no_db",
+                "path": str(db_path),
+                "message": "no memory.db at Hermes source; skipping memory phase",
+            },
+        )
         return
 
     target_dir = dest / "profiles" / profile / "memory"
@@ -143,19 +152,20 @@ def export_memory(
         if not dry_run:
             _write_memory_md(target, row)
         written += 1
-        report.add("imported_memory", {
-            "name": row.get("name"),
-            "type": row.get("type"),
-            "profile": row_profile,
-            "destination": str(target),
-            "dry_run": dry_run,
-        })
+        report.add(
+            "imported_memory",
+            {
+                "name": row.get("name"),
+                "type": row.get("type"),
+                "profile": row_profile,
+                "destination": str(target),
+                "dry_run": dry_run,
+            },
+        )
 
     if not dry_run:
         # Rebuild MEMORY.md per profile we just wrote into.
-        seen_profiles = {
-            entry["profile"] for entry in report.entries.get("imported_memory", [])
-        }
+        seen_profiles = {entry["profile"] for entry in report.entries.get("imported_memory", [])}
         for p in seen_profiles:
             _rebuild_index(dest / "profiles" / p / "memory")
 

@@ -5,8 +5,8 @@ for athena v2's foreground / background_review / curator provenance model.
 Keep this text under version control as prose — it's effectively the
 architecture documentation for what reviews should and shouldn't capture.
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 MEMORY_REVIEW = """\
 You are reviewing the immediately previous turn of conversation as a

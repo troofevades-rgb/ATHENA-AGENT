@@ -53,13 +53,15 @@ Key behaviors:
 stub (``NotImplementedError``) in this prompt. Prompt 10.8 implements
 it once the agent pool, approval router, and streaming protocol exist.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from .events import MessageEvent, MessageType
 
@@ -86,11 +88,17 @@ _DEFAULT_BODY_CAP = 3500
 # the next prompt as user text (/stop, /new) or deadlock (/approve,
 # /deny — the agent is blocked on Event.wait waiting for a decision
 # the user just sent).
-BYPASS_COMMANDS: frozenset[str] = frozenset({
-    "stop", "new", "reset",
-    "approve", "deny",
-    "status", "restart",
-})
+BYPASS_COMMANDS: frozenset[str] = frozenset(
+    {
+        "stop",
+        "new",
+        "reset",
+        "approve",
+        "deny",
+        "status",
+        "restart",
+    }
+)
 
 # Of those, the ones that must also cancel the in-flight task. They go
 # through _dispatch_active_session_command so the cancel happens AFTER
@@ -147,16 +155,11 @@ def merge_pending_message_event(
             existing.attachments.extend(event.attachments)
         if event.text:
             existing.text = (
-                _merge_caption(existing.text, event.text)
-                if existing.text
-                else event.text
+                _merge_caption(existing.text, event.text) if existing.text else event.text
             )
         if existing_is_photo or incoming_is_photo:
             existing.message_type = MessageType.PHOTO
-        elif (
-            existing.message_type == MessageType.TEXT
-            and event.message_type != MessageType.TEXT
-        ):
+        elif existing.message_type == MessageType.TEXT and event.message_type != MessageType.TEXT:
             existing.message_type = event.message_type
         return
 
@@ -166,11 +169,7 @@ def merge_pending_message_event(
         and event.message_type == MessageType.TEXT
     ):
         if event.text:
-            existing.text = (
-                f"{existing.text}\n{event.text}"
-                if existing.text
-                else event.text
-            )
+            existing.text = f"{existing.text}\n{event.text}" if existing.text else event.text
         return
 
     pending_messages[session_id] = event
@@ -207,7 +206,7 @@ class GatewayAdapter(ABC):
 
     name: str = ""
 
-    def __init__(self, daemon: "GatewayDaemon") -> None:
+    def __init__(self, daemon: GatewayDaemon) -> None:
         self.daemon = daemon
         self._active_sessions: dict[str, asyncio.Event] = {}
         self._session_tasks: dict[str, asyncio.Task] = {}
@@ -241,9 +240,7 @@ class GatewayAdapter(ABC):
 
     # ---- shared orchestration ----
 
-    def set_busy_session_handler(
-        self, handler: BusySessionHandler | None
-    ) -> None:
+    def set_busy_session_handler(self, handler: BusySessionHandler | None) -> None:
         """Install (or clear) an override for busy-session handling. If
         the handler returns True, default merge-and-interrupt is
         skipped — useful for daemons that want a platform-specific
@@ -271,9 +268,7 @@ class GatewayAdapter(ABC):
 
             if cmd in BYPASS_COMMANDS:
                 if cmd in CANCELING_BYPASS_COMMANDS:
-                    await self._dispatch_active_session_command(
-                        event, session_id, cmd
-                    )
+                    await self._dispatch_active_session_command(event, session_id, cmd)
                 else:
                     await self._dispatch_bypass_command(event, session_id, cmd)
                 return
@@ -294,10 +289,13 @@ class GatewayAdapter(ABC):
             if event.message_type == MessageType.PHOTO:
                 logger.debug(
                     "[%s] queuing photo follow-up for %s without interrupt",
-                    self.name, session_id,
+                    self.name,
+                    session_id,
                 )
                 merge_pending_message_event(
-                    self._pending_messages, session_id, event,
+                    self._pending_messages,
+                    session_id,
+                    event,
                     merge_text=False,
                 )
                 return
@@ -306,10 +304,14 @@ class GatewayAdapter(ABC):
             # guard event and exits early; its cleanup drains pending.
             logger.debug(
                 "[%s] new message while %s busy — triggering interrupt",
-                self.name, session_id,
+                self.name,
+                session_id,
             )
             merge_pending_message_event(
-                self._pending_messages, session_id, event, merge_text=True,
+                self._pending_messages,
+                session_id,
+                event,
+                merge_text=True,
             )
             self._active_sessions[session_id].set()
             return
@@ -342,7 +344,8 @@ class GatewayAdapter(ABC):
             return False
         logger.warning(
             "[%s] healing stale session lock for %s (owner task done/absent)",
-            self.name, session_id,
+            self.name,
+            session_id,
         )
         self._active_sessions.pop(session_id, None)
         self._pending_messages.pop(session_id, None)
@@ -391,9 +394,7 @@ class GatewayAdapter(ABC):
         guard = interrupt_event or asyncio.Event()
         self._active_sessions[session_id] = guard
 
-        task = asyncio.create_task(
-            self._process_message_background(event, session_id)
-        )
+        task = asyncio.create_task(self._process_message_background(event, session_id))
         self._session_tasks[session_id] = task
         try:
             self._background_tasks.add(task)
@@ -433,7 +434,9 @@ class GatewayAdapter(ABC):
             except Exception:
                 logger.debug(
                     "[%s] session cancellation raised while unwinding %s",
-                    self.name, session_id, exc_info=True,
+                    self.name,
+                    session_id,
+                    exc_info=True,
                 )
         if discard_pending:
             self._pending_messages.pop(session_id, None)
@@ -474,7 +477,9 @@ class GatewayAdapter(ABC):
         """
         logger.debug(
             "[%s] command '/%s' bypassing active-session guard for %s",
-            self.name, cmd, session_id,
+            self.name,
+            cmd,
+            session_id,
         )
         current_guard = self._active_sessions.get(session_id)
         command_guard = asyncio.Event()
@@ -483,26 +488,21 @@ class GatewayAdapter(ABC):
         try:
             await self._handle_bypass_command(event, session_id, cmd)
             await self.cancel_session_processing(
-                session_id, release_guard=False, discard_pending=False,
+                session_id,
+                release_guard=False,
+                discard_pending=False,
             )
         except Exception:
             # Restore the prior guard so we don't leave the session in
             # a half-reset state if the bypass dispatch itself failed.
             if self._active_sessions.get(session_id) is command_guard:
-                if (
-                    session_id in self._session_tasks
-                    and current_guard is not None
-                ):
+                if session_id in self._session_tasks and current_guard is not None:
                     self._active_sessions[session_id] = current_guard
                 else:
-                    self._release_session_guard(
-                        session_id, guard=command_guard
-                    )
+                    self._release_session_guard(session_id, guard=command_guard)
             raise
 
-        await self._drain_pending_after_session_command(
-            session_id, command_guard
-        )
+        await self._drain_pending_after_session_command(session_id, command_guard)
 
     async def _dispatch_bypass_command(
         self,
@@ -515,13 +515,17 @@ class GatewayAdapter(ABC):
         running task; they unblock or report on it."""
         logger.debug(
             "[%s] command '/%s' inline-bypass for %s",
-            self.name, cmd, session_id,
+            self.name,
+            cmd,
+            session_id,
         )
         try:
             await self._handle_bypass_command(event, session_id, cmd)
         except Exception:
             logger.exception(
-                "[%s] bypass command '/%s' dispatch failed", self.name, cmd,
+                "[%s] bypass command '/%s' dispatch failed",
+                self.name,
+                cmd,
             )
 
     async def _handle_bypass_command(
@@ -600,7 +604,8 @@ class GatewayAdapter(ABC):
             except Exception:
                 logger.exception(
                     "[%s] agent pool.use failed for %s",
-                    self.name, session_id,
+                    self.name,
+                    session_id,
                 )
                 await self._safe_send(
                     event.chat_id,
@@ -625,11 +630,14 @@ class GatewayAdapter(ABC):
 
                 try:
                     await asyncio.to_thread(
-                        agent.run_until_done, user_text,
+                        agent.run_until_done,
+                        user_text,
                     )
                 except Exception:
                     logger.exception(
-                        "[%s] agent run failed for %s", self.name, session_id,
+                        "[%s] agent run failed for %s",
+                        self.name,
+                        session_id,
                     )
                     await self._safe_send(
                         event.chat_id,
@@ -680,7 +688,9 @@ class GatewayAdapter(ABC):
                         await show(chat_id)
                     except Exception:
                         logger.debug(
-                            "[%s] show_typing raised", self.name, exc_info=True,
+                            "[%s] show_typing raised",
+                            self.name,
+                            exc_info=True,
                         )
                 await asyncio.sleep(_TYPING_REFRESH_SECONDS)
         except asyncio.CancelledError:
@@ -693,7 +703,9 @@ class GatewayAdapter(ABC):
             await self.send_text(chat_id, text)
         except Exception:
             logger.exception(
-                "[%s] error-path send failed for %s", self.name, chat_id,
+                "[%s] error-path send failed for %s",
+                self.name,
+                chat_id,
             )
 
     async def _send_chunked(self, chat_id: str, text: str) -> None:
@@ -720,13 +732,15 @@ class GatewayAdapter(ABC):
                 # instead of silence.
                 logger.exception(
                     "[%s] send_text failed for %s chunk %d/%d",
-                    self.name, chat_id, i + 1, len(chunks),
+                    self.name,
+                    chat_id,
+                    i + 1,
+                    len(chunks),
                 )
                 try:
                     await self.send_text(
                         chat_id,
-                        f"_(chunk {i + 1}/{len(chunks)} failed to send; "
-                        "see daemon log)_",
+                        f"_(chunk {i + 1}/{len(chunks)} failed to send; see daemon log)_",
                     )
                 except Exception:
                     pass

@@ -1,4 +1,5 @@
 """OpenAICompatProvider — generic OpenAI-shaped servers (vLLM, llama.cpp, ...)."""
+
 from __future__ import annotations
 
 import json
@@ -6,14 +7,15 @@ import json
 import httpx
 import respx
 
-from athena.providers import StreamChunk, get_provider_class
+from athena.providers import get_provider_class
 from athena.providers.openai_compat import OpenAICompatProvider
 
 
 def _sse(*events: dict) -> bytes:
-    return b"".join(
-        b"data: " + json.dumps(e).encode("utf-8") + b"\n\n" for e in events
-    ) + b"data: [DONE]\n\n"
+    return (
+        b"".join(b"data: " + json.dumps(e).encode("utf-8") + b"\n\n" for e in events)
+        + b"data: [DONE]\n\n"
+    )
 
 
 def test_registered_under_name_openai_compat():
@@ -32,10 +34,12 @@ def test_vllm_endpoint_compatible():
             m.post("http://vllm.local:8000/v1/chat/completions").mock(
                 return_value=httpx.Response(200, content=sample)
             )
-            chunks = list(p.stream_chat(
-                model="meta-llama/Llama-3.1-8B-Instruct",
-                messages=[{"role": "user", "content": "ping"}],
-            ))
+            chunks = list(
+                p.stream_chat(
+                    model="meta-llama/Llama-3.1-8B-Instruct",
+                    messages=[{"role": "user", "content": "ping"}],
+                )
+            )
     finally:
         p.close()
     contents = [c.payload for c in chunks if c.kind == "content"]
@@ -55,10 +59,12 @@ def test_llamacpp_endpoint_compatible():
             m.post("http://localhost:8080/v1/chat/completions").mock(
                 return_value=httpx.Response(200, content=sample)
             )
-            chunks = list(p.stream_chat(
-                model="llama3",
-                messages=[{"role": "user", "content": "ping"}],
-            ))
+            chunks = list(
+                p.stream_chat(
+                    model="llama3",
+                    messages=[{"role": "user", "content": "ping"}],
+                )
+            )
     finally:
         p.close()
     assert any(c.kind == "content" for c in chunks)
@@ -75,7 +81,9 @@ def test_host_v1_suffix_idempotent():
         assert p2.base_url == "http://x.local:8000/v1"
         assert p3.base_url == "http://x.local:8000/v1"
     finally:
-        p1.close(); p2.close(); p3.close()
+        p1.close()
+        p2.close()
+        p3.close()
 
 
 def test_no_auth_header_when_api_key_absent():

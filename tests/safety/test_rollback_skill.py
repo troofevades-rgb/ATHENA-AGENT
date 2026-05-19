@@ -1,4 +1,5 @@
 """Phase 17.6 — `athena skill diff|rollback` round-trip."""
+
 from __future__ import annotations
 
 import json
@@ -103,28 +104,21 @@ def test_audit_log_records_both_consolidate_and_rollback(
     audit_log = safety_context.get_audit_log()
     log_path = audit_log._current_path()
     assert log_path.exists()
-    lines = [
-        json.loads(line) for line in log_path.read_text(
-            encoding="utf-8"
-        ).splitlines() if line
-    ]
+    lines = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line]
     tool_names = [r["tool_name"] for r in lines]
     assert "skill_create" in tool_names
     assert "skill_patch" in tool_names
     assert "skill_rollback" in tool_names
     # The rollback record's sha_after must match the pre-consolidate
     # state's sha (i.e., the skill_create record's sha_after).
-    create_after = next(
-        r for r in lines if r["tool_name"] == "skill_create"
-    )["sha_after"]
-    rollback_after = next(
-        r for r in lines if r["tool_name"] == "skill_rollback"
-    )["sha_after"]
+    create_after = next(r for r in lines if r["tool_name"] == "skill_create")["sha_after"]
+    rollback_after = next(r for r in lines if r["tool_name"] == "skill_rollback")["sha_after"]
     assert create_after == rollback_after
 
 
 def test_skill_cli_diff_after_patch_shows_change(
-    isolated_home: Path, capsys: pytest.CaptureFixture[str],
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     token = set_current_write_origin(CURATOR)
     try:
@@ -144,7 +138,8 @@ def test_skill_cli_diff_after_patch_shows_change(
 
 
 def test_skill_cli_rollback_with_yes_flag(
-    isolated_home: Path, capsys: pytest.CaptureFixture[str],
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     token = set_current_write_origin(CURATOR)
     try:
@@ -162,7 +157,8 @@ def test_skill_cli_rollback_with_yes_flag(
 
 
 def test_skill_cli_unknown_name_returns_error(
-    isolated_home: Path, capsys: pytest.CaptureFixture[str],
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     rc = skill_cli.main(["diff", "ghost"])
     captured = capsys.readouterr()

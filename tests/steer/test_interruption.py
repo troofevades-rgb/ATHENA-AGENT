@@ -1,8 +1,8 @@
 """/steer slash command + Agent steer-drain integration."""
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -12,6 +12,7 @@ from athena.steer.queue import GLOBAL_STEER_QUEUE
 
 class _FakeAgent:
     """Just enough surface for the steer command's contract."""
+
     def __init__(self, session_id: str = "test-session"):
         self.session_id = session_id
 
@@ -71,16 +72,25 @@ def test_agent_pops_steer_before_user_prompt(monkeypatch: pytest.MonkeyPatch, tm
 
     # Patch OllamaProvider so Agent.__init__ doesn't try a real HTTP call.
     class _NullClient:
-        def __init__(self, *a, **k): pass
-        def list_models(self): return []
-        def show_model(self, model): return {}
+        def __init__(self, *a, **k):
+            pass
+
+        def list_models(self):
+            return []
+
+        def show_model(self, model):
+            return {}
+
         def stream_chat(self, *, model, messages, tools=None, **kwargs):
             if False:
                 yield
-        def close(self): pass
+
+        def close(self):
+            pass
 
     import athena.agent.core as core_mod
     from athena.providers import _REGISTRY
+
     monkeypatch.setattr(core_mod, "OllamaProvider", _NullClient, raising=False)
     monkeypatch.setitem(_REGISTRY, "ollama", _NullClient)
 
@@ -115,16 +125,25 @@ def test_agent_handles_empty_queue_silently(monkeypatch: pytest.MonkeyPatch, tmp
     from athena.config import Config
 
     class _NullClient:
-        def __init__(self, *a, **k): pass
-        def list_models(self): return []
-        def show_model(self, m): return {}
+        def __init__(self, *a, **k):
+            pass
+
+        def list_models(self):
+            return []
+
+        def show_model(self, m):
+            return {}
+
         def stream_chat(self, *, model, messages, tools=None, **kwargs):
             if False:
                 yield
-        def close(self): pass
+
+        def close(self):
+            pass
 
     import athena.agent.core as core_mod
     from athena.providers import _REGISTRY
+
     monkeypatch.setattr(core_mod, "OllamaProvider", _NullClient, raising=False)
     monkeypatch.setitem(_REGISTRY, "ollama", _NullClient)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))

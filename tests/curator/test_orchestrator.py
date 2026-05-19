@@ -4,6 +4,7 @@ These tests exercise the gate logic + YAML round-trip without spinning up
 a real Ollama: athena.agent.fork.fork is monkey-patched to return a pre-
 canned ForkResult.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -14,9 +15,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from athena.agent.fork import ForkResult
-from athena.config import CONFIG_DIR, Config, CuratorConfig
+from athena.config import Config, CuratorConfig
 from athena.curator import orchestrator, state
-
 
 VALID_YAML = """\
 ```yaml-curator-report
@@ -45,9 +45,7 @@ def _agent(
     if last_other_ended_at is None:
         store.most_recent_other_session.return_value = None
     else:
-        store.most_recent_other_session.return_value = SimpleNamespace(
-            ended_at=last_other_ended_at
-        )
+        store.most_recent_other_session.return_value = SimpleNamespace(ended_at=last_other_ended_at)
 
     agent = SimpleNamespace(
         cfg=cfg,
@@ -77,10 +75,13 @@ def _patch_fork(monkeypatch, *, response: str, captured: list | None = None):
 def test_does_not_run_within_interval(monkeypatch, tmp_path) -> None:
     agent = _agent(monkeypatch, tmp_path)
     skills_root = tmp_path / "skills"
-    state.write_state(skills_root, state.State(
-        last_run_at=datetime.now(timezone.utc) - timedelta(hours=1),
-        run_count=1,
-    ))
+    state.write_state(
+        skills_root,
+        state.State(
+            last_run_at=datetime.now(timezone.utc) - timedelta(hours=1),
+            run_count=1,
+        ),
+    )
     calls = _patch_fork(monkeypatch, response=VALID_YAML)
     assert orchestrator.maybe_run_curator(agent) is None
     assert calls == []
@@ -88,7 +89,8 @@ def test_does_not_run_within_interval(monkeypatch, tmp_path) -> None:
 
 def test_does_not_run_with_recent_session_activity(monkeypatch, tmp_path) -> None:
     agent = _agent(
-        monkeypatch, tmp_path,
+        monkeypatch,
+        tmp_path,
         last_other_ended_at=datetime.now(timezone.utc) - timedelta(minutes=30),
     )
     calls = _patch_fork(monkeypatch, response=VALID_YAML)
@@ -98,13 +100,17 @@ def test_does_not_run_with_recent_session_activity(monkeypatch, tmp_path) -> Non
 
 def test_runs_when_gates_pass(monkeypatch, tmp_path) -> None:
     agent = _agent(
-        monkeypatch, tmp_path,
+        monkeypatch,
+        tmp_path,
         last_other_ended_at=datetime.now(timezone.utc) - timedelta(hours=10),
     )
     skills_root = tmp_path / "skills"
-    state.write_state(skills_root, state.State(
-        last_run_at=datetime.now(timezone.utc) - timedelta(days=8),
-    ))
+    state.write_state(
+        skills_root,
+        state.State(
+            last_run_at=datetime.now(timezone.utc) - timedelta(days=8),
+        ),
+    )
     calls = _patch_fork(monkeypatch, response=VALID_YAML)
     summary = orchestrator.maybe_run_curator(agent)
     assert summary is not None
@@ -124,14 +130,18 @@ def test_paused_state_blocks_run(monkeypatch, tmp_path) -> None:
 
 def test_force_bypasses_gates(monkeypatch, tmp_path) -> None:
     agent = _agent(
-        monkeypatch, tmp_path,
+        monkeypatch,
+        tmp_path,
         last_other_ended_at=datetime.now(timezone.utc) - timedelta(minutes=1),
     )
     skills_root = tmp_path / "skills"
-    state.write_state(skills_root, state.State(
-        last_run_at=datetime.now(timezone.utc),
-        paused=True,
-    ))
+    state.write_state(
+        skills_root,
+        state.State(
+            last_run_at=datetime.now(timezone.utc),
+            paused=True,
+        ),
+    )
     calls = _patch_fork(monkeypatch, response=VALID_YAML)
     summary = orchestrator.maybe_run_curator(agent, force=True)
     assert summary is not None

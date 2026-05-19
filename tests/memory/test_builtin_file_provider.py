@@ -1,4 +1,5 @@
 """BuiltinFileProvider: file + SQLite roundtrip, ordering, query, delete."""
+
 from __future__ import annotations
 
 import time
@@ -41,8 +42,12 @@ def test_write_entry_includes_full_frontmatter(provider, tmp_path: Path):
     path = _write_one(provider, "default", "fm_test")
     content = path.read_text(encoding="utf-8")
     for key in (
-        "name:", "description:", "type:", "write_origin:",
-        "created_at:", "last_activity_at:",
+        "name:",
+        "description:",
+        "type:",
+        "write_origin:",
+        "created_at:",
+        "last_activity_at:",
     ):
         assert key in content, f"missing {key}"
 

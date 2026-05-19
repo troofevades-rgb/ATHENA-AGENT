@@ -5,9 +5,9 @@ model can pull turns from earlier conversations into its current context.
 Filters to the active workspace by default so recall from other projects
 doesn't pollute the result.
 """
+
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from .registry import tool
@@ -20,6 +20,7 @@ def _store_and_workspace() -> tuple[Any | None, str | None]:
     unit test without an Agent context). Callers degrade gracefully.
     """
     from ..agent.core import get_current_agent
+
     agent = get_current_agent()
     if agent is None:
         return None, None
@@ -37,9 +38,7 @@ def _format_hits(query: str, hits: list[Any]) -> str:
             role = ctx.get("role", "?")
             content = ctx.get("content", "")
             if isinstance(content, list):
-                content = " ".join(
-                    c.get("text", "") for c in content if isinstance(c, dict)
-                )
+                content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
             content = (content or "").replace("\n", " ").strip()
             if len(content) > 300:
                 content = content[:297] + "..."
@@ -56,12 +55,15 @@ def _format_hits(query: str, hits: list[Any]) -> str:
         "Search prior session messages by keyword (FTS5-backed). Returns the "
         "matching turns with surrounding context (1 turn before, 1 after) so "
         "the result has enough shape for you to act on it. Filters to the "
-        "active workspace by default — pass workspace=\"\" to search globally."
+        'active workspace by default — pass workspace="" to search globally.'
     ),
     parameters={
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "FTS5 query string. Use quotes for phrases."},
+            "query": {
+                "type": "string",
+                "description": "FTS5 query string. Use quotes for phrases.",
+            },
             "k": {"type": "integer", "description": "Max number of matches (default 5)."},
             "workspace": {
                 "type": "string",

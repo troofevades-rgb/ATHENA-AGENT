@@ -31,14 +31,16 @@ via :meth:`set_renderer` describing how to draw the approval UI.
 That keeps platform code out of this module so adding a fourth
 platform doesn't require touching approval routing.
 """
+
 from __future__ import annotations
 
 import asyncio
 import concurrent.futures
 import logging
 import secrets
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Awaitable, Callable, Literal
+from typing import Literal
 
 from .events import ApprovalRequest
 
@@ -85,9 +87,7 @@ class ApprovalRouter:
         """
         self._renderer = renderer
 
-    def register_platform_renderer(
-        self, platform: str, renderer: Renderer | None
-    ) -> None:
+    def register_platform_renderer(self, platform: str, renderer: Renderer | None) -> None:
         """Install a renderer scoped to one platform name. Each
         adapter calls this from its ``start()`` so dispatch is keyed
         on :attr:`ApprovalRequest.platform`.
@@ -132,8 +132,7 @@ class ApprovalRouter:
         renderer = self._renderer_for(request)
         if renderer is None:
             logger.warning(
-                "approval request with no renderer installed (platform=%r); "
-                "auto-denying",
+                "approval request with no renderer installed (platform=%r); auto-denying",
                 platform or "<unset>",
             )
             return "deny"
@@ -158,7 +157,8 @@ class ApprovalRouter:
             except asyncio.TimeoutError:
                 logger.info(
                     "approval %s timed out after %.0fs; denying",
-                    request_id, timeout_s,
+                    request_id,
+                    timeout_s,
                 )
                 return "deny"
             return decision

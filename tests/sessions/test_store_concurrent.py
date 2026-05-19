@@ -10,6 +10,7 @@ appending many turns to the same store finish cleanly, the on-disk
 row count matches the number of writes, and ``close()`` shuts down
 every thread's connection.
 """
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -80,10 +81,13 @@ def test_concurrent_append_turn_does_not_corrupt(tmp_path: Path) -> None:
     def worker(sid: str) -> None:
         try:
             for k in range(n_turns_per):
-                store.append_turn(sid, {
-                    "role": "user" if k % 2 == 0 else "assistant",
-                    "content": f"turn {k} of {sid}",
-                })
+                store.append_turn(
+                    sid,
+                    {
+                        "role": "user" if k % 2 == 0 else "assistant",
+                        "content": f"turn {k} of {sid}",
+                    },
+                )
         except BaseException as e:
             with err_lock:
                 errors.append(e)
@@ -97,9 +101,7 @@ def test_concurrent_append_turn_does_not_corrupt(tmp_path: Path) -> None:
     # the writer threads each have their own.
     fresh = sqlite3.connect(str(store.db_path))
     try:
-        rows = fresh.execute(
-            "SELECT COUNT(*) FROM turns"
-        ).fetchone()
+        rows = fresh.execute("SELECT COUNT(*) FROM turns").fetchone()
     finally:
         fresh.close()
     assert rows[0] == n_threads * n_turns_per

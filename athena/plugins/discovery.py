@@ -12,6 +12,7 @@ Two roots are scanned, in order:
 A plugin's directory name doesn't have to match the manifest ``name``; the
 loader keys off the manifest.
 """
+
 from __future__ import annotations
 
 import logging

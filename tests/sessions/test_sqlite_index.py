@@ -1,4 +1,5 @@
 """Tests for the schema, triggers, and structural helpers of the SQLite index."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -34,12 +35,18 @@ def _meta(session_id: str = "s1", **over) -> dict:
 
 def test_schema_created_on_first_open(db: sqlite3.Connection) -> None:
     rows = db.execute(
-        "SELECT name FROM sqlite_master WHERE type IN ('table', 'index', 'trigger') "
-        "ORDER BY name"
+        "SELECT name FROM sqlite_master WHERE type IN ('table', 'index', 'trigger') ORDER BY name"
     ).fetchall()
     names = {r[0] for r in rows}
-    for required in ("sessions", "turns", "turns_fts", "turns_ai", "turns_ad",
-                     "idx_sessions_started", "idx_sessions_workspace"):
+    for required in (
+        "sessions",
+        "turns",
+        "turns_fts",
+        "turns_ai",
+        "turns_ad",
+        "idx_sessions_started",
+        "idx_sessions_workspace",
+    ):
         assert required in names, f"missing schema object: {required}"
 
 
@@ -76,9 +83,7 @@ def test_indexes_exist(db: sqlite3.Connection) -> None:
 def test_update_session_ended(db: sqlite3.Connection) -> None:
     idx.insert_session(db, _meta())
     idx.update_session_ended(db, "s1", "2026-01-02T00:00:00Z")
-    row = db.execute(
-        "SELECT ended_at FROM sessions WHERE session_id='s1'"
-    ).fetchone()
+    row = db.execute("SELECT ended_at FROM sessions WHERE session_id='s1'").fetchone()
     assert row[0] == "2026-01-02T00:00:00Z"
 
 

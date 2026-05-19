@@ -1,4 +1,5 @@
 """Span attribute redaction — secret patterns + truncation."""
+
 from __future__ import annotations
 
 from athena.plugins.bundled.observability.redaction import (
@@ -8,7 +9,6 @@ from athena.plugins.bundled.observability.redaction import (
     redact_string,
     redact_value,
 )
-
 
 # ---- secret patterns -----------------------------------------------
 

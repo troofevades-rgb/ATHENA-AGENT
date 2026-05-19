@@ -20,6 +20,7 @@ Slash commands run on the asyncio loop; the underlying steer queue
 is thread-safe (``threading.Lock``) and goal I/O is straightforward
 file work, so neither requires special bridging.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,7 +41,7 @@ _KNOWN = frozenset({"steer", "queue", "goal"})
 
 async def handle_slash(
     params: dict[str, Any],
-    sessions: dict[str, "Agent"],
+    sessions: dict[str, Agent],
 ) -> dict[str, Any]:
     """Route a slash command to its handler.
 
@@ -96,7 +97,7 @@ async def handle_slash(
     return _err(f"unhandled slash command: /{cmd}")  # pragma: no cover
 
 
-def _profile_dir_for(agent: "Agent | None", session_id: str) -> Path | None:
+def _profile_dir_for(agent: Agent | None, session_id: str) -> Path | None:
     """Best-effort profile dir resolution.
 
     The agent (if present) carries its own profile dir via cfg. With
@@ -111,7 +112,7 @@ def _profile_dir_for(agent: "Agent | None", session_id: str) -> Path | None:
         return None
 
 
-def _rebuild_system_prompt(agent: "Agent") -> None:
+def _rebuild_system_prompt(agent: Agent) -> None:
     """Re-render the agent's system prompt so the new goal lands in
     the next request to the model. The Agent's :meth:`reload_goal`
     is the same hook the REPL /goal slash command uses."""
@@ -121,7 +122,8 @@ def _rebuild_system_prompt(agent: "Agent") -> None:
             reload_goal()
         except Exception:
             logger.warning(
-                "Agent.reload_goal failed for ACP /goal", exc_info=True,
+                "Agent.reload_goal failed for ACP /goal",
+                exc_info=True,
             )
 
 

@@ -1,4 +1,5 @@
 """CronJob dataclass + JobStore persistence."""
+
 from __future__ import annotations
 
 import json
@@ -8,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from athena.cron.jobs import CronJob, JobStore
-
 
 # ---- CronJob dataclass --------------------------------------------------
 

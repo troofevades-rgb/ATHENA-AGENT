@@ -1,11 +1,10 @@
 """Cron delivery routing: log, file, gateway-stub, unknown."""
+
 from __future__ import annotations
 
 import json
 import logging
 from pathlib import Path
-
-import pytest
 
 from athena.cron.delivery import deliver
 from athena.cron.jobs import CronJob

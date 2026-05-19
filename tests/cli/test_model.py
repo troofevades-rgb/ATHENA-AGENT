@@ -1,4 +1,5 @@
 """athena model CLI."""
+
 from __future__ import annotations
 
 import io
@@ -54,9 +55,7 @@ def test_model_list_errors_without_ollama(monkeypatch: pytest.MonkeyPatch):
     assert "ollama" in err
 
 
-def test_model_switch_updates_config(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-):
+def test_model_switch_updates_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """athena model switch <name> writes model = "<name>" to config.toml."""
     fake_config = tmp_path / "config.toml"
     monkeypatch.setattr(model_cli, "CONFIG_PATH", fake_config)
@@ -68,9 +67,7 @@ def test_model_switch_updates_config(
     assert data["model"] == "qwen-athena-2"
 
 
-def test_model_switch_warns_when_ollama_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-):
+def test_model_switch_warns_when_ollama_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     """Without ollama on PATH, switch still updates config but warns."""
     fake_config = tmp_path / "config.toml"
     monkeypatch.setattr(model_cli, "CONFIG_PATH", fake_config)

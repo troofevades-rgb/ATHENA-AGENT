@@ -1,4 +1,5 @@
 """``athena skill {diff, rollback}`` — operate on a single skill."""
+
 from __future__ import annotations
 
 import argparse

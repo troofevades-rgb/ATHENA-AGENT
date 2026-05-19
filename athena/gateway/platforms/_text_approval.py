@@ -16,6 +16,7 @@ request id against that identifier means an unrelated chat member
 typing ``/allow`` can't accidentally resolve someone else's
 approval.
 """
+
 from __future__ import annotations
 
 import logging
@@ -100,7 +101,8 @@ class TextApprovalState:
             self.daemon.approvals.resolve(request_id, decision)  # type: ignore[attr-defined]
         except Exception:
             logger.exception(
-                "text-approval resolve raised for %s", request_id,
+                "text-approval resolve raised for %s",
+                request_id,
             )
         return True
 
@@ -125,8 +127,5 @@ class TextApprovalState:
                     repr_value = repr_value[:200] + "…"
                 arg_lines.append(f"  {key}: {repr_value}")
             arg_block = "\n".join(arg_lines)
-            return (
-                f"{head}\n\nArguments:\n{arg_block}\n\n"
-                "Reply with /allow or /deny."
-            )
+            return f"{head}\n\nArguments:\n{arg_block}\n\nReply with /allow or /deny."
         return f"{head}\n\nReply with /allow or /deny."

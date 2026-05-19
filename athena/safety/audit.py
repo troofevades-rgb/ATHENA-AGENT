@@ -26,6 +26,7 @@ one writer per profile. A multi-process layout would need
 ``flock`` / atomic rename, deferred until we actually have that
 problem.
 """
+
 from __future__ import annotations
 
 import dataclasses

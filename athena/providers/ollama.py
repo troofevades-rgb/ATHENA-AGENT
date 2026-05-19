@@ -13,6 +13,7 @@ calls :meth:`show_model` at session start (and after ``/clear`` /
 ``stream_chat`` — that would double the ``/api/show`` HTTP calls and
 fight with the agent's prompt assembly.
 """
+
 from __future__ import annotations
 
 import json
@@ -75,9 +76,7 @@ class OllamaProvider(Provider):
         if max_tokens is not None:
             payload["options"]["num_predict"] = max_tokens
 
-        with self._client.stream(
-            "POST", f"{self.host}/api/chat", json=payload
-        ) as r:
+        with self._client.stream("POST", f"{self.host}/api/chat", json=payload) as r:
             r.raise_for_status()
             for line in r.iter_lines():
                 if not line:
@@ -89,24 +88,28 @@ class OllamaProvider(Provider):
                     yield StreamChunk("content", content)
                 for tc in msg.get("tool_calls") or []:
                     fn = tc.get("function", {}) or {}
-                    yield StreamChunk("tool_call", {
-                        "name": fn.get("name", ""),
-                        "arguments": fn.get("arguments", {}),
-                        "id": tc.get("id", ""),
-                    })
-                if obj.get("done"):
-                    yield StreamChunk("usage", {
-                        "prompt_tokens": obj.get("prompt_eval_count", 0) or 0,
-                        "completion_tokens": obj.get("eval_count", 0) or 0,
-                        # Ollama-specific extras the agent's stream_stats uses
-                        # for the tok/s footer.
-                        "prompt_eval_count": obj.get("prompt_eval_count", 0) or 0,
-                        "eval_count": obj.get("eval_count", 0) or 0,
-                        "eval_duration": obj.get("eval_duration", 0) or 0,
-                    })
                     yield StreamChunk(
-                        "end", {"reason": obj.get("done_reason", "stop")}
+                        "tool_call",
+                        {
+                            "name": fn.get("name", ""),
+                            "arguments": fn.get("arguments", {}),
+                            "id": tc.get("id", ""),
+                        },
                     )
+                if obj.get("done"):
+                    yield StreamChunk(
+                        "usage",
+                        {
+                            "prompt_tokens": obj.get("prompt_eval_count", 0) or 0,
+                            "completion_tokens": obj.get("eval_count", 0) or 0,
+                            # Ollama-specific extras the agent's stream_stats uses
+                            # for the tok/s footer.
+                            "prompt_eval_count": obj.get("prompt_eval_count", 0) or 0,
+                            "eval_count": obj.get("eval_count", 0) or 0,
+                            "eval_duration": obj.get("eval_duration", 0) or 0,
+                        },
+                    )
+                    yield StreamChunk("end", {"reason": obj.get("done_reason", "stop")})
 
     def parse_tool_calls(
         self, content: str, raw_response: dict[str, Any]
@@ -116,6 +119,7 @@ class OllamaProvider(Provider):
         gpt-oss* models route to harmony, and the bulk of Ollama models
         fall through to the provider-default ollama_native parser."""
         from .parsers import resolve_parser
+
         model = ""
         if isinstance(raw_response, dict):
             m = raw_response.get("model")
@@ -151,4 +155,3 @@ class OllamaProvider(Provider):
             self._client.close()
         except Exception:
             pass
-

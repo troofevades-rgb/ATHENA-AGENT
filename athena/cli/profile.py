@@ -9,6 +9,7 @@ directly, so they're cheap and don't need a model running.
 ``switch``, ``delete``, and ``rename`` map 1:1 to
 :mod:`athena.profiles.manager` functions.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,14 +20,12 @@ from typing import Any
 
 from ..profiles import manager
 from ..profiles.resolution import (
-    ACTIVE_PROFILE_FILE,
-    DEFAULT_PROFILE,
+    ACTIVE_PROFILE_FILE,  # noqa: F401  re-exported for tests/profiles/test_cli.py monkeypatch
     is_valid_profile_name,
     profile_dir,
     profile_exists,
     resolve_active_profile,
 )
-
 
 # ---- list -----------------------------------------------------------
 
@@ -35,15 +34,19 @@ def cmd_list(args: argparse.Namespace) -> int:
     profiles = manager.list_profiles()
     active = resolve_active_profile()
     if args.json:
-        sys.stdout.write(json.dumps({
-            "active": active,
-            "profiles": profiles,
-        }, indent=2) + "\n")
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "active": active,
+                    "profiles": profiles,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
         return 0
     if not profiles:
-        sys.stdout.write(
-            "(no profiles configured — `athena profile create <name>`)\n"
-        )
+        sys.stdout.write("(no profiles configured — `athena profile create <name>`)\n")
         return 0
     for name in profiles:
         marker = "*" if name == active else " "
@@ -65,9 +68,17 @@ def cmd_show(args: argparse.Namespace) -> int:
     root = profile_dir(name)
     summary = _summarize(root)
     if args.json:
-        sys.stdout.write(json.dumps({
-            "name": name, "path": str(root), **summary,
-        }, indent=2) + "\n")
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "name": name,
+                    "path": str(root),
+                    **summary,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
         return 0
     sys.stdout.write(f"{name}\n  path: {root}\n")
     sys.stdout.write(f"  skills:   {summary['skills_count']}\n")
@@ -89,7 +100,8 @@ def _summarize(root: Path) -> dict[str, Any]:
     """
     skills_count = _count_dir_entries(root / "skills")
     sessions_count = _count_dir_entries(
-        root / "sessions", pattern="*.meta.json",
+        root / "sessions",
+        pattern="*.meta.json",
     )
     memory_count = _count_dir_entries(root / "memory", pattern="*.md")
     goal_path = root / "goal.txt"
@@ -187,32 +199,39 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p_list = sub.add_parser(
-        "list", help="List every profile; active marked with *.",
+        "list",
+        help="List every profile; active marked with *.",
     )
     p_list.add_argument("--json", action="store_true")
     p_list.set_defaults(handler=cmd_list)
 
     p_show = sub.add_parser(
-        "show", help="Show details for a profile (defaults to active).",
+        "show",
+        help="Show details for a profile (defaults to active).",
     )
     p_show.add_argument(
-        "name", nargs="?", default=None,
+        "name",
+        nargs="?",
+        default=None,
         help="profile name (default: active)",
     )
     p_show.add_argument("--json", action="store_true")
     p_show.set_defaults(handler=cmd_show)
 
     p_create = sub.add_parser(
-        "create", help="Create a new profile.",
+        "create",
+        help="Create a new profile.",
     )
     p_create.add_argument("name", help="new profile name")
     p_create.add_argument(
-        "--copy-from", help="clone an existing profile's contents",
+        "--copy-from",
+        help="clone an existing profile's contents",
     )
     p_create.set_defaults(handler=cmd_create)
 
     p_switch = sub.add_parser(
-        "switch", help="Mark a profile as active for subsequent invocations.",
+        "switch",
+        help="Mark a profile as active for subsequent invocations.",
     )
     p_switch.add_argument("name")
     p_switch.set_defaults(handler=cmd_switch)
@@ -223,12 +242,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_delete.add_argument("name")
     p_delete.add_argument(
-        "confirm", help="must equal the profile name (anti-typo)",
+        "confirm",
+        help="must equal the profile name (anti-typo)",
     )
     p_delete.set_defaults(handler=cmd_delete)
 
     p_rename = sub.add_parser(
-        "rename", help="Rename a profile; updates active_profile if it pointed at old.",
+        "rename",
+        help="Rename a profile; updates active_profile if it pointed at old.",
     )
     p_rename.add_argument("old")
     p_rename.add_argument("new")

@@ -18,6 +18,7 @@ This thin wrapper exists so methods.py doesn't sprinkle string
 keys and dict shapes across every code path — adding a new
 streaming primitive happens here, once.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +35,7 @@ class StreamingSender:
     """One sender per active session — closes over the session_id so
     callers don't repeat themselves on every send."""
 
-    def __init__(self, server: "ACPServer", session_id: str) -> None:
+    def __init__(self, server: ACPServer, session_id: str) -> None:
         self.server = server
         self.session_id = session_id
 
@@ -138,9 +139,7 @@ class StreamingSender:
             )
         except (asyncio.TimeoutError, Exception):
             return "deny"
-        decision = (
-            response.get("decision") if isinstance(response, dict) else None
-        )
+        decision = response.get("decision") if isinstance(response, dict) else None
         if decision in ("allow", "deny"):
             return decision
         return "deny"

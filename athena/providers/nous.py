@@ -6,13 +6,13 @@ completions`` endpoint with a ``Bearer <key>`` authorization header.
 Bog-standard subclass of :class:`OpenAICompatibleProvider` — the only
 quirk is the base URL.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 from . import register_provider
 from .openai import OpenAICompatibleProvider
-
 
 _DEFAULT_BASE_URL = "https://inference-api.nousresearch.com/v1"
 

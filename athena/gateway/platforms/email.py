@@ -27,6 +27,7 @@ Passwords / etc.), set imap_* and smtp_* credentials in
 ``[gateway.platforms.email]``, configure ``allowed_senders`` to
 gate who can talk to the agent.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,12 +42,13 @@ from typing import TYPE_CHECKING, Any
 
 import aiosmtplib
 
-from ..events import ApprovalRequest, MessageEvent, MessageType
 from ..base import GatewayAdapter
+from ..events import ApprovalRequest, MessageEvent, MessageType
 from ._text_approval import TextApprovalState
 
 if TYPE_CHECKING:
     import aioimaplib
+
     from ..daemon import GatewayDaemon
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,7 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
 
     def __init__(
         self,
-        daemon: "GatewayDaemon",
+        daemon: GatewayDaemon,
         *,
         imap_host: str,
         imap_user: str,
@@ -111,7 +113,8 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
 
     async def start(self) -> None:
         self.daemon.approvals.register_platform_renderer(
-            self.name, self._render_approval,
+            self.name,
+            self._render_approval,
         )
         backoff = _RECONNECT_BASE
         while not self._stop.is_set():
@@ -123,7 +126,8 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
             except Exception:
                 logger.exception(
                     "[%s] receive loop crashed; backoff %.1fs",
-                    self.name, backoff,
+                    self.name,
+                    backoff,
                 )
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=backoff)
@@ -175,11 +179,9 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
                 pass
 
     @staticmethod
-    def _client_supports_idle(client: "aioimaplib.IMAP4_SSL") -> bool:
+    def _client_supports_idle(client: aioimaplib.IMAP4_SSL) -> bool:
         caps = getattr(client, "protocol", None)
-        capabilities = (
-            getattr(caps, "capabilities", []) if caps is not None else []
-        )
+        capabilities = getattr(caps, "capabilities", []) if caps is not None else []
         if not capabilities:
             return False
         upper = {str(c).upper() for c in capabilities}
@@ -192,13 +194,16 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
     # ---- inbound ----
 
     async def _fetch_and_emit_unseen(
-        self, client: "aioimaplib.IMAP4_SSL",
+        self,
+        client: aioimaplib.IMAP4_SSL,
     ) -> None:
         try:
             _typ, data = await client.uid_search("UNSEEN")
         except Exception:
             logger.warning(
-                "[%s] UID SEARCH UNSEEN failed", self.name, exc_info=True,
+                "[%s] UID SEARCH UNSEEN failed",
+                self.name,
+                exc_info=True,
             )
             return
         uids_blob = b" ".join(data) if isinstance(data, list) else data
@@ -218,7 +223,9 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
                 await self._dispatch(event)
             except Exception:
                 logger.exception(
-                    "[%s] failed to handle UID %s", self.name, uid,
+                    "[%s] failed to handle UID %s",
+                    self.name,
+                    uid,
                 )
 
     def _event_from_email(self, raw: bytes) -> MessageEvent | None:
@@ -226,12 +233,11 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
         sender = _canonical_address(msg.get("From") or "")
         if not sender:
             return None
-        if (
-            self.allowed_senders is not None
-            and sender not in self.allowed_senders
-        ):
+        if self.allowed_senders is not None and sender not in self.allowed_senders:
             logger.info(
-                "[%s] dropping unallowed sender %r", self.name, sender,
+                "[%s] dropping unallowed sender %r",
+                self.name,
+                sender,
             )
             return None
         subject = (msg.get("Subject") or "").strip()
@@ -248,11 +254,7 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
         # Compose the user-visible text. Mail-style "Subject: …
         # \n\nBody" is what the agent gets; the agent has been
         # trained on similar shapes for a long time.
-        text = (
-            f"Subject: {clean_subject}\n\n{body}"
-            if clean_subject
-            else body
-        )
+        text = f"Subject: {clean_subject}\n\n{body}" if clean_subject else body
         return MessageEvent(
             platform=self.name,
             chat_id=sender,
@@ -283,7 +285,8 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
         if recipient is None:
             logger.warning(
                 "[%s] no email route for session %s; cannot render approval",
-                self.name, request.session_id,
+                self.name,
+                request.session_id,
             )
             return
         body = self.format_text_approval_prompt(request)
@@ -296,7 +299,8 @@ class EmailAdapter(GatewayAdapter, TextApprovalState):
         except Exception:
             logger.exception(
                 "[%s] approval email failed for %s",
-                self.name, request.request_id,
+                self.name,
+                request.request_id,
             )
             return
         self.record_pending(recipient, request.request_id)

@@ -1,4 +1,5 @@
 """Plugin ABC: defaults are no-ops; subclasses can override each hook."""
+
 from __future__ import annotations
 
 from athena.plugins.base import Plugin
@@ -34,9 +35,7 @@ def test_subclass_can_override_each_hook():
         def on_session_start(self, session_id: str, profile: str) -> None:
             calls.append(f"start:{session_id}:{profile}")
 
-        def on_session_end(
-            self, session_id: str, completed: bool, interrupted: bool
-        ) -> None:
+        def on_session_end(self, session_id: str, completed: bool, interrupted: bool) -> None:
             calls.append(f"end:{session_id}:{completed}:{interrupted}")
 
         def pre_tool_call(self, tool_name, tool_args):

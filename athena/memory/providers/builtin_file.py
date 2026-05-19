@@ -13,6 +13,7 @@ The Markdown files are the truth-of-record. The SQLite mirror carries
 opening every file. The mirror is rebuilt from disk on every read in the
 test path; production reindex is a Phase 16 concern.
 """
+
 from __future__ import annotations
 
 import re
@@ -25,9 +26,7 @@ from pathlib import Path
 from ...config import profile_dir as _profile_dir
 from .base import MemoryEntry, MemoryProvider
 
-_FRONTMATTER_RE = re.compile(
-    r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.S
-)
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.S)
 _MEMORY_TYPES = {"user", "feedback", "project", "reference"}
 _MEMORY_FILE_INDEX = "MEMORY.md"
 _DB_FILENAME = "index.db"
@@ -156,9 +155,7 @@ class BuiltinFileProvider(MemoryProvider):
                 ),
             )
 
-    def _row_to_entry(
-        self, row: sqlite3.Row, memory_dir: Path
-    ) -> MemoryEntry:
+    def _row_to_entry(self, row: sqlite3.Row, memory_dir: Path) -> MemoryEntry:
         path = memory_dir / row["filename"]
         body = ""
         parsed = _parse_file(path)
@@ -206,15 +203,12 @@ class BuiltinFileProvider(MemoryProvider):
     ) -> Path:
         if type not in _MEMORY_TYPES:
             raise ValueError(
-                f"invalid memory type {type!r}; must be one of "
-                f"{sorted(_MEMORY_TYPES)}"
+                f"invalid memory type {type!r}; must be one of {sorted(_MEMORY_TYPES)}"
             )
         if not filename.endswith(".md"):
             filename += ".md"
         if filename == _MEMORY_FILE_INDEX:
-            raise ValueError(
-                f"cannot use {_MEMORY_FILE_INDEX!r} as a memory filename"
-            )
+            raise ValueError(f"cannot use {_MEMORY_FILE_INDEX!r} as a memory filename")
 
         d = self._ensure_dir(profile)
         target = d / filename
@@ -240,6 +234,7 @@ class BuiltinFileProvider(MemoryProvider):
             f"{body.strip()}\n"
         )
         from ...safety.mutation import snapshot_and_record
+
         with snapshot_and_record(
             [target] if target.exists() else [d],
             tool_name="memory_write",
@@ -277,9 +272,7 @@ class BuiltinFileProvider(MemoryProvider):
             return None
         self._reconcile_from_disk(profile)
         with closing(self._connect(profile)) as conn, conn:
-            row = conn.execute(
-                "SELECT * FROM memory_entries WHERE name = ?", (name,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM memory_entries WHERE name = ?", (name,)).fetchone()
             if row is None:
                 return None
             conn.execute(
@@ -302,8 +295,10 @@ class BuiltinFileProvider(MemoryProvider):
             target = d / row["filename"]
             if target.exists():
                 from ...safety.mutation import snapshot_and_record
+
                 with snapshot_and_record(
-                    [target], tool_name="memory_delete",
+                    [target],
+                    tool_name="memory_delete",
                 ) as ctx:
                     target.unlink()
                     ctx.record(target)
@@ -311,20 +306,15 @@ class BuiltinFileProvider(MemoryProvider):
         self._refresh_markdown_index(profile)
         return True
 
-    def query(
-        self, profile: str, *, query: str, k: int = 5
-    ) -> list[MemoryEntry]:
+    def query(self, profile: str, *, query: str, k: int = 5) -> list[MemoryEntry]:
         if k <= 0 or not query.strip():
             return []
         entries = self.list_entries(profile)
         needle = query.lower()
         matches = [
-            e for e in entries
-            if needle in e.body.lower() or needle in e.description.lower()
+            e for e in entries if needle in e.body.lower() or needle in e.description.lower()
         ]
-        matches.sort(
-            key=lambda e: (-e.use_count, -e.last_activity_at.timestamp())
-        )
+        matches.sort(key=lambda e: (-e.use_count, -e.last_activity_at.timestamp()))
         return matches[:k]
 
     # ---- Maintenance ---------------------------------------------------
@@ -348,9 +338,7 @@ class BuiltinFileProvider(MemoryProvider):
             if len(line) > 200:
                 line = line[:197] + "..."
             lines.append(line)
-        (d / _MEMORY_FILE_INDEX).write_text(
-            "\n".join(lines) + "\n", encoding="utf-8"
-        )
+        (d / _MEMORY_FILE_INDEX).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _reconcile_from_disk(self, profile: str) -> None:
         """Rebuild SQLite rows from the on-disk Markdown files.
@@ -387,11 +375,7 @@ class BuiltinFileProvider(MemoryProvider):
             )
         # Drop rows for files removed externally.
         with closing(self._connect(profile)) as conn, conn:
-            rows = conn.execute(
-                "SELECT name FROM memory_entries"
-            ).fetchall()
+            rows = conn.execute("SELECT name FROM memory_entries").fetchall()
             stale = [r["name"] for r in rows if r["name"] not in seen]
             for name in stale:
-                conn.execute(
-                    "DELETE FROM memory_entries WHERE name = ?", (name,)
-                )
+                conn.execute("DELETE FROM memory_entries WHERE name = ?", (name,))

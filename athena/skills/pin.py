@@ -1,14 +1,15 @@
 """Pin/unpin a skill. Pinned skills bypass auto-archive and curator-driven
 consolidation regardless of last_activity_at — the state machine and curator
 both honor the flag."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
+from . import loader
 from .archive import SkillNotFoundError
 from .discovery import discover_skills
 from .frontmatter import parse_frontmatter, serialize_frontmatter
-from . import loader
 
 
 def _set_pinned(name: str, value: bool, workspace: Path | None) -> Path:

@@ -12,6 +12,7 @@ Two responsibilities:
 Conservative: never invents tool calls from prose. The parser must
 not raise.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,9 +22,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def fallback_parser(
-    content: str, raw_response: dict[str, Any]
-) -> tuple[str, list[dict[str, Any]]]:
+def fallback_parser(content: str, raw_response: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     """Return native tool calls when present; otherwise pass content
     through unchanged."""
     try:
@@ -64,11 +63,13 @@ def _native_tool_calls(raw_response: dict[str, Any]) -> list[dict[str, Any]]:
             tc_id = tc.get("id", "")
         if not isinstance(name, str) or not name:
             continue
-        out.append({
-            "name": name,
-            "arguments": _coerce_arguments(args),
-            "id": tc_id if isinstance(tc_id, str) else "",
-        })
+        out.append(
+            {
+                "name": name,
+                "arguments": _coerce_arguments(args),
+                "id": tc_id if isinstance(tc_id, str) else "",
+            }
+        )
     return out
 
 

@@ -26,11 +26,13 @@ the registry is fully populated by the time anyone resolves.
 Parsers MUST NOT raise. Pure logic, conservative recovery, return
 ``(content, [])`` on anything they can't make sense of.
 """
+
 from __future__ import annotations
 
 import fnmatch
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 Parser = Callable[[str, dict[str, Any]], tuple[str, list[dict[str, Any]]]]
 
@@ -39,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 _REGISTRY: list[tuple[str, str, Parser]] = []  # ordered: (provider, model_glob, parser)
-_DEFAULTS: dict[str, Parser] = {}              # provider -> default parser
+_DEFAULTS: dict[str, Parser] = {}  # provider -> default parser
 
 
 def register(provider: str, model_glob: str, parser: Parser) -> None:
@@ -75,6 +77,7 @@ def resolve_parser(provider: str, model: str) -> Parser:
     # Lazy import: fallback module imports the registry too; defer to
     # avoid a circular dependency on first import.
     from .fallback import fallback_parser
+
     return fallback_parser
 
 

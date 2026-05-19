@@ -11,18 +11,18 @@ assertive. Small local models (7B-14B) attend disproportionately to the
 first few hundred tokens of the system prompt; the load-bearing rules need
 to live there, not in a 100-line policy block downstream.
 """
+
 from __future__ import annotations
+
 import getpass
 import os
 import platform
-import shutil
 import socket
 import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-
 
 # ---- IDENTITY -----------------------------------------------------------
 
@@ -291,6 +291,7 @@ e.g. `[{\"key\": \"value\"}]` not Python repr."""
 
 # ---- ENVIRONMENT (dynamic) ----------------------------------------------
 
+
 @dataclass
 class EnvironmentInfo:
     cwd: Path
@@ -331,6 +332,7 @@ def _detect_shell() -> str:
     if sys.platform == "win32":
         try:
             from ..tools.shell import _resolve_bash_executable
+
             resolved = _resolve_bash_executable()
         except Exception:
             resolved = None
@@ -356,9 +358,7 @@ def collect_environment(workspace: Path, model: str) -> EnvironmentInfo:
         pass
 
     try:
-        os_version = subprocess.check_output(
-            ["uname", "-r"], text=True, timeout=2
-        ).strip()
+        os_version = subprocess.check_output(["uname", "-r"], text=True, timeout=2).strip()
     except Exception:
         os_version = platform.release() or "unknown"
 
@@ -391,17 +391,17 @@ def collect_environment(workspace: Path, model: str) -> EnvironmentInfo:
 # Named registry of sections. Keys are stable identifiers users put in
 # config (`disabled_prompt_sections`). Order here is presentation order.
 SECTIONS: dict[str, str] = {
-    "identity":            IDENTITY,
-    "tight_rules":         TIGHT_RULES,
-    "system":              SYSTEM,
-    "doing_tasks":         DOING_TASKS,
+    "identity": IDENTITY,
+    "tight_rules": TIGHT_RULES,
+    "system": SYSTEM,
+    "doing_tasks": DOING_TASKS,
     "executing_with_care": EXECUTING_WITH_CARE,
-    "using_tools":         USING_TOOLS,
-    "tone_style":          TONE_STYLE,
-    "text_output":         TEXT_OUTPUT,
-    "session_guidance":    SESSION_GUIDANCE,
-    "memory_header":       MEMORY_HEADER,
-    "context_mgmt":        CONTEXT_MGMT,
+    "using_tools": USING_TOOLS,
+    "tone_style": TONE_STYLE,
+    "text_output": TEXT_OUTPUT,
+    "session_guidance": SESSION_GUIDANCE,
+    "memory_header": MEMORY_HEADER,
+    "context_mgmt": CONTEXT_MGMT,
 }
 
 # What `lean=True` keeps. The load-bearing rules stay; the policy boilerplate
@@ -463,19 +463,14 @@ def build_system_prompt(
         parts.append(skills_catalog.strip())
 
     if project_context:
-        parts.append(
-            "# Project context (ATHENA.md)\n"
-            f"{project_context.strip()}"
-        )
+        parts.append(f"# Project context (ATHENA.md)\n{project_context.strip()}")
 
     if memory_index:
-        parts.append(
-            "# MEMORY.md (auto-loaded index of long-term memory)\n"
-            f"{memory_index.strip()}"
-        )
+        parts.append(f"# MEMORY.md (auto-loaded index of long-term memory)\n{memory_index.strip()}")
 
     if goal:
         from ..goal.invariant import format_for_system_prompt
+
         parts.append(format_for_system_prompt(goal))
 
     return "\n\n".join(parts)

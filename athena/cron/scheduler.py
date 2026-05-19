@@ -12,18 +12,18 @@ the right runner. The runner gets the bare job dict; it re-loads the
 :class:`CronJob` from the store before executing so the scheduler doesn't
 have to keep stateful references to dataclasses.
 """
+
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from .jobs import CronJob, JobStore
-
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +36,10 @@ def _resolve_runner(mode: str) -> Callable[[str], None]:
     """
     if mode == "watchdog":
         from .watchdog import run_watchdog_job_by_id
+
         return run_watchdog_job_by_id
     from .runner import run_agent_job_by_id
+
     return run_agent_job_by_id
 
 
@@ -53,9 +55,11 @@ class CronScheduler:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.jobs_db_path = jobs_db_path or self.db_path.with_name("cron_jobs.db")
         self.store = JobStore(self.jobs_db_path)
-        self._sched = BackgroundScheduler(jobstores={
-            "default": SQLAlchemyJobStore(url=f"sqlite:///{self.db_path}"),
-        })
+        self._sched = BackgroundScheduler(
+            jobstores={
+                "default": SQLAlchemyJobStore(url=f"sqlite:///{self.db_path}"),
+            }
+        )
         self._started = False
 
     # ---- Lifecycle ----
@@ -137,7 +141,9 @@ class CronScheduler:
         except Exception as e:
             logger.error(
                 "cron %s: invalid cron expression %r — %s",
-                job.id, job.cron_expr, e,
+                job.id,
+                job.cron_expr,
+                e,
             )
             raise
         self._sched.add_job(

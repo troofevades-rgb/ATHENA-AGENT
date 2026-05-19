@@ -17,10 +17,10 @@ Modules:
 - :mod:`.delivery` — dispatch a fired webhook to the agent + route
   the response (Phase 15.3).
 """
+
 from .auth import verify_bearer, verify_hmac_sha256
 from .idempotency import IdempotencyCache
 from .subscription import WebhookStore, WebhookSubscription
-
 
 __all__ = [
     "IdempotencyCache",

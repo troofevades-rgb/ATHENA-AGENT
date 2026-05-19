@@ -6,9 +6,8 @@ write_origin gate in ``skill_manage`` (which refuses curator-origin
 mutations when policy says so). These helpers only need to surface the
 flag in a uniform way for the CLI to inject and for tests to inspect.
 """
-from __future__ import annotations
 
-from ..provenance import set_current_write_origin, reset_current_write_origin, CURATOR
+from __future__ import annotations
 
 
 def is_dry_run_addendum(addendum: str) -> bool:
@@ -20,4 +19,5 @@ def is_dry_run_addendum(addendum: str) -> bool:
     wired the flag through.
     """
     from . import prompts
+
     return addendum.lstrip().startswith(prompts.DRY_RUN_BANNER.strip())

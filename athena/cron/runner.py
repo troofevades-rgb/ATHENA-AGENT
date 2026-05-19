@@ -12,6 +12,7 @@ The full Agent lifecycle (session store, plugins, etc.) runs as in any
 foreground session, but with ``write_origin="cron"`` so the curator can
 distinguish cron-driven writes from foreground ones in a future phase.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,7 +21,6 @@ from pathlib import Path
 
 from .delivery import deliver
 from .jobs import JobStore
-
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ def run_agent_job_by_id(job_id: str, *, jobs_db_path: Path | None = None) -> Non
     target stays picklable across daemon restarts.
     """
     from ..config import CONFIG_DIR
+
     store = JobStore(jobs_db_path or (Path(CONFIG_DIR) / "cron_jobs.db"))
     job = store.get(job_id)
     if job is None:

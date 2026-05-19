@@ -1,4 +1,5 @@
 """SessionRouter — sticky per-(platform, chat, user) routing."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,7 +16,10 @@ def _evt(
     text: str = "hi",
 ) -> MessageEvent:
     return MessageEvent(
-        platform=platform, chat_id=chat_id, user_id=user_id, text=text,
+        platform=platform,
+        chat_id=chat_id,
+        user_id=user_id,
+        text=text,
     )
 
 
@@ -24,7 +28,8 @@ def _router(tmp_path: Path, *, continuity: bool = False) -> SessionRouter:
     profile_dir.mkdir(parents=True, exist_ok=True)
     store = SessionStore(profile_dir)
     return SessionRouter(
-        profile_dir, store,
+        profile_dir,
+        store,
         profile="default",
         model="parent-model",
         provider="ollama",
@@ -87,7 +92,8 @@ async def test_route_persists_across_router_instances(tmp_path: Path) -> None:
     profile_dir = tmp_path / "profile"
     store2 = SessionStore(profile_dir)
     r2 = SessionRouter(
-        profile_dir, store2,
+        profile_dir,
+        store2,
         profile="default",
         model="parent-model",
         provider="ollama",

@@ -8,6 +8,7 @@ The report is the single source of truth about what happened during an
 ``athena import-from-hermes`` run — never raise to abort the whole import on
 a per-artifact failure; record it in the report and continue.
 """
+
 from __future__ import annotations
 
 import json

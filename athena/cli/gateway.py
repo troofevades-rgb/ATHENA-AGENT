@@ -18,6 +18,7 @@ ends up being worse than just letting users wrap ``athena gateway
 run`` in their preferred supervisor. The :mod:`.daemon` module's
 SIGINT handling means a plain unit file works fine.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,7 +35,6 @@ from ..gateway.continuity import ContinuityManager
 from ..gateway.daemon import GatewayDaemon
 from ..gateway.router import SessionRouter
 from ..sessions.store import SessionStore
-
 
 logger = logging.getLogger("athena.gateway.cli")
 
@@ -58,7 +58,8 @@ def _build_adapters(daemon: GatewayDaemon, cfg: Config) -> list[str]:
     for name, settings in platforms.items():
         if not isinstance(settings, dict):
             logger.warning(
-                "config: gateway.platforms.%s must be a table — skipping", name,
+                "config: gateway.platforms.%s must be a table — skipping",
+                name,
             )
             continue
         if not settings.get("enabled", True):
@@ -71,7 +72,9 @@ def _build_adapters(daemon: GatewayDaemon, cfg: Config) -> list[str]:
             continue
         except ImportError as e:
             logger.error(
-                "platform %r requires the [gateway] extras: %s", name, e,
+                "platform %r requires the [gateway] extras: %s",
+                name,
+                e,
             )
             continue
         daemon.register(adapter)
@@ -80,7 +83,9 @@ def _build_adapters(daemon: GatewayDaemon, cfg: Config) -> list[str]:
 
 
 def _instantiate_adapter(
-    daemon: GatewayDaemon, name: str, settings: dict[str, Any],
+    daemon: GatewayDaemon,
+    name: str,
+    settings: dict[str, Any],
 ):
     """Construct one adapter by name. Raises ``ValueError`` for
     missing required settings; ``ImportError`` for missing SDKs."""
@@ -116,7 +121,9 @@ def _instantiate_adapter(
                 "signal requires rest_url and account_number",
             )
         return SignalAdapter(
-            daemon, rest_url=rest_url, account_number=account,
+            daemon,
+            rest_url=rest_url,
+            account_number=account,
         )
     if name == "imessage":
         from ..gateway.platforms.imessage import IMessageAdapter
@@ -128,7 +135,9 @@ def _instantiate_adapter(
                 "imessage requires server_url and password",
             )
         return IMessageAdapter(
-            daemon, server_url=server, password=password,
+            daemon,
+            server_url=server,
+            password=password,
         )
     if name == "matrix":
         from ..gateway.platforms.matrix import MatrixAdapter
@@ -138,10 +147,14 @@ def _instantiate_adapter(
         access_token = settings.get("access_token")
         device_id = settings.get("device_id")
         missing = [
-            k for k, v in {
-                "homeserver": homeserver, "user_id": user_id,
-                "access_token": access_token, "device_id": device_id,
-            }.items() if not v
+            k
+            for k, v in {
+                "homeserver": homeserver,
+                "user_id": user_id,
+                "access_token": access_token,
+                "device_id": device_id,
+            }.items()
+            if not v
         ]
         if missing:
             raise ValueError(
@@ -161,8 +174,12 @@ def _instantiate_adapter(
         from ..gateway.platforms.email import EmailAdapter
 
         required = (
-            "imap_host", "imap_user", "imap_password",
-            "smtp_host", "smtp_user", "smtp_password",
+            "imap_host",
+            "imap_user",
+            "imap_password",
+            "smtp_host",
+            "smtp_user",
+            "smtp_password",
             "from_address",
         )
         missing = [k for k in required if not settings.get(k)]
@@ -206,9 +223,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
         return 2
 
-    sys.stdout.write(
-        f"gateway up: profile={cfg.profile} platforms={', '.join(registered)}\n"
-    )
+    sys.stdout.write(f"gateway up: profile={cfg.profile} platforms={', '.join(registered)}\n")
     sys.stdout.flush()
 
     return asyncio.run(_run_until_signal(daemon))
@@ -286,7 +301,7 @@ def cmd_routes(args: argparse.Namespace) -> int:
 
 def cmd_link(args: argparse.Namespace) -> int:
     """``athena gateway link --canonical alice
-        --telegram tg-1 --slack U-x --discord 1234567``."""
+    --telegram tg-1 --slack U-x --discord 1234567``."""
     cfg = load_config()
     if args.profile:
         cfg.profile = args.profile
@@ -298,9 +313,7 @@ def cmd_link(args: argparse.Namespace) -> int:
         if value:
             platform_ids[plat] = value
     if not platform_ids:
-        sys.stderr.write(
-            "error: provide at least one of --telegram --slack --discord\n"
-        )
+        sys.stderr.write("error: provide at least one of --telegram --slack --discord\n")
         return 2
     try:
         cm.link_canonical(args.canonical, platform_ids)
@@ -367,7 +380,8 @@ def _read_only_router(cfg: Config) -> SessionRouter:
     p_dir.mkdir(parents=True, exist_ok=True)
     store = SessionStore(p_dir)
     return SessionRouter(
-        p_dir, store,
+        p_dir,
+        store,
         profile=profile,
         model=cfg.model,
         provider="ollama",  # placeholder; not used for inspection
@@ -390,19 +404,25 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.set_defaults(handler=cmd_run)
 
     p_routes = sub.add_parser(
-        "routes", help="List persisted (platform, chat, user) → session routes.",
+        "routes",
+        help="List persisted (platform, chat, user) → session routes.",
     )
     p_routes.add_argument("--platform", help="Filter by platform.")
     p_routes.add_argument(
-        "--json", action="store_true", help="JSON output for scripting.",
+        "--json",
+        action="store_true",
+        help="JSON output for scripting.",
     )
     p_routes.set_defaults(handler=cmd_routes)
 
     p_link = sub.add_parser(
-        "link", help="Link a canonical user to platform identities.",
+        "link",
+        help="Link a canonical user to platform identities.",
     )
     p_link.add_argument(
-        "--canonical", required=True, help="Canonical user id (your choice).",
+        "--canonical",
+        required=True,
+        help="Canonical user id (your choice).",
     )
     p_link.add_argument("--telegram", help="Telegram user id (numeric).")
     p_link.add_argument("--slack", help="Slack user id (Uxxxxx).")
@@ -410,7 +430,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_link.set_defaults(handler=cmd_link)
 
     p_unlink = sub.add_parser(
-        "unlink", help="Remove every binding for a canonical user.",
+        "unlink",
+        help="Remove every binding for a canonical user.",
     )
     p_unlink.add_argument("--canonical", required=True)
     p_unlink.set_defaults(handler=cmd_unlink)

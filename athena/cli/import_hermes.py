@@ -1,4 +1,5 @@
 """``athena import-from-hermes`` — one-shot migration of Hermes data into athena v2."""
+
 from __future__ import annotations
 
 import argparse
@@ -6,7 +7,6 @@ import sys
 from pathlib import Path
 
 from ..migration.hermes_import import DEFAULT_DOMAINS, run_import
-
 
 SUPPORTED_HERMES_VERSIONS = ("0.x", "1.0", "1.1")  # advisory only
 
@@ -21,6 +21,7 @@ def _read_hermes_version(source: Path) -> str | None:
         return None
     try:
         import yaml
+
         data = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
     except Exception:
         return None
@@ -33,10 +34,15 @@ def _summarize_intent(source: Path, active: list[str]) -> str:
     parts: list[str] = []
     if "skills" in active:
         skills = source / "skills"
-        count = sum(1 for p in skills.iterdir() if p.is_dir() and not p.name.startswith(".")) if skills.exists() else 0
+        count = (
+            sum(1 for p in skills.iterdir() if p.is_dir() and not p.name.startswith("."))
+            if skills.exists()
+            else 0
+        )
         archived = (
             sum(1 for p in (skills / ".archive").iterdir() if p.is_dir())
-            if (skills / ".archive").exists() else 0
+            if (skills / ".archive").exists()
+            else 0
         )
         parts.append(f"  • skills: {count} active + {archived} archived")
     if "memory" in active:
@@ -47,9 +53,13 @@ def _summarize_intent(source: Path, active: list[str]) -> str:
         count = sum(1 for _ in sd.glob("*.jsonl")) if sd.exists() else 0
         parts.append(f"  • sessions: {count} jsonl files")
     if "config" in active:
-        parts.append(f"  • config: {'config.yaml detected' if (source / 'config.yaml').exists() else '(no config.yaml)'}")
+        parts.append(
+            f"  • config: {'config.yaml detected' if (source / 'config.yaml').exists() else '(no config.yaml)'}"
+        )
     if "mcp" in active:
-        parts.append(f"  • mcp: {'mcp.json detected' if (source / 'mcp.json').exists() else '(no mcp.json)'}")
+        parts.append(
+            f"  • mcp: {'mcp.json detected' if (source / 'mcp.json').exists() else '(no mcp.json)'}"
+        )
     return "\n".join(parts)
 
 
@@ -71,8 +81,15 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         prog="athena import-from-hermes",
         description="Migrate Hermes Agent data into athena v2.",
     )
-    ap.add_argument("--source", required=True, type=Path, help="Hermes home directory (e.g. ~/.hermes)")
-    ap.add_argument("--dest", required=True, type=Path, help="athena home directory to write into (e.g. ~/.athena)")
+    ap.add_argument(
+        "--source", required=True, type=Path, help="Hermes home directory (e.g. ~/.hermes)"
+    )
+    ap.add_argument(
+        "--dest",
+        required=True,
+        type=Path,
+        help="athena home directory to write into (e.g. ~/.athena)",
+    )
     ap.add_argument("--profile", default="default")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument(

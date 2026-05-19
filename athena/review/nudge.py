@@ -4,10 +4,10 @@ State is a module-level dict keyed by session_id. Resetting clears the
 session's entry — useful when an agent closes or the test suite needs a
 clean slate.
 """
+
 from __future__ import annotations
 
 import threading
-
 
 _counters: dict[str, int] = {}
 _lock = threading.Lock()

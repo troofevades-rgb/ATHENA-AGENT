@@ -1,4 +1,5 @@
 """/goal invariant: persistence, system prompt injection, slash command."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -63,6 +64,7 @@ def test_goal_persists_across_reload(tmp_path: Path):
 def test_goal_appears_in_system_prompt(tmp_path: Path):
     """build_system_prompt appends the goal block when ``goal`` is passed."""
     from athena.prompts.system import build_system_prompt
+
     prompt = build_system_prompt(
         workspace=tmp_path,
         model="qwen2.5-coder:14b",
@@ -76,6 +78,7 @@ def test_goal_appears_in_system_prompt(tmp_path: Path):
 
 def test_no_goal_no_block_in_system_prompt(tmp_path: Path):
     from athena.prompts.system import build_system_prompt
+
     prompt = build_system_prompt(
         workspace=tmp_path,
         model="qwen2.5-coder:14b",

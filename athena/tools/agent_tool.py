@@ -10,22 +10,28 @@ Available subagent types:
 - Explore: read-only — Read/Glob/Grep/WebFetch/WebSearch only
 - Plan: planning-only — read-only tools, asked to produce a step-by-step plan
 """
+
 from __future__ import annotations
+
 from typing import Any
 
-from .registry import _REGISTRY, _TOOLSETS, tool
 from .. import ui
-
+from .registry import _REGISTRY, _TOOLSETS, tool
 
 # Read-only scope shared by Explore and Plan. Tool *names* (not toolsets)
 # because the "file" toolset includes Write/Edit, which read-only forks should
 # not see.
 _READONLY_TOOL_NAMES: set[str] = {
-    "Read", "read_file",
-    "Glob", "glob",
-    "Grep", "grep",
-    "WebFetch", "web_fetch",
-    "WebSearch", "web_search",
+    "Read",
+    "read_file",
+    "Glob",
+    "glob",
+    "Grep",
+    "grep",
+    "WebFetch",
+    "web_fetch",
+    "WebSearch",
+    "web_search",
     "list_dir",
 }
 

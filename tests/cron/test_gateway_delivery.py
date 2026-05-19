@@ -1,10 +1,10 @@
 """cron→gateway delivery — Phase 10.7 wiring of the
 ``gateway://<platform>/<chat_id>`` cron delivery target."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -24,6 +24,7 @@ def _job(target: str, job_id: str = "job-1", profile: str = "default"):
 
 def setup_function(_func) -> None:
     from athena.gateway import registry
+
     registry._clear_for_tests()
 
 
@@ -31,17 +32,16 @@ def setup_function(_func) -> None:
 
 
 def test_parse_gateway_target_well_formed() -> None:
-    assert delivery._parse_gateway_target(
-        "gateway://telegram/12345"
-    ) == ("telegram", "12345")
+    assert delivery._parse_gateway_target("gateway://telegram/12345") == ("telegram", "12345")
 
 
 def test_parse_gateway_target_with_complex_chat_id() -> None:
     """Slack channel IDs contain letters; Discord ids are huge ints —
     parser must not over-validate."""
-    assert delivery._parse_gateway_target(
-        "gateway://discord/123456789012345678"
-    ) == ("discord", "123456789012345678")
+    assert delivery._parse_gateway_target("gateway://discord/123456789012345678") == (
+        "discord",
+        "123456789012345678",
+    )
 
 
 def test_parse_gateway_target_missing_chat_id() -> None:
@@ -103,7 +103,7 @@ def test_gateway_delivery_falls_back_when_no_adapter_registered(
                 {"status": "ok"},
             )
         msgs = " ".join(r.message for r in caplog.records)
-        assert "no 'slack' adapter" in msgs or "no \"slack\" adapter" in msgs
+        assert "no 'slack' adapter" in msgs or 'no "slack" adapter' in msgs
     finally:
         registry.unregister(fake)
 
@@ -156,14 +156,17 @@ async def test_gateway_delivery_long_output_truncated() -> None:
     loop = asyncio.get_running_loop()
     send_text = AsyncMock(return_value="m")
     adapter = SimpleNamespace(name="telegram", send_text=send_text)
-    registry.register(SimpleNamespace(
-        cfg=SimpleNamespace(profile="default"),
-        adapters=[adapter],
-        adapter_for=lambda p: adapter,
-        approvals=SimpleNamespace(_loop=loop),
-    ))
+    registry.register(
+        SimpleNamespace(
+            cfg=SimpleNamespace(profile="default"),
+            adapters=[adapter],
+            adapter_for=lambda p: adapter,
+            approvals=SimpleNamespace(_loop=loop),
+        )
+    )
     try:
         import functools
+
         await asyncio.to_thread(
             functools.partial(
                 delivery.deliver,
@@ -173,6 +176,7 @@ async def test_gateway_delivery_long_output_truncated() -> None:
         )
     finally:
         from athena.gateway import registry
+
         registry._clear_for_tests()
 
     body = send_text.await_args.args[1]
@@ -189,14 +193,17 @@ async def test_gateway_delivery_handles_send_text_failure() -> None:
     loop = asyncio.get_running_loop()
     send_text = AsyncMock(side_effect=RuntimeError("api down"))
     adapter = SimpleNamespace(name="telegram", send_text=send_text)
-    registry.register(SimpleNamespace(
-        cfg=SimpleNamespace(profile="default"),
-        adapters=[adapter],
-        adapter_for=lambda p: adapter,
-        approvals=SimpleNamespace(_loop=loop),
-    ))
+    registry.register(
+        SimpleNamespace(
+            cfg=SimpleNamespace(profile="default"),
+            adapters=[adapter],
+            adapter_for=lambda p: adapter,
+            approvals=SimpleNamespace(_loop=loop),
+        )
+    )
     try:
         import functools
+
         # Must not raise.
         await asyncio.to_thread(
             functools.partial(
@@ -207,4 +214,5 @@ async def test_gateway_delivery_handles_send_text_failure() -> None:
         )
     finally:
         from athena.gateway import registry
+
         registry._clear_for_tests()

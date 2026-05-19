@@ -1,4 +1,5 @@
 """Phase 17.6 — `athena memory diff|rollback` round-trip."""
+
 from __future__ import annotations
 
 import json
@@ -16,7 +17,6 @@ from athena.provenance import (
     set_current_write_origin,
 )
 from athena.safety import context as safety_context
-
 
 PROFILE = "default"
 
@@ -36,7 +36,10 @@ def provider(isolated_home: Path) -> BuiltinFileProvider:
 
 
 def _write(
-    provider: BuiltinFileProvider, name: str, body: str, *,
+    provider: BuiltinFileProvider,
+    name: str,
+    body: str,
+    *,
     write_origin: str = FOREGROUND,
 ) -> Path:
     return provider.write_entry(
@@ -51,7 +54,8 @@ def _write(
 
 
 def test_memory_rollback_restores_byte_for_byte(
-    provider: BuiltinFileProvider, isolated_home: Path,
+    provider: BuiltinFileProvider,
+    isolated_home: Path,
 ) -> None:
     target = _write(provider, "topic_a", "first version")
     original_bytes = target.read_bytes()
@@ -74,7 +78,8 @@ def test_memory_rollback_restores_byte_for_byte(
 
 
 def test_memory_diff_shows_change(
-    provider: BuiltinFileProvider, isolated_home: Path,
+    provider: BuiltinFileProvider,
+    isolated_home: Path,
 ) -> None:
     target = _write(provider, "topic_b", "alpha")
     token = set_current_write_origin(CURATOR)
@@ -89,7 +94,8 @@ def test_memory_diff_shows_change(
 
 
 def test_memory_audit_records_write_then_rollback(
-    provider: BuiltinFileProvider, isolated_home: Path,
+    provider: BuiltinFileProvider,
+    isolated_home: Path,
 ) -> None:
     target = _write(provider, "topic_c", "first")
     token = set_current_write_origin(CURATOR)
@@ -98,15 +104,13 @@ def test_memory_audit_records_write_then_rollback(
     finally:
         reset_current_write_origin(token)
     rollback_target(
-        target, tool_name="memory_rollback", confirm=lambda _: True,
+        target,
+        tool_name="memory_rollback",
+        confirm=lambda _: True,
     )
 
     log_path = safety_context.get_audit_log()._current_path()
-    lines = [
-        json.loads(line) for line in log_path.read_text(
-            encoding="utf-8"
-        ).splitlines() if line
-    ]
+    lines = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line]
     tool_names = [r["tool_name"] for r in lines]
     assert "memory_write" in tool_names
     assert "memory_rollback" in tool_names
@@ -118,7 +122,8 @@ def test_memory_audit_records_write_then_rollback(
 
 
 def test_memory_cli_unknown_name_returns_error(
-    provider: BuiltinFileProvider, isolated_home: Path,
+    provider: BuiltinFileProvider,
+    isolated_home: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     rc = memory_cli.main(["diff", "ghost"])
@@ -128,7 +133,8 @@ def test_memory_cli_unknown_name_returns_error(
 
 
 def test_memory_cli_rollback_with_yes_flag(
-    provider: BuiltinFileProvider, isolated_home: Path,
+    provider: BuiltinFileProvider,
+    isolated_home: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -136,6 +142,7 @@ def test_memory_cli_rollback_with_yes_flag(
     at import time, so monkeypatch it (and re-point the inner
     provider constructor) to the isolated home for this test."""
     from athena import config as cfg_mod
+
     fake_root = isolated_home / ".athena"
     monkeypatch.setattr(cfg_mod, "CONFIG_DIR", fake_root)
 

@@ -1,19 +1,19 @@
 """ACPServer — JSON-RPC dispatch + outbound message framing."""
+
 from __future__ import annotations
 
 import asyncio
 import io
 import json
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
 from athena.acp.server import (
-    ACPError,
-    ACPServer,
     ERR_INTERNAL,
     ERR_METHOD_NOT_FOUND,
+    ACPError,
+    ACPServer,
 )
 
 
@@ -32,11 +32,7 @@ class _StringWriter:
     @property
     def lines(self) -> list[dict[str, Any]]:
         """Parse every line written as JSON, drop blanks."""
-        return [
-            json.loads(line)
-            for line in self.buf.getvalue().splitlines()
-            if line.strip()
-        ]
+        return [json.loads(line) for line in self.buf.getvalue().splitlines() if line.strip()]
 
 
 def _build_server() -> tuple[ACPServer, asyncio.StreamReader, _StringWriter]:
@@ -60,10 +56,15 @@ async def test_request_routed_to_handler() -> None:
     async def _ping(params: dict) -> dict:
         return {"pong": True, "echo": params}
 
-    _send(reader, {
-        "jsonrpc": "2.0", "id": 1,
-        "method": "ping", "params": {"hello": "world"},
-    })
+    _send(
+        reader,
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "ping",
+            "params": {"hello": "world"},
+        },
+    )
     reader.feed_eof()
     await server.serve()
 
@@ -252,10 +253,14 @@ async def test_send_request_returns_result_when_response_arrives() -> None:
     [request_msg] = writer.lines
     assert request_msg["method"] == "session/permission_request"
     msg_id = request_msg["id"]
-    _send(reader, {
-        "jsonrpc": "2.0", "id": msg_id,
-        "result": {"decision": "allow"},
-    })
+    _send(
+        reader,
+        {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {"decision": "allow"},
+        },
+    )
     result = await asyncio.wait_for(request_task, timeout=5.0)
     assert result == {"decision": "allow"}
     reader.feed_eof()
@@ -264,15 +269,17 @@ async def test_send_request_returns_result_when_response_arrives() -> None:
 async def test_send_request_raises_on_error_response() -> None:
     server, reader, writer = _build_server()
     asyncio.create_task(server.serve())
-    task = asyncio.create_task(
-        server.send_request("any", {}, timeout=5.0)
-    )
+    task = asyncio.create_task(server.send_request("any", {}, timeout=5.0))
     await asyncio.sleep(0.05)
     msg_id = writer.lines[0]["id"]
-    _send(reader, {
-        "jsonrpc": "2.0", "id": msg_id,
-        "error": {"code": -32000, "message": "user closed"},
-    })
+    _send(
+        reader,
+        {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "error": {"code": -32000, "message": "user closed"},
+        },
+    )
     with pytest.raises(ACPError, match="user closed"):
         await asyncio.wait_for(task, timeout=5.0)
     reader.feed_eof()
@@ -303,10 +310,14 @@ async def test_server_shutdown_unblocks_pending_request() -> None:
 async def test_unmatched_response_is_dropped() -> None:
     """A response with an id we never sent — log and move on, no crash."""
     server, reader, writer = _build_server()
-    _send(reader, {
-        "jsonrpc": "2.0", "id": 99,
-        "result": {"unexpected": True},
-    })
+    _send(
+        reader,
+        {
+            "jsonrpc": "2.0",
+            "id": 99,
+            "result": {"unexpected": True},
+        },
+    )
     reader.feed_eof()
     await server.serve()
     assert writer.lines == []

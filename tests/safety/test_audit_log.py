@@ -1,4 +1,5 @@
 """Phase 17.4 — append-only JSONL mutation audit log."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -35,7 +36,7 @@ def _make_record(i: int) -> MutationRecord:
         parent_session_id=None,
         tool_name="skill_manage",
         tool_call_id=f"call-{i}",
-        path=f"/skills/demo/SKILL.md",
+        path="/skills/demo/SKILL.md",
         snapshot_id=f"snap-{i}",
         sha_before="a" * 64,
         sha_after="b" * 64,
@@ -90,10 +91,7 @@ def test_concurrent_appends_preserve_every_line(log: MutationAuditLog) -> None:
     def worker(i: int) -> None:
         log.append(_make_record(i))
 
-    threads = [
-        threading.Thread(target=worker, args=(i,), daemon=True)
-        for i in range(n_threads)
-    ]
+    threads = [threading.Thread(target=worker, args=(i,), daemon=True) for i in range(n_threads)]
     for t in threads:
         t.start()
     for t in threads:
@@ -113,7 +111,8 @@ def test_concurrent_appends_preserve_every_line(log: MutationAuditLog) -> None:
 
 
 def test_month_rollover_changes_filename(
-    log: MutationAuditLog, monkeypatch: pytest.MonkeyPatch,
+    log: MutationAuditLog,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """If the calendar month changes between two appends, the second
     append lands in a new file (and the first file is left intact)."""
@@ -166,7 +165,8 @@ def test_existing_file_is_appended_not_truncated(log: MutationAuditLog) -> None:
 
 
 def test_pre_existing_content_survives_append(
-    audit_dir: Path, log: MutationAuditLog,
+    audit_dir: Path,
+    log: MutationAuditLog,
 ) -> None:
     """If the file already exists with content from a prior session,
     new appends extend it rather than wiping it."""
@@ -194,9 +194,7 @@ def test_sha_of_file_matches_known_hash(tmp_path: Path) -> None:
     """sha of empty file == sha256("") == e3b0c44...."""
     p = tmp_path / "empty"
     p.write_bytes(b"")
-    assert sha_of_file(p) == (
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    )
+    assert sha_of_file(p) == ("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
 
 
 def test_sha_of_file_content_changes_change_hash(tmp_path: Path) -> None:

@@ -11,6 +11,7 @@ Ollama. Re-resolution is deterministic per (model, cfg), so the fork's
 provider class matches the parent's; the credential is pulled fresh
 from the shared pool which may rotate between parent and fork.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -19,13 +20,15 @@ from ..providers.credential_pool import global_pool as _global_pool
 from ..providers.runtime_resolver import resolve_provider
 
 if TYPE_CHECKING:
-    from .core import Agent
     from ..providers.base import Provider
+    from .core import Agent
 
 
-def build_auxiliary_client(parent_agent: "Agent") -> "Provider":
+def build_auxiliary_client(parent_agent: Agent) -> Provider:
     """Return a fresh provider configured identically to ``parent_agent``'s."""
     provider, _bare_model = resolve_provider(
-        parent_agent.cfg.model, parent_agent.cfg, _global_pool(),
+        parent_agent.cfg.model,
+        parent_agent.cfg,
+        _global_pool(),
     )
     return provider

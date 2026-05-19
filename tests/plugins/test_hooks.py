@@ -1,10 +1,9 @@
 """Hook dispatcher: error containment, veto semantics, message chaining."""
+
 from __future__ import annotations
 
 import logging
 from typing import Any
-
-import pytest
 
 from athena.plugins.base import Plugin
 from athena.plugins.hooks import HookDispatcher
@@ -225,6 +224,7 @@ def test_on_assistant_message_exception_caught(caplog):
 
 def test_tool_args_passed_to_plugins_are_copies():
     """A plugin must not be able to mutate the agent's tool_args dict."""
+
     class Mutator(Plugin):
         def pre_tool_call(self, tool_name, tool_args):
             tool_args["INJECTED"] = "x"

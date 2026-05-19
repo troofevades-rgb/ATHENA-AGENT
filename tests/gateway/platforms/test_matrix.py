@@ -1,14 +1,14 @@
 """MatrixAdapter — matrix-nio wrapper."""
+
 from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from athena.gateway.events import ApprovalRequest, MessageEvent, MessageType
+from athena.gateway.events import ApprovalRequest
 from athena.gateway.platforms.matrix import (
     MatrixAdapter,
     _e2e_available,
@@ -72,7 +72,10 @@ def test_construct_requires_homeserver(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         MatrixAdapter(
             _FakeDaemon(tmp_path),
-            homeserver="", user_id="@b:x", access_token="t", device_id="D",
+            homeserver="",
+            user_id="@b:x",
+            access_token="t",
+            device_id="D",
         )
 
 
@@ -81,7 +84,9 @@ def test_construct_validates_user_id_format(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         MatrixAdapter(
             _FakeDaemon(tmp_path),
-            homeserver="https://x", user_id="bot:x", access_token="t",
+            homeserver="https://x",
+            user_id="bot:x",
+            access_token="t",
             device_id="D",
         )
 
@@ -90,7 +95,9 @@ def test_construct_requires_access_token(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         MatrixAdapter(
             _FakeDaemon(tmp_path),
-            homeserver="https://x", user_id="@b:x", access_token="",
+            homeserver="https://x",
+            user_id="@b:x",
+            access_token="",
             device_id="D",
         )
 
@@ -99,7 +106,9 @@ def test_construct_requires_device_id(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         MatrixAdapter(
             _FakeDaemon(tmp_path),
-            homeserver="https://x", user_id="@b:x", access_token="t",
+            homeserver="https://x",
+            user_id="@b:x",
+            access_token="t",
             device_id="",
         )
 
@@ -239,7 +248,9 @@ async def test_reaction_allow_resolves_pending(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a._prompt_to_request["$prompt-1"] = "rid-1"
     event = SimpleNamespace(
-        sender="@alice:x", key="✅", reacts_to="$prompt-1",
+        sender="@alice:x",
+        key="✅",
+        reacts_to="$prompt-1",
     )
     await a._on_reaction(SimpleNamespace(), event)
     assert a.daemon.approvals.resolves == [("rid-1", "allow")]
@@ -251,7 +262,9 @@ async def test_reaction_deny_resolves_pending(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a._prompt_to_request["$prompt-2"] = "rid-2"
     event = SimpleNamespace(
-        sender="@alice:x", key="✖", reacts_to="$prompt-2",
+        sender="@alice:x",
+        key="✖",
+        reacts_to="$prompt-2",
     )
     await a._on_reaction(SimpleNamespace(), event)
     assert a.daemon.approvals.resolves == [("rid-2", "deny")]
@@ -261,7 +274,9 @@ async def test_reaction_unknown_emoji_ignored(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a._prompt_to_request["$prompt-x"] = "rid-x"
     event = SimpleNamespace(
-        sender="@alice:x", key="🎉", reacts_to="$prompt-x",
+        sender="@alice:x",
+        key="🎉",
+        reacts_to="$prompt-x",
     )
     await a._on_reaction(SimpleNamespace(), event)
     assert a.daemon.approvals.resolves == []
@@ -274,7 +289,9 @@ async def test_reaction_from_own_user_ignored(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a._prompt_to_request["$prompt-3"] = "rid-3"
     event = SimpleNamespace(
-        sender="@bot:example.org", key="✅", reacts_to="$prompt-3",
+        sender="@bot:example.org",
+        key="✅",
+        reacts_to="$prompt-3",
     )
     await a._on_reaction(SimpleNamespace(), event)
     assert a.daemon.approvals.resolves == []
@@ -284,7 +301,9 @@ async def test_reaction_from_own_user_ignored(tmp_path: Path) -> None:
 async def test_reaction_to_unknown_prompt_ignored(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     event = SimpleNamespace(
-        sender="@a:x", key="✅", reacts_to="$random-event",
+        sender="@a:x",
+        key="✅",
+        reacts_to="$random-event",
     )
     await a._on_reaction(SimpleNamespace(), event)
     assert a.daemon.approvals.resolves == []
@@ -298,12 +317,14 @@ async def test_render_approval_sends_prompt_and_seeds_reactions(
 ) -> None:
     a = _adapter(tmp_path)
     a._client = MagicMock()
-    a._client.room_send = AsyncMock(
-        return_value=SimpleNamespace(event_id="$prompt-X")
-    )
+    a._client.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$prompt-X"))
     req = ApprovalRequest(
-        session_id="s1", tool_name="Bash", tool_args={"cmd": "ls"},
-        request_id="rid-Q", platform="matrix", chat_id="!room:x",
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={"cmd": "ls"},
+        request_id="rid-Q",
+        platform="matrix",
+        chat_id="!room:x",
     )
     await a._render_approval(req)
     # Three room_send calls: prompt + two reactions.
@@ -319,23 +340,28 @@ async def test_render_approval_falls_back_to_router_route(
 
     a = _adapter(tmp_path)
     a._client = MagicMock()
-    a._client.room_send = AsyncMock(
-        return_value=SimpleNamespace(event_id="$p")
-    )
+    a._client.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$p"))
     now = datetime.now(timezone.utc)
     a.daemon.router.routes = [
         SimpleNamespace(
-            session_id="s1", chat_id="!old:x", platform="matrix",
+            session_id="s1",
+            chat_id="!old:x",
+            platform="matrix",
             last_seen_at=now - timedelta(hours=1),
         ),
         SimpleNamespace(
-            session_id="s1", chat_id="!new:x", platform="matrix",
+            session_id="s1",
+            chat_id="!new:x",
+            platform="matrix",
             last_seen_at=now,
         ),
     ]
     req = ApprovalRequest(
-        session_id="s1", tool_name="X", tool_args={},
-        request_id="r", platform="matrix",
+        session_id="s1",
+        tool_name="X",
+        tool_args={},
+        request_id="r",
+        platform="matrix",
     )
     await a._render_approval(req)
     first_call = a._client.room_send.await_args_list[0]
@@ -347,8 +373,11 @@ async def test_render_approval_no_route_skips(tmp_path: Path) -> None:
     a._client = MagicMock()
     a._client.room_send = AsyncMock()
     req = ApprovalRequest(
-        session_id="missing", tool_name="X", tool_args={},
-        request_id="r", platform="matrix",
+        session_id="missing",
+        tool_name="X",
+        tool_args={},
+        request_id="r",
+        platform="matrix",
     )
     await a._render_approval(req)
     a._client.room_send.assert_not_awaited()
@@ -370,8 +399,12 @@ async def test_render_approval_swallows_seed_failure(tmp_path: Path) -> None:
 
     a._client.room_send = side
     req = ApprovalRequest(
-        session_id="s", tool_name="X", tool_args={},
-        request_id="r", platform="matrix", chat_id="!r:x",
+        session_id="s",
+        tool_name="X",
+        tool_args={},
+        request_id="r",
+        platform="matrix",
+        chat_id="!r:x",
     )
     await a._render_approval(req)
     # Prompt mapping still recorded even though reaction seeds failed.
@@ -384,9 +417,7 @@ async def test_render_approval_swallows_seed_failure(tmp_path: Path) -> None:
 async def test_send_text_returns_event_id(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a._client = MagicMock()
-    a._client.room_send = AsyncMock(
-        return_value=SimpleNamespace(event_id="$out-1")
-    )
+    a._client.room_send = AsyncMock(return_value=SimpleNamespace(event_id="$out-1"))
     out = await a.send_text("!r:x", "hello there")
     assert out == "$out-1"
     kwargs = a._client.room_send.await_args.kwargs
@@ -407,7 +438,9 @@ async def test_show_typing_calls_room_typing(tmp_path: Path) -> None:
     a._client.room_typing = AsyncMock()
     await a.show_typing("!r:x")
     a._client.room_typing.assert_awaited_once_with(
-        "!r:x", typing_state=True, timeout=4000,
+        "!r:x",
+        typing_state=True,
+        timeout=4000,
     )
 
 
@@ -432,8 +465,11 @@ def test_msgtype_for_mime_buckets() -> None:
 
 def test_format_approval_body_no_args() -> None:
     req = ApprovalRequest(
-        session_id="s", tool_name="X", tool_args={},
-        request_id="r", platform="matrix",
+        session_id="s",
+        tool_name="X",
+        tool_args={},
+        request_id="r",
+        platform="matrix",
     )
     body = _format_approval_body(req)
     assert "X" in body
@@ -442,8 +478,11 @@ def test_format_approval_body_no_args() -> None:
 
 def test_format_approval_body_truncates() -> None:
     req = ApprovalRequest(
-        session_id="s", tool_name="Y", tool_args={"big": "z" * 5000},
-        request_id="r", platform="matrix",
+        session_id="s",
+        tool_name="Y",
+        tool_args={"big": "z" * 5000},
+        request_id="r",
+        platform="matrix",
     )
     body = _format_approval_body(req)
     assert "…" in body
@@ -452,8 +491,11 @@ def test_format_approval_body_truncates() -> None:
 
 def test_format_approval_body_escapes_backticks() -> None:
     req = ApprovalRequest(
-        session_id="s", tool_name="Z", tool_args={"x": "echo `whoami`"},
-        request_id="r", platform="matrix",
+        session_id="s",
+        tool_name="Z",
+        tool_args={"x": "echo `whoami`"},
+        request_id="r",
+        platform="matrix",
     )
     body = _format_approval_body(req)
     assert "ˋwhoamiˋ" in body

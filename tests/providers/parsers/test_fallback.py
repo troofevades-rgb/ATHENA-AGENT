@@ -3,6 +3,7 @@
 Drives every branch of ``_native_tool_calls`` and ``_coerce_arguments``
 so coverage on fallback.py stays at the prompt's 95% bar.
 """
+
 from __future__ import annotations
 
 from athena.providers.parsers.fallback import (
@@ -10,7 +11,6 @@ from athena.providers.parsers.fallback import (
     _native_tool_calls,
     fallback_parser,
 )
-
 
 # ---- _coerce_arguments --------------------------------------------------
 
@@ -54,60 +54,73 @@ def test_native_non_dict_input_returns_empty():
 
 
 def test_native_top_level_tool_calls_with_function_shape():
-    raw = {"tool_calls": [
-        {"id": "abc", "function": {"name": "Read", "arguments": '{"p": 1}'}},
-    ]}
+    raw = {
+        "tool_calls": [
+            {"id": "abc", "function": {"name": "Read", "arguments": '{"p": 1}'}},
+        ]
+    }
     out = _native_tool_calls(raw)
     assert out == [{"name": "Read", "arguments": {"p": 1}, "id": "abc"}]
 
 
 def test_native_top_level_tool_calls_with_flat_shape():
-    raw = {"tool_calls": [
-        {"name": "Read", "arguments": {"p": 1}, "id": "xyz"},
-    ]}
+    raw = {
+        "tool_calls": [
+            {"name": "Read", "arguments": {"p": 1}, "id": "xyz"},
+        ]
+    }
     out = _native_tool_calls(raw)
     assert out == [{"name": "Read", "arguments": {"p": 1}, "id": "xyz"}]
 
 
 def test_native_message_nested_tool_calls():
-    raw = {"message": {"tool_calls": [
-        {"function": {"name": "Bash", "arguments": "{}"}},
-    ]}}
+    raw = {
+        "message": {
+            "tool_calls": [
+                {"function": {"name": "Bash", "arguments": "{}"}},
+            ]
+        }
+    }
     out = _native_tool_calls(raw)
     assert out[0]["name"] == "Bash"
 
 
 def test_native_skips_non_dict_entries():
-    raw = {"tool_calls": ["garbage", None, 42,
-                          {"name": "Real", "arguments": {}}]}
+    raw = {"tool_calls": ["garbage", None, 42, {"name": "Real", "arguments": {}}]}
     out = _native_tool_calls(raw)
     assert len(out) == 1
     assert out[0]["name"] == "Real"
 
 
 def test_native_skips_entry_without_name():
-    raw = {"tool_calls": [
-        {"arguments": {"a": 1}},
-        {"name": "Real", "arguments": {}},
-    ]}
+    raw = {
+        "tool_calls": [
+            {"arguments": {"a": 1}},
+            {"name": "Real", "arguments": {}},
+        ]
+    }
     out = _native_tool_calls(raw)
     assert len(out) == 1
 
 
 def test_native_skips_entry_with_non_string_name():
-    raw = {"tool_calls": [
-        {"name": 42, "arguments": {}},
-        {"name": "Real", "arguments": {}},
-    ]}
+    raw = {
+        "tool_calls": [
+            {"name": 42, "arguments": {}},
+            {"name": "Real", "arguments": {}},
+        ]
+    }
     out = _native_tool_calls(raw)
     assert len(out) == 1
 
 
 def test_native_id_coerced_to_empty_string_when_missing_or_nonstring():
-    raw = {"tool_calls": [
-        {"name": "A", "arguments": {}},                    # no id
-        {"name": "B", "arguments": {}, "id": 42},          # non-string id
-    ]}
+    raw = {
+        "tool_calls": [
+            {"name": "A", "arguments": {}},  # no id
+            {"name": "B", "arguments": {}, "id": 42},  # non-string id
+        ]
+    }
     out = _native_tool_calls(raw)
     assert out[0]["id"] == ""
     assert out[1]["id"] == ""
@@ -132,9 +145,13 @@ def test_fallback_passes_content_through_when_no_native():
 
 
 def test_fallback_returns_native_when_present():
-    raw = {"message": {"tool_calls": [
-        {"function": {"name": "X", "arguments": {}}},
-    ]}}
+    raw = {
+        "message": {
+            "tool_calls": [
+                {"function": {"name": "X", "arguments": {}}},
+            ]
+        }
+    }
     _, calls = fallback_parser("ignored", raw)
     assert calls[0]["name"] == "X"
 

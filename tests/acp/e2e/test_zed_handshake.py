@@ -15,14 +15,13 @@ content_block_stop → turn_completed).
 The agent is a stub so we don't need a real provider; the goal is
 to verify the protocol wiring, not the LLM behavior.
 """
+
 from __future__ import annotations
 
 import asyncio
 import io
 import json
 from typing import Any
-
-import pytest
 
 from athena.acp.methods import register
 from athena.acp.server import ACPServer
@@ -90,23 +89,15 @@ class _ProtocolHarness:
         deadline = loop.time() + timeout
         while True:
             for msg in self.all_messages():
-                if msg.get("id") == msg_id and (
-                    "result" in msg or "error" in msg
-                ):
+                if msg.get("id") == msg_id and ("result" in msg or "error" in msg):
                     return msg
             if loop.time() > deadline:
-                raise asyncio.TimeoutError(
-                    f"no response for id={msg_id} within {timeout}s"
-                )
+                raise asyncio.TimeoutError(f"no response for id={msg_id} within {timeout}s")
             await asyncio.sleep(0.02)
 
     def all_messages(self) -> list[dict]:
         text = self.writer_buf.getvalue()
-        return [
-            json.loads(line)
-            for line in text.splitlines()
-            if line.strip()
-        ]
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
 
     def notifications(self) -> list[dict]:
         return [m for m in self.all_messages() if "id" not in m]
@@ -122,30 +113,41 @@ async def test_full_zed_handshake_sequence() -> None:
     await harness.start()
     try:
         # 1. initialize
-        harness.send({
-            "jsonrpc": "2.0", "id": 1,
-            "method": "initialize", "params": {},
-        })
+        harness.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {},
+            }
+        )
         resp = await harness.read_response(1)
         assert resp["result"]["protocol_version"]
         assert resp["result"]["server_info"]["name"] == "athena"
         assert resp["result"]["capabilities"]["streaming"] is True
 
         # 2. session/new
-        harness.send({
-            "jsonrpc": "2.0", "id": 2,
-            "method": "session/new", "params": {},
-        })
+        harness.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "session/new",
+                "params": {},
+            }
+        )
         resp = await harness.read_response(2)
         sid = resp["result"]["session_id"]
         assert sid.startswith("acp-")
 
         # 3. session/send_message
-        harness.send({
-            "jsonrpc": "2.0", "id": 3,
-            "method": "session/send_message",
-            "params": {"session_id": sid, "message": "hello athena"},
-        })
+        harness.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "session/send_message",
+                "params": {"session_id": sid, "message": "hello athena"},
+            }
+        )
         resp = await harness.read_response(3)
         assert resp["result"]["completed"] is True
         assert resp["result"]["reason"] == "stop"
@@ -166,10 +168,14 @@ async def test_full_zed_handshake_sequence() -> None:
         assert any("echo: hello athena" in d for d in deltas)
 
         # 4. session/end
-        harness.send({
-            "jsonrpc": "2.0", "id": 4,
-            "method": "session/end", "params": {"session_id": sid},
-        })
+        harness.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "session/end",
+                "params": {"session_id": sid},
+            }
+        )
         resp = await harness.read_response(4)
         assert resp["result"]["closed"] is True
     finally:
@@ -200,16 +206,24 @@ async def test_cancel_during_busy_turn() -> None:
     register(harness.server, agent_factory=_SlowAgent)
     await harness.start()
     try:
-        harness.send({
-            "jsonrpc": "2.0", "id": 1,
-            "method": "session/new", "params": {"session_id": "s"},
-        })
+        harness.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "session/new",
+                "params": {"session_id": "s"},
+            }
+        )
         await harness.read_response(1)
 
-        harness.send({
-            "jsonrpc": "2.0", "id": 2,
-            "method": "session/cancel", "params": {"session_id": "s"},
-        })
+        harness.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "session/cancel",
+                "params": {"session_id": "s"},
+            }
+        )
         resp = await harness.read_response(2)
         assert resp["result"] == {"cancelled": True}
     finally:
@@ -222,20 +236,27 @@ async def test_slash_command_via_acp() -> None:
     register(harness.server, agent_factory=_StubAgent)
     await harness.start()
     try:
-        harness.send({
-            "jsonrpc": "2.0", "id": 1,
-            "method": "session/new", "params": {"session_id": "s"},
-        })
+        harness.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "session/new",
+                "params": {"session_id": "s"},
+            }
+        )
         await harness.read_response(1)
-        harness.send({
-            "jsonrpc": "2.0", "id": 2,
-            "method": "session/slash_command",
-            "params": {
-                "session_id": "s",
-                "command": "steer",
-                "argument": "focus on tests",
-            },
-        })
+        harness.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "session/slash_command",
+                "params": {
+                    "session_id": "s",
+                    "command": "steer",
+                    "argument": "focus on tests",
+                },
+            }
+        )
         resp = await harness.read_response(2)
         assert "steer queued" in resp["result"]["result"]
     finally:
@@ -249,10 +270,14 @@ async def test_unknown_method_returns_error() -> None:
     register(harness.server, agent_factory=_StubAgent)
     await harness.start()
     try:
-        harness.send({
-            "jsonrpc": "2.0", "id": 1,
-            "method": "fictional/method", "params": {},
-        })
+        harness.send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "fictional/method",
+                "params": {},
+            }
+        )
         resp = await harness.read_response(1)
         assert resp["error"]["code"] == -32601
     finally:

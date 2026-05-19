@@ -15,13 +15,13 @@ Providers that speak something other than the agent's native format are
 responsible for translating their native stream into these chunks
 before yielding.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
-
 
 ChunkKind = Literal["content", "tool_call", "usage", "end"]
 
@@ -30,6 +30,7 @@ ChunkKind = Literal["content", "tool_call", "usage", "end"]
 class StreamChunk:
     """One streamed chunk from a provider. ``kind`` discriminates the
     ``payload`` shape; consumers branch on it."""
+
     kind: ChunkKind
     payload: Any
 

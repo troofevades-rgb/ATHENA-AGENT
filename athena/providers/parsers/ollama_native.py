@@ -10,6 +10,7 @@ priority by virtue of being registered to ``register()`` not
 ``register_default()`` — every (provider, model_glob) tuple is tried
 before defaults.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,9 +22,7 @@ from . import register_default
 logger = logging.getLogger(__name__)
 
 
-def parse(
-    content: str, raw_response: dict[str, Any]
-) -> tuple[str, list[dict[str, Any]]]:
+def parse(content: str, raw_response: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     msg = raw_response.get("message") if isinstance(raw_response, dict) else None
     if not isinstance(msg, dict):
         return content, []
@@ -52,11 +51,13 @@ def parse(
         else:
             args = {}
         tc_id = tc.get("id", "")
-        out.append({
-            "name": name,
-            "arguments": args,
-            "id": tc_id if isinstance(tc_id, str) else "",
-        })
+        out.append(
+            {
+                "name": name,
+                "arguments": args,
+                "id": tc_id if isinstance(tc_id, str) else "",
+            }
+        )
     return content, out
 
 

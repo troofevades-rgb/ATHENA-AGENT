@@ -9,14 +9,16 @@ This keeps the agent's tool-call wrappers (which want to call
 :func:`start_span` regardless of whether observability is enabled)
 from blowing up at import time when the optional dep is missing.
 """
+
 from __future__ import annotations
 
 import contextlib
-from typing import Any, ContextManager
+from typing import Any
 
 try:
     from opentelemetry import trace as _otel_trace
     from opentelemetry.trace import Span
+
     _HAVE_OTEL = True
 except ImportError:  # pragma: no cover — exercised only without the extras
     _otel_trace = None

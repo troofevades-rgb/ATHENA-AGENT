@@ -13,6 +13,7 @@ lines are individual messages. The importer:
 
 Preserves message order exactly.
 """
+
 from __future__ import annotations
 
 import json
@@ -23,7 +24,6 @@ from typing import Any
 
 from ..sessions.store import SessionMeta, SessionStore
 from .report import Report
-
 
 _FILENAME_TS_RE = re.compile(r"^(?P<id>[^_]+?)(?:_(?P<ts>\d{8,}))?$")
 
@@ -91,19 +91,19 @@ def _ingest_session(
     meta_dict = _build_meta(src_file, header, profile)
 
     if not dry_run:
-        started = datetime.fromisoformat(
-            meta_dict["started_at"].replace("Z", "+00:00")
+        started = datetime.fromisoformat(meta_dict["started_at"].replace("Z", "+00:00"))
+        store.open_session(
+            SessionMeta(
+                session_id=session_id,
+                profile=profile,
+                model=meta_dict.get("model", "unknown"),
+                provider=meta_dict.get("provider", "unknown"),
+                workspace=meta_dict.get("workspace"),
+                parent_session_id=meta_dict.get("parent_session_id"),
+                started_at=started,
+                tags=list(meta_dict.get("tags") or []),
+            )
         )
-        store.open_session(SessionMeta(
-            session_id=session_id,
-            profile=profile,
-            model=meta_dict.get("model", "unknown"),
-            provider=meta_dict.get("provider", "unknown"),
-            workspace=meta_dict.get("workspace"),
-            parent_session_id=meta_dict.get("parent_session_id"),
-            started_at=started,
-            tags=list(meta_dict.get("tags") or []),
-        ))
         # Patch the meta sidecar to also carry import provenance.
         sidecar = store.sessions_dir / f"{session_id}.meta.json"
         if sidecar.exists():
@@ -111,21 +111,26 @@ def _ingest_session(
                 existing = json.loads(sidecar.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 existing = {}
-            existing.update({
-                "imported_at": meta_dict["imported_at"],
-                "source": meta_dict["source"],
-            })
+            existing.update(
+                {
+                    "imported_at": meta_dict["imported_at"],
+                    "source": meta_dict["source"],
+                }
+            )
             sidecar.write_text(json.dumps(existing, indent=2), encoding="utf-8")
         for msg in messages:
             store.append_turn(session_id, msg)
 
-    report.add("imported_session", {
-        "session_id": session_id,
-        "source": str(src_file),
-        "destination": str(store.sessions_dir / f"{session_id}.jsonl"),
-        "message_count": len(messages),
-        "dry_run": dry_run,
-    })
+    report.add(
+        "imported_session",
+        {
+            "session_id": session_id,
+            "source": str(src_file),
+            "destination": str(store.sessions_dir / f"{session_id}.jsonl"),
+            "message_count": len(messages),
+            "dry_run": dry_run,
+        },
+    )
 
 
 def import_sessions(
@@ -138,10 +143,13 @@ def import_sessions(
 ) -> None:
     sessions_src = source / "sessions"
     if not sessions_src.exists():
-        report.add("sessions_warning", {
-            "reason": "no_sessions_dir",
-            "path": str(sessions_src),
-        })
+        report.add(
+            "sessions_warning",
+            {
+                "reason": "no_sessions_dir",
+                "path": str(sessions_src),
+            },
+        )
         return
 
     profile_root = dest / "profiles" / profile
@@ -152,13 +160,16 @@ def import_sessions(
             header = _read_meta_header(lines[0]) if lines else {}
             body = lines[1:] if header else lines
             valid = sum(1 for ln in body if ln.strip())
-            report.add("imported_session", {
-                "session_id": jsonl.stem,
-                "source": str(jsonl),
-                "destination": str(profile_root / "sessions" / jsonl.name),
-                "message_count": valid,
-                "dry_run": True,
-            })
+            report.add(
+                "imported_session",
+                {
+                    "session_id": jsonl.stem,
+                    "source": str(jsonl),
+                    "destination": str(profile_root / "sessions" / jsonl.name),
+                    "message_count": valid,
+                    "dry_run": True,
+                },
+            )
         return
 
     profile_root.mkdir(parents=True, exist_ok=True)

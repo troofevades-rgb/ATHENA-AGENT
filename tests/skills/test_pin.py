@@ -1,4 +1,5 @@
 """Tests for pin_skill / unpin_skill."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -7,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from athena.skills.archive import SkillNotFoundError
-from athena.skills.discovery import discover_skills
 from athena.skills.frontmatter import parse_frontmatter
 from athena.skills.pin import pin_skill, unpin_skill
 from athena.skills.state_machine import apply_transitions
@@ -45,9 +45,7 @@ def test_pin_unknown_raises(isolated_home: Path) -> None:
         pin_skill("ghost")
 
 
-def test_pinned_skill_skips_state_transitions(
-    isolated_home: Path, write_skill
-) -> None:
+def test_pinned_skill_skips_state_transitions(isolated_home: Path, write_skill) -> None:
     """A pinned skill that is *very* stale must not be archived or marked stale."""
     user_skills = isolated_home / ".athena" / "skills"
     user_skills.mkdir(parents=True)

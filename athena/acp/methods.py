@@ -23,12 +23,14 @@ methods the ACP spec requires into the given :class:`ACPServer`:
 that constructs an Agent against the current profile / workspace /
 config. Tests pass a stub.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import secrets
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from ..safety.approval_callback import (
     reset_approval_callback,
@@ -49,14 +51,14 @@ AgentFactory = Callable[[], "Agent"]
 
 
 def register(
-    server: "ACPServer",
+    server: ACPServer,
     agent_factory: AgentFactory,
-) -> dict[str, "Agent"]:
+) -> dict[str, Agent]:
     """Wire every method handler onto ``server`` and return the live
     sessions dict so callers (the CLI's shutdown path, tests, etc.)
     can introspect it.
     """
-    sessions: dict[str, "Agent"] = {}
+    sessions: dict[str, Agent] = {}
 
     @server.method("initialize")
     async def _initialize(_params: dict) -> dict:
@@ -135,7 +137,9 @@ def register(
             fn = call.get("function") or {}
             tool_id = call.get("id") or _generate_tool_id()
             await sender.tool_call_start(
-                tool_id, fn.get("name", "?"), fn.get("arguments") or {},
+                tool_id,
+                fn.get("name", "?"),
+                fn.get("arguments") or {},
             )
         reason = "cancelled" if agent.cancel_pending else "stop"
         await sender.turn_completed(reason=reason)
@@ -189,7 +193,7 @@ def _coerce_user_text(message: dict[str, Any]) -> str:
     return ""
 
 
-def _build_approval_callback(server: "ACPServer", session_id: str):
+def _build_approval_callback(server: ACPServer, session_id: str):
     """Return a sync approval callback that bridges into
     :meth:`StreamingSender.permission_request` via
     ``asyncio.run_coroutine_threadsafe``.
@@ -244,10 +248,9 @@ def _list_available_models() -> list[dict[str, str]]:
     skip that provider rather than abort.
     """
     try:
-        from ..config import load_config
+        from ..config import CONFIG_DIR, load_config
         from ..providers import _REGISTRY
         from ..providers.credential_pool import CredentialPool
-        from ..config import CONFIG_DIR
     except ImportError:
         return []
 
@@ -276,7 +279,9 @@ def _list_available_models() -> list[dict[str, str]]:
                     pass
         except Exception:
             logger.debug(
-                "skip provider %s in models/list", name, exc_info=True,
+                "skip provider %s in models/list",
+                name,
+                exc_info=True,
             )
             continue
     return out

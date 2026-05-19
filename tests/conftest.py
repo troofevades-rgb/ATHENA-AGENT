@@ -4,10 +4,11 @@
 ``~/.athena/skills/`` without touching the developer's real home. ``write_skill``
 is a tiny helper for fabricating SKILL.md files.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import pytest
 
@@ -51,9 +52,7 @@ def write_skill() -> SkillWriter:
         skill_dir = base / name
         skill_dir.mkdir(parents=True, exist_ok=True)
         fm = SkillFrontmatter(name=name, description=description, **fm_kwargs)
-        (skill_dir / "SKILL.md").write_text(
-            serialize_frontmatter(fm, body), encoding="utf-8"
-        )
+        (skill_dir / "SKILL.md").write_text(serialize_frontmatter(fm, body), encoding="utf-8")
         return skill_dir
 
     return _write

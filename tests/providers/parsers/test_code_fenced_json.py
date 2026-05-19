@@ -1,4 +1,5 @@
 """Code-fenced JSON tool-call recovery."""
+
 from __future__ import annotations
 
 from athena.providers.parsers.code_fenced_json import parse
@@ -23,34 +24,21 @@ def test_json_fence_with_name_and_arguments():
 
 def test_tool_call_fence_label_also_recognized():
     """Some models use ```tool_call instead of ```json."""
-    content = (
-        "```tool_call\n"
-        '{"name": "Write", "arguments": {"path": "x"}}\n'
-        "```"
-    )
+    content = '```tool_call\n{"name": "Write", "arguments": {"path": "x"}}\n```'
     _, calls = parse(content, {})
     assert calls[0]["name"] == "Write"
 
 
 def test_plain_code_fence_left_alone():
     """A regular Python code block must NOT be mistaken for a tool call."""
-    content = (
-        "```python\n"
-        "def hello():\n"
-        "    print('hi')\n"
-        "```"
-    )
+    content = "```python\ndef hello():\n    print('hi')\n```"
     cleaned, calls = parse(content, {})
     assert calls == []
     assert "def hello()" in cleaned
 
 
 def test_fence_with_unparsable_json_left_alone():
-    content = (
-        "```json\n"
-        '{not valid json}\n'
-        "```"
-    )
+    content = "```json\n{not valid json}\n```"
     cleaned, calls = parse(content, {})
     assert calls == []
     assert "{not valid json}" in cleaned
@@ -58,11 +46,7 @@ def test_fence_with_unparsable_json_left_alone():
 
 def test_fence_missing_name_field_left_alone():
     """A JSON object without a 'name' key isn't a tool call."""
-    content = (
-        "```json\n"
-        '{"file_path": "/x"}\n'
-        "```"
-    )
+    content = '```json\n{"file_path": "/x"}\n```'
     cleaned, calls = parse(content, {})
     assert calls == []
     assert '"file_path"' in cleaned
@@ -70,11 +54,7 @@ def test_fence_missing_name_field_left_alone():
 
 def test_arguments_as_json_string_parsed():
     """Models occasionally double-encode arguments as a JSON string."""
-    content = (
-        "```json\n"
-        '{"name": "X", "arguments": "{\\"k\\": \\"v\\"}"}\n'
-        "```"
-    )
+    content = '```json\n{"name": "X", "arguments": "{\\"k\\": \\"v\\"}"}\n```'
     _, calls = parse(content, {})
     assert calls[0]["arguments"] == {"k": "v"}
 

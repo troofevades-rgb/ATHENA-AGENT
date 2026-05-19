@@ -1,4 +1,5 @@
 """OpenAIProvider — chat/completions SSE, tool-call delta assembly."""
+
 from __future__ import annotations
 
 import json
@@ -7,15 +8,15 @@ import httpx
 import pytest
 import respx
 
-from athena.providers import StreamChunk, get_provider_class
+from athena.providers import get_provider_class
 from athena.providers.openai import OpenAICompatibleProvider, OpenAIProvider
 
 
 def _sse(*events: dict) -> bytes:
-    return b"".join(
-        b"data: " + json.dumps(e).encode("utf-8") + b"\n\n"
-        for e in events
-    ) + b"data: [DONE]\n\n"
+    return (
+        b"".join(b"data: " + json.dumps(e).encode("utf-8") + b"\n\n" for e in events)
+        + b"data: [DONE]\n\n"
+    )
 
 
 @pytest.fixture
@@ -41,10 +42,12 @@ def test_stream_chat_yields_content_chunks(provider):
         m.post("https://api.openai.test/v1/chat/completions").mock(
             return_value=httpx.Response(200, content=sample)
         )
-        chunks = list(provider.stream_chat(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": "hi"}],
-        ))
+        chunks = list(
+            provider.stream_chat(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        )
     contents = [c.payload for c in chunks if c.kind == "content"]
     assert "".join(contents) == "hello world"
     usage = next(c for c in chunks if c.kind == "usage")
@@ -59,16 +62,32 @@ def test_function_calls_emitted_as_tool_call_chunks(provider):
     per index and emits one StreamChunk per index."""
     sample = _sse(
         {"choices": [{"delta": {"role": "assistant", "content": ""}}]},
-        {"choices": [{"delta": {"tool_calls": [
-            {"index": 0, "id": "call_abc", "type": "function",
-             "function": {"name": "Read", "arguments": ""}}
-        ]}}]},
-        {"choices": [{"delta": {"tool_calls": [
-            {"index": 0, "function": {"arguments": '{"path":'}}
-        ]}}]},
-        {"choices": [{"delta": {"tool_calls": [
-            {"index": 0, "function": {"arguments": ' "/tmp/x"}'}}
-        ]}}]},
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_abc",
+                                "type": "function",
+                                "function": {"name": "Read", "arguments": ""},
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        {
+            "choices": [
+                {"delta": {"tool_calls": [{"index": 0, "function": {"arguments": '{"path":'}}]}}
+            ]
+        },
+        {
+            "choices": [
+                {"delta": {"tool_calls": [{"index": 0, "function": {"arguments": ' "/tmp/x"}'}}]}}
+            ]
+        },
         {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]},
         {"choices": [], "usage": {"prompt_tokens": 12, "completion_tokens": 8}},
     )
@@ -76,10 +95,12 @@ def test_function_calls_emitted_as_tool_call_chunks(provider):
         m.post("https://api.openai.test/v1/chat/completions").mock(
             return_value=httpx.Response(200, content=sample)
         )
-        chunks = list(provider.stream_chat(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": "read /tmp/x"}],
-        ))
+        chunks = list(
+            provider.stream_chat(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "read /tmp/x"}],
+            )
+        )
     tools = [c for c in chunks if c.kind == "tool_call"]
     assert len(tools) == 1
     assert tools[0].payload["name"] == "Read"
@@ -92,18 +113,23 @@ def test_max_tokens_respected(provider):
 
     def _record(request):
         captured["body"] = json.loads(request.content)
-        return httpx.Response(200, content=_sse(
-            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
-            {"choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 0}},
-        ))
+        return httpx.Response(
+            200,
+            content=_sse(
+                {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+                {"choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 0}},
+            ),
+        )
 
     with respx.mock() as m:
         m.post("https://api.openai.test/v1/chat/completions").mock(side_effect=_record)
-        list(provider.stream_chat(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": "x"}],
-            max_tokens=200,
-        ))
+        list(
+            provider.stream_chat(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "x"}],
+                max_tokens=200,
+            )
+        )
     assert captured["body"]["max_tokens"] == 200
 
 
@@ -112,18 +138,23 @@ def test_temperature_and_stream_options_set(provider):
 
     def _record(request):
         captured["body"] = json.loads(request.content)
-        return httpx.Response(200, content=_sse(
-            {"choices": [{"delta": {}, "finish_reason": "stop"}]},
-            {"choices": [], "usage": {}},
-        ))
+        return httpx.Response(
+            200,
+            content=_sse(
+                {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+                {"choices": [], "usage": {}},
+            ),
+        )
 
     with respx.mock() as m:
         m.post("https://api.openai.test/v1/chat/completions").mock(side_effect=_record)
-        list(provider.stream_chat(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": "x"}],
-            temperature=0.1,
-        ))
+        list(
+            provider.stream_chat(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "x"}],
+                temperature=0.1,
+            )
+        )
     body = captured["body"]
     assert body["temperature"] == 0.1
     assert body["stream"] is True
@@ -142,14 +173,17 @@ def test_list_models_returns_ids(provider):
     """OpenAI's /v1/models returns {object:"list", data:[{id,...}]}."""
     with respx.mock() as m:
         m.get("https://api.openai.test/v1/models").mock(
-            return_value=httpx.Response(200, json={
-                "object": "list",
-                "data": [
-                    {"id": "gpt-4o", "object": "model"},
-                    {"id": "gpt-4o-mini", "object": "model"},
-                    {"id": "o1", "object": "model"},
-                ],
-            })
+            return_value=httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "data": [
+                        {"id": "gpt-4o", "object": "model"},
+                        {"id": "gpt-4o-mini", "object": "model"},
+                        {"id": "o1", "object": "model"},
+                    ],
+                },
+            )
         )
         names = provider.list_models()
     assert "gpt-4o-mini" in names
@@ -159,16 +193,20 @@ def test_list_models_returns_ids(provider):
 def test_list_models_inherited_by_subclasses():
     """OpenRouter / Nous / openai_compat get list_models() for free."""
     from athena.providers.openrouter import OpenRouterProvider
+
     p = OpenRouterProvider(api_key="sk-or-test")
     try:
         with respx.mock() as m:
             m.get("https://openrouter.ai/api/v1/models").mock(
-                return_value=httpx.Response(200, json={
-                    "data": [
-                        {"id": "anthropic/claude-3-5-sonnet"},
-                        {"id": "openai/gpt-4o"},
-                    ],
-                })
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "data": [
+                            {"id": "anthropic/claude-3-5-sonnet"},
+                            {"id": "openai/gpt-4o"},
+                        ],
+                    },
+                )
             )
             names = p.list_models()
         assert names == ["anthropic/claude-3-5-sonnet", "openai/gpt-4o"]
@@ -191,17 +229,21 @@ def test_429_propagates(provider):
             return_value=httpx.Response(429, json={"error": {"message": "rate"}})
         )
         with pytest.raises(httpx.HTTPStatusError):
-            list(provider.stream_chat(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": "x"}],
-            ))
+            list(
+                provider.stream_chat(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": "x"}],
+                )
+            )
 
 
 def test_compat_base_class_allows_custom_base_url():
     """OpenAICompatibleProvider is the base for OpenAI-compat / OpenRouter
     / Nous; instantiating it with a custom base_url should work."""
+
     class _Concrete(OpenAICompatibleProvider):
         name = "concrete-test"
+
     p = _Concrete(api_key="k", base_url="https://my-server.invalid/v1")
     try:
         assert p.base_url == "https://my-server.invalid/v1"
@@ -212,8 +254,10 @@ def test_compat_base_class_allows_custom_base_url():
 def test_compat_base_class_allows_extra_headers():
     """Subclasses pass through extra_headers — used by OpenRouter for
     HTTP-Referer and Nous for their own auth header in Prompt 8.4."""
+
     class _Concrete(OpenAICompatibleProvider):
         name = "concrete-test-2"
+
     p = _Concrete(api_key="k", extra_headers={"x-thing": "yes"})
     try:
         assert p._client.headers["x-thing"] == "yes"

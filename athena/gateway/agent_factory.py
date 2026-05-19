@@ -15,6 +15,7 @@ button instead of a terminal ``ui.confirm`` (and the worker thread
 that fired the tool blocks on the cross-thread bridge until the
 user clicks).
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,14 +28,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def build_agent_factory(daemon: "GatewayDaemon"):
+def build_agent_factory(daemon: GatewayDaemon):
     """Return an async ``(session_id) -> Agent`` factory bound to
     ``daemon``. The factory closes over the daemon's session store,
     config, and profile dir; it does NOT close over a specific
     session id, so the pool can reuse it across sessions.
     """
 
-    async def factory(session_id: str) -> "Agent":
+    async def factory(session_id: str) -> Agent:
         # Defer to thread because Agent.__init__ does synchronous I/O
         # (provider.show_model HTTP, ATHENA.md read, sqlite open,
         # skills discovery walk) that would block the event loop.
@@ -45,7 +46,7 @@ def build_agent_factory(daemon: "GatewayDaemon"):
     return factory
 
 
-def _build_agent_sync(daemon: "GatewayDaemon", session_id: str) -> "Agent":
+def _build_agent_sync(daemon: GatewayDaemon, session_id: str) -> Agent:
     """Construct a gateway-bound agent on the calling thread.
 
     The agent shares the daemon's :class:`SessionStore` (don't open a
@@ -68,7 +69,8 @@ def _build_agent_sync(daemon: "GatewayDaemon", session_id: str) -> "Agent":
         if loaded:
             logger.info(
                 "gateway: resumed session %s (%d turns loaded)",
-                session_id[:8], loaded,
+                session_id[:8],
+                loaded,
             )
     except Exception:
         logger.exception(
@@ -79,7 +81,7 @@ def _build_agent_sync(daemon: "GatewayDaemon", session_id: str) -> "Agent":
 
 
 def build_gateway_approval_callback(
-    daemon: "GatewayDaemon",
+    daemon: GatewayDaemon,
     *,
     session_id: str,
     platform: str,

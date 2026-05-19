@@ -1,4 +1,5 @@
 """Plugin discovery walks bundled + user dirs, skips malformed entries."""
+
 from __future__ import annotations
 
 from pathlib import Path

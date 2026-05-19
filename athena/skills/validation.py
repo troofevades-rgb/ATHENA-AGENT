@@ -5,6 +5,7 @@ Used by ``athena skills validate`` (CLI) and by the importer's post-import
 checks. Keeps validation out of the parser so callers that just want to
 read can do so without paying the validation cost twice.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,9 +39,7 @@ def validate_skill(skill_dir: Path) -> list[str]:
         errors.append("description missing")
     if fm.state not in ("active", "stale", "archived"):
         errors.append(f"invalid state {fm.state!r}")
-    if fm.write_origin not in (
-        "foreground", "background_review", "curator", "migration", "system"
-    ):
+    if fm.write_origin not in ("foreground", "background_review", "curator", "migration", "system"):
         errors.append(f"invalid write_origin {fm.write_origin!r}")
 
     return errors

@@ -14,6 +14,7 @@ When you genuinely need to add a module: prefer routing through
 is a non-mutation (cache files, append-only logs, atomic config
 writes that are themselves the audit substrate).
 """
+
 from __future__ import annotations
 
 import re
@@ -25,47 +26,49 @@ ATHENA_ROOT = REPO_ROOT / "athena"
 # Modules whose raw writes are intentional and not subject to the
 # snapshot+audit rule. Each entry is a path relative to the repo
 # root. Frozen as of Phase 17.5 commit.
-ALLOWLIST: frozenset[str] = frozenset({
-    "athena/__main__.py",                         # CLI entry; doesn't mutate user content
-    "athena/agent/core.py",                       # status snapshot writer (atomic JSON view)
-    "athena/cli/train.py",                        # trainer dumps datasets to disk
-    "athena/config.py",                           # atomic config writes
-    "athena/cron/delivery.py",                    # cron task state journal
-    "athena/curator/reports.py",                  # curator emits its own report files
-    "athena/gateway/platforms/imessage.py",       # platform-local message buffers
-    "athena/gateway/platforms/signal.py",         # platform-local message buffers
-    "athena/gateway/platforms/slack.py",          # platform-local message buffers
-    "athena/goal/invariant.py",                   # invariant register (append-only)
-    "athena/mcp/oauth.py",                        # atomic OAuth token file
-    "athena/memory/providers/builtin_file.py",    # public writes routed through snapshot; helpers refresh index
-    "athena/migration/config_translator.py",      # one-shot hermes->athena migration
-    "athena/migration/mcp_translator.py",         # one-shot hermes->athena migration
-    "athena/migration/memory_exporter.py",        # exports legacy memory to disk
-    "athena/migration/report.py",                 # migration report
-    "athena/migration/sessions_importer.py",      # imports legacy sessions
-    "athena/migration/skills_mapper.py",          # one-shot hermes->athena migration
-    "athena/plugins/bundled/shell_audit/plugin.py",  # shell audit log (append-only)
-    "athena/plugins/loader.py",                   # plugin state file
-    "athena/profiles/manager.py",                 # atomic profile metadata writes
-    "athena/profiles/resolution.py",              # active-profile pointer
-    "athena/safety/audit.py",                     # the audit log itself
-    "athena/safety/snapshots.py",                 # the snapshot store itself
-    "athena/sessions/jsonl.py",                   # session transcript append
-    "athena/sessions/reindex.py",                 # session index rebuild
-    "athena/sessions/store.py",                   # session meta writes
-    "athena/skills/archive.py",                   # invoked by skill_delete (audited)
-    "athena/skills/manager.py",                   # the snapshot site
-    "athena/skills/pin.py",                       # invoked by skill_pin (foreground-only)
-    "athena/skills/state_machine.py",             # skill state transitions
-    "athena/tools/file_ops.py",                   # foreground Read/Edit/Write tools
-    "athena/transform/dataset.py",                # training dataset exports
-    "athena/transform/deploy.py",                 # deployment artefacts
-    "athena/transform/review.py",                 # review artefacts
-    "athena/webhooks/delivery.py",                # webhook delivery journal
-    # Rollback CLI is itself audited; the restore() call lives in
-    # snapshots.py which is allowlisted as the substrate.
-    "athena/cli/rollback.py",
-})
+ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "athena/__main__.py",  # CLI entry; doesn't mutate user content
+        "athena/agent/core.py",  # status snapshot writer (atomic JSON view)
+        "athena/cli/train.py",  # trainer dumps datasets to disk
+        "athena/config.py",  # atomic config writes
+        "athena/cron/delivery.py",  # cron task state journal
+        "athena/curator/reports.py",  # curator emits its own report files
+        "athena/gateway/platforms/imessage.py",  # platform-local message buffers
+        "athena/gateway/platforms/signal.py",  # platform-local message buffers
+        "athena/gateway/platforms/slack.py",  # platform-local message buffers
+        "athena/goal/invariant.py",  # invariant register (append-only)
+        "athena/mcp/oauth.py",  # atomic OAuth token file
+        "athena/memory/providers/builtin_file.py",  # public writes routed through snapshot; helpers refresh index
+        "athena/migration/config_translator.py",  # one-shot hermes->athena migration
+        "athena/migration/mcp_translator.py",  # one-shot hermes->athena migration
+        "athena/migration/memory_exporter.py",  # exports legacy memory to disk
+        "athena/migration/report.py",  # migration report
+        "athena/migration/sessions_importer.py",  # imports legacy sessions
+        "athena/migration/skills_mapper.py",  # one-shot hermes->athena migration
+        "athena/plugins/bundled/shell_audit/plugin.py",  # shell audit log (append-only)
+        "athena/plugins/loader.py",  # plugin state file
+        "athena/profiles/manager.py",  # atomic profile metadata writes
+        "athena/profiles/resolution.py",  # active-profile pointer
+        "athena/safety/audit.py",  # the audit log itself
+        "athena/safety/snapshots.py",  # the snapshot store itself
+        "athena/sessions/jsonl.py",  # session transcript append
+        "athena/sessions/reindex.py",  # session index rebuild
+        "athena/sessions/store.py",  # session meta writes
+        "athena/skills/archive.py",  # invoked by skill_delete (audited)
+        "athena/skills/manager.py",  # the snapshot site
+        "athena/skills/pin.py",  # invoked by skill_pin (foreground-only)
+        "athena/skills/state_machine.py",  # skill state transitions
+        "athena/tools/file_ops.py",  # foreground Read/Edit/Write tools
+        "athena/transform/dataset.py",  # training dataset exports
+        "athena/transform/deploy.py",  # deployment artefacts
+        "athena/transform/review.py",  # review artefacts
+        "athena/webhooks/delivery.py",  # webhook delivery journal
+        # Rollback CLI is itself audited; the restore() call lives in
+        # snapshots.py which is allowlisted as the substrate.
+        "athena/cli/rollback.py",
+    }
+)
 
 
 _PATTERNS = [
@@ -110,7 +113,7 @@ def test_no_new_raw_write_sites_outside_allowlist() -> None:
         "athena.safety.mutation.snapshot_and_record, or add the "
         "module to ALLOWLIST in test_no_raw_writes.py with a "
         "justification.\n\n"
-        f"Violators:\n  " + "\n  ".join(sorted(new_violators))
+        "Violators:\n  " + "\n  ".join(sorted(new_violators))
     )
 
 
@@ -121,7 +124,6 @@ def test_allowlist_entries_all_exist() -> None:
     for rel in ALLOWLIST:
         if not (REPO_ROOT / rel).exists():
             missing.append(rel)
-    assert not missing, (
-        "Allowlist references modules that don't exist:\n  "
-        + "\n  ".join(sorted(missing))
+    assert not missing, "Allowlist references modules that don't exist:\n  " + "\n  ".join(
+        sorted(missing)
     )

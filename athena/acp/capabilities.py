@@ -10,8 +10,8 @@ Don't add a key here without a working implementation. The IDE will
 take us at our word and call us for any capability we claim — an
 unhandled call produces a noisy error in the user's editor.
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 PROTOCOL_VERSION = "1.0"
 

@@ -14,6 +14,7 @@ Workflow:
 Returns a dict with counts and a list of files that couldn't be processed
 so the CLI can show a summary.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,6 @@ from typing import Any
 
 from . import jsonl, sqlite_index
 from .store import _flatten_content
-
 
 logger = logging.getLogger(__name__)
 
@@ -110,8 +110,13 @@ def reindex(profile_dir: Path) -> dict[str, Any]:
                     tool_name = msg.get("name") if role == "tool" else None
                     timestamp = msg.get("timestamp") or meta["started_at"]
                     sqlite_index.insert_turn(
-                        db, meta["session_id"], turn_index,
-                        role, content, tool_name, timestamp,
+                        db,
+                        meta["session_id"],
+                        turn_index,
+                        role,
+                        content,
+                        tool_name,
+                        timestamp,
                     )
                     turn_index += 1
                     turns_count += 1

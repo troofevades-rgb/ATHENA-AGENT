@@ -1,7 +1,7 @@
 """Smoke test for /dump. Verifies the slash dispatcher renders the system
 message via the shared console, without booting the REPL."""
+
 import io
-from pathlib import Path
 from unittest.mock import MagicMock
 
 from rich.console import Console

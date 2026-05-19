@@ -1,4 +1,5 @@
 """``athena profile`` CLI subcommands."""
+
 from __future__ import annotations
 
 import json
@@ -12,17 +13,22 @@ from athena.profiles import manager, resolution
 
 @pytest.fixture(autouse=True)
 def isolated_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
     home = tmp_path / "athena_home"
     home.mkdir()
     monkeypatch.setattr(resolution, "PROFILES_DIR", home / "profiles")
     monkeypatch.setattr(
-        resolution, "ACTIVE_PROFILE_FILE", home / "active_profile",
+        resolution,
+        "ACTIVE_PROFILE_FILE",
+        home / "active_profile",
     )
     monkeypatch.setattr(manager, "PROFILES_DIR", home / "profiles")
     monkeypatch.setattr(
-        manager, "ACTIVE_PROFILE_FILE", home / "active_profile",
+        manager,
+        "ACTIVE_PROFILE_FILE",
+        home / "active_profile",
     )
     # CLI imports the symbols from the resolution module — patch
     # those references too so the CLI sees the test paths.
@@ -30,7 +36,9 @@ def isolated_home(
     monkeypatch.setattr(cli, "profile_dir", resolution.profile_dir)
     monkeypatch.setattr(cli, "profile_exists", resolution.profile_exists)
     monkeypatch.setattr(
-        cli, "resolve_active_profile", resolution.resolve_active_profile,
+        cli,
+        "resolve_active_profile",
+        resolution.resolve_active_profile,
     )
     monkeypatch.delenv("ATHENA_PROFILE", raising=False)
     monkeypatch.delenv("OCODE_PROFILE", raising=False)
@@ -41,7 +49,8 @@ def isolated_home(
 
 
 def test_list_empty(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["list"])
     assert rc == 0
@@ -49,7 +58,8 @@ def test_list_empty(
 
 
 def test_list_marks_active(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("default")
     manager.create_profile("work")
@@ -63,7 +73,8 @@ def test_list_marks_active(
 
 
 def test_list_json_output(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("default")
     manager.create_profile("work")
@@ -77,7 +88,8 @@ def test_list_json_output(
 
 
 def test_show_active_profile(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("default")
     manager.create_profile("work")
@@ -91,7 +103,8 @@ def test_show_active_profile(
 
 
 def test_show_named_profile(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("client-acme")
     rc = cli.main(["show", "client-acme"])
@@ -100,7 +113,8 @@ def test_show_named_profile(
 
 
 def test_show_unknown_returns_2(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["show", "ghost"])
     assert rc == 2
@@ -108,14 +122,16 @@ def test_show_unknown_returns_2(
 
 
 def test_show_invalid_name_returns_2(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["show", "Bad Name"])
     assert rc == 2
 
 
 def test_show_json_carries_counts_and_path(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("work")
     # Populate a few items so the counts are nonzero.
@@ -136,7 +152,8 @@ def test_show_json_carries_counts_and_path(
 
 
 def test_create_succeeds(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["create", "work"])
     assert rc == 0
@@ -145,7 +162,8 @@ def test_create_succeeds(
 
 
 def test_create_with_copy_from(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("source")
     (resolution.profile_dir("source") / "skills" / "shared").mkdir()
@@ -157,7 +175,8 @@ def test_create_with_copy_from(
 
 
 def test_create_invalid_name_returns_2(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["create", "Bad Name"])
     assert rc == 2
@@ -165,7 +184,8 @@ def test_create_invalid_name_returns_2(
 
 
 def test_create_duplicate_returns_2(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("work")
     rc = cli.main(["create", "work"])
@@ -174,7 +194,8 @@ def test_create_duplicate_returns_2(
 
 
 def test_create_copy_from_missing_returns_2(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["create", "target", "--copy-from", "ghost"])
     assert rc == 2
@@ -185,7 +206,8 @@ def test_create_copy_from_missing_returns_2(
 
 
 def test_switch_writes_active(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("work")
     rc = cli.main(["switch", "work"])
@@ -196,7 +218,8 @@ def test_switch_writes_active(
 
 
 def test_switch_missing_returns_2(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["switch", "ghost"])
     assert rc == 2
@@ -207,7 +230,8 @@ def test_switch_missing_returns_2(
 
 
 def test_delete_with_matching_token(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("work")
     rc = cli.main(["delete", "work", "work"])
@@ -216,7 +240,8 @@ def test_delete_with_matching_token(
 
 
 def test_delete_with_mismatched_token_returns_2(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("work")
     rc = cli.main(["delete", "work", "wrong-token"])
@@ -226,7 +251,8 @@ def test_delete_with_mismatched_token_returns_2(
 
 
 def test_delete_default_protected(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("default")
     rc = cli.main(["delete", "default", "default"])
@@ -238,7 +264,8 @@ def test_delete_default_protected(
 
 
 def test_rename_moves_profile(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("old")
     rc = cli.main(["rename", "old", "new"])
@@ -250,7 +277,8 @@ def test_rename_moves_profile(
 
 
 def test_rename_default_protected(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("default")
     rc = cli.main(["rename", "default", "renamed"])
@@ -258,7 +286,8 @@ def test_rename_default_protected(
 
 
 def test_rename_collision_returns_2(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     manager.create_profile("a")
     manager.create_profile("b")
@@ -267,7 +296,8 @@ def test_rename_collision_returns_2(
 
 
 def test_rename_missing_returns_2(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["rename", "ghost", "new"])
     assert rc == 2

@@ -1,10 +1,10 @@
 """Tests for athena.curator.yaml_output.parse_curator_report."""
+
 from __future__ import annotations
 
 import logging
 
 from athena.curator.yaml_output import parse_curator_report
-
 
 _MINIMAL = """\
 Some intro text.
@@ -189,7 +189,9 @@ runs:
 
 def test_demote_decisions_require_target() -> None:
     for decision in (
-        "DEMOTE_TO_REFERENCES", "DEMOTE_TO_TEMPLATES", "DEMOTE_TO_SCRIPTS",
+        "DEMOTE_TO_REFERENCES",
+        "DEMOTE_TO_TEMPLATES",
+        "DEMOTE_TO_SCRIPTS",
     ):
         text = (
             "```yaml-curator-report\n"

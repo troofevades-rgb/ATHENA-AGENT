@@ -1,4 +1,5 @@
 """GPT-OSS harmony channel parser."""
+
 from __future__ import annotations
 
 from athena.providers.parsers.harmony import parse
@@ -6,10 +7,7 @@ from athena.providers.parsers.harmony import parse
 
 def _harmony(*chunks: tuple[str, str, str]) -> str:
     """Helper: build a harmony-formatted string from (channel, message, terminator) tuples."""
-    return "".join(
-        f"<|channel|>{ch}<|message|>{msg}<|{term}|>"
-        for ch, msg, term in chunks
-    )
+    return "".join(f"<|channel|>{ch}<|message|>{msg}<|{term}|>" for ch, msg, term in chunks)
 
 
 def test_final_channel_extracted():
@@ -46,10 +44,7 @@ def test_analysis_channel_dropped():
 
 def test_multiple_commentary_lines_as_separate_tool_calls():
     content = _harmony(
-        ("commentary",
-         'Read({"path": "a"})\n'
-         'Read({"path": "b"})',
-         "end"),
+        ("commentary", 'Read({"path": "a"})\nRead({"path": "b"})', "end"),
         ("final", "Both done.", "return"),
     )
     _, calls = parse(content, {})

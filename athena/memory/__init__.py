@@ -33,14 +33,15 @@ the legacy public surface — preserved so existing callers (agent system
 prompt build, ``/memory`` command, migration importer) keep working.
 Phase 14 will migrate them over to the profile-keyed surface.
 """
+
 from __future__ import annotations
+
 import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import CONFIG_DIR
-
 
 PROJECTS_DIR = CONFIG_DIR / "projects"
 
@@ -164,12 +165,7 @@ def write_memory(
     d = ensure_memory_dir(workspace)
     target = d / filename
     content = (
-        "---\n"
-        f"name: {name}\n"
-        f"description: {description}\n"
-        f"type: {type}\n"
-        "---\n\n"
-        f"{body.strip()}\n"
+        f"---\nname: {name}\ndescription: {description}\ntype: {type}\n---\n\n{body.strip()}\n"
     )
     target.write_text(content, encoding="utf-8")
     _refresh_index(d)
@@ -201,12 +197,11 @@ def _refresh_index(memory_directory: Path) -> None:
         if len(line) > 200:
             line = line[:197] + "..."
         entries.append(line)
-    (memory_directory / "MEMORY.md").write_text(
-        "\n".join(entries) + "\n", encoding="utf-8"
-    )
+    (memory_directory / "MEMORY.md").write_text("\n".join(entries) + "\n", encoding="utf-8")
 
 
 # ---- CLI helpers (used by /memory) --------------------------------------
+
 
 def render_index_for_display(workspace: Path) -> str:
     mems = list_memories(workspace)

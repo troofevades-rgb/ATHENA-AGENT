@@ -6,6 +6,7 @@ actually need testing (event normalization, callback routing,
 approval rendering, send helpers) are addressable without spinning
 the polling loop.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -104,9 +105,7 @@ def _stub_message(
 ):
     chat = SimpleNamespace(id=chat_id, type=chat_type)
     from_user = SimpleNamespace(id=user_id)
-    reply_to_message = (
-        SimpleNamespace(message_id=reply_to_id) if reply_to_id else None
-    )
+    reply_to_message = SimpleNamespace(message_id=reply_to_id) if reply_to_id else None
     return SimpleNamespace(
         chat=chat,
         from_user=from_user,
@@ -161,9 +160,7 @@ async def test_photo_message_classified_with_caption(tmp_path: Path) -> None:
     msg = _stub_message(text=None, caption="look at this", photo=photo)
     # Stub the download path.
     a._bot = MagicMock()
-    a._bot.get_file = AsyncMock(
-        return_value=SimpleNamespace(file_path="photos/abc.jpg")
-    )
+    a._bot.get_file = AsyncMock(return_value=SimpleNamespace(file_path="photos/abc.jpg"))
     a._bot.download_file = AsyncMock()
 
     event = await a._event_from_message(msg)
@@ -189,9 +186,7 @@ async def test_voice_message_classified_audio(tmp_path: Path) -> None:
     voice = SimpleNamespace(file_id="vid", file_unique_id="uv")
     msg = _stub_message(text=None, voice=voice)
     a._bot = MagicMock()
-    a._bot.get_file = AsyncMock(
-        return_value=SimpleNamespace(file_path="voice/abc.ogg")
-    )
+    a._bot.get_file = AsyncMock(return_value=SimpleNamespace(file_path="voice/abc.ogg"))
     a._bot.download_file = AsyncMock()
     event = await a._event_from_message(msg)
     assert event.message_type == MessageType.AUDIO
@@ -202,9 +197,7 @@ async def test_document_attachment_uses_provided_filename(tmp_path: Path) -> Non
     doc = SimpleNamespace(file_id="dx", file_name="report.pdf")
     msg = _stub_message(text=None, caption="please review", document=doc)
     a._bot = MagicMock()
-    a._bot.get_file = AsyncMock(
-        return_value=SimpleNamespace(file_path="docs/report.pdf")
-    )
+    a._bot.get_file = AsyncMock(return_value=SimpleNamespace(file_path="docs/report.pdf"))
     a._bot.download_file = AsyncMock()
     event = await a._event_from_message(msg)
     assert event.message_type == MessageType.DOCUMENT
@@ -291,9 +284,7 @@ async def test_callback_ignores_unknown_prefix(tmp_path: Path) -> None:
 
 async def test_callback_ignores_unknown_decision(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
-    cb = SimpleNamespace(
-        data=f"{_CALLBACK_PREFIX}:r:nope", answer=AsyncMock()
-    )
+    cb = SimpleNamespace(data=f"{_CALLBACK_PREFIX}:r:nope", answer=AsyncMock())
     await a._on_callback(cb)
     assert a.daemon.approvals.resolves == []
 
@@ -319,8 +310,12 @@ async def test_render_approval_uses_explicit_chat_id_when_set(
     a._bot = MagicMock()
     a._bot.send_message = AsyncMock()
     req = ApprovalRequest(
-        session_id="s1", tool_name="Bash", tool_args={"cmd": "ls"},
-        request_id="r1", platform="telegram", chat_id="42",
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={"cmd": "ls"},
+        request_id="r1",
+        platform="telegram",
+        chat_id="42",
     )
     await a._render_approval(req)
     a._bot.send_message.assert_awaited_once()
@@ -337,6 +332,7 @@ async def test_render_approval_falls_back_to_router_route(
     """When chat_id isn't set on the request, find it via the
     router's most-recently-seen Telegram route for the session."""
     from datetime import datetime, timedelta, timezone
+
     a = _adapter(tmp_path)
     a._bot = MagicMock()
     a._bot.send_message = AsyncMock()
@@ -344,20 +340,25 @@ async def test_render_approval_falls_back_to_router_route(
     now = datetime.now(timezone.utc)
     a.daemon.router.routes = [
         SimpleNamespace(
-            session_id="s1", chat_id="older",
+            session_id="s1",
+            chat_id="older",
             last_seen_at=now - timedelta(hours=1),
             platform="telegram",
         ),
         SimpleNamespace(
-            session_id="s1", chat_id="newest",
+            session_id="s1",
+            chat_id="newest",
             last_seen_at=now,
             platform="telegram",
         ),
     ]
 
     req = ApprovalRequest(
-        session_id="s1", tool_name="Bash", tool_args={},
-        request_id="r1", platform="telegram",
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={},
+        request_id="r1",
+        platform="telegram",
     )
     await a._render_approval(req)
     args, _ = a._bot.send_message.await_args
@@ -369,8 +370,11 @@ async def test_render_approval_drops_when_no_route(tmp_path: Path) -> None:
     a._bot = MagicMock()
     a._bot.send_message = AsyncMock()
     req = ApprovalRequest(
-        session_id="missing", tool_name="Bash", tool_args={},
-        request_id="r1", platform="telegram",
+        session_id="missing",
+        tool_name="Bash",
+        tool_args={},
+        request_id="r1",
+        platform="telegram",
     )
     await a._render_approval(req)
     a._bot.send_message.assert_not_awaited()
@@ -388,8 +392,11 @@ def test_build_approval_keyboard_shape() -> None:
 
 def test_format_approval_body_truncates_long_arg_values() -> None:
     req = ApprovalRequest(
-        session_id="s", tool_name="Write", tool_args={"content": "x" * 5000},
-        request_id="r", platform="telegram",
+        session_id="s",
+        tool_name="Write",
+        tool_args={"content": "x" * 5000},
+        request_id="r",
+        platform="telegram",
     )
     body = TelegramAdapter._format_approval_body(req)
     assert "Write" in body
@@ -400,8 +407,11 @@ def test_format_approval_body_truncates_long_arg_values() -> None:
 
 def test_format_approval_body_escapes_backticks() -> None:
     req = ApprovalRequest(
-        session_id="s", tool_name="Bash", tool_args={"cmd": "echo `whoami`"},
-        request_id="r", platform="telegram",
+        session_id="s",
+        tool_name="Bash",
+        tool_args={"cmd": "echo `whoami`"},
+        request_id="r",
+        platform="telegram",
     )
     body = TelegramAdapter._format_approval_body(req)
     # Markdown-fenced code shouldn't be broken by user-supplied backticks.
@@ -410,8 +420,11 @@ def test_format_approval_body_escapes_backticks() -> None:
 
 def test_format_approval_body_with_no_args() -> None:
     req = ApprovalRequest(
-        session_id="s", tool_name="Status", tool_args={},
-        request_id="r", platform="telegram",
+        session_id="s",
+        tool_name="Status",
+        tool_args={},
+        request_id="r",
+        platform="telegram",
     )
     body = TelegramAdapter._format_approval_body(req)
     assert body == "⚠ Run `Status`?"
@@ -423,13 +436,13 @@ def test_format_approval_body_with_no_args() -> None:
 async def test_send_text_calls_bot(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a._bot = MagicMock()
-    a._bot.send_message = AsyncMock(
-        return_value=SimpleNamespace(message_id=99)
-    )
+    a._bot.send_message = AsyncMock(return_value=SimpleNamespace(message_id=99))
     out = await a.send_text("chat-1", "hello world")
     assert out == "99"
     a._bot.send_message.assert_awaited_once_with(
-        "chat-1", "hello world", parse_mode="Markdown",
+        "chat-1",
+        "hello world",
+        parse_mode="Markdown",
     )
 
 
@@ -442,9 +455,7 @@ async def test_send_text_before_start_raises(tmp_path: Path) -> None:
 async def test_send_file_uses_fsinputfile(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a._bot = MagicMock()
-    a._bot.send_document = AsyncMock(
-        return_value=SimpleNamespace(message_id=33)
-    )
+    a._bot.send_document = AsyncMock(return_value=SimpleNamespace(message_id=33))
     f = tmp_path / "test.txt"
     f.write_text("hi")
     out = await a.send_file("chat-1", f, caption="my file")

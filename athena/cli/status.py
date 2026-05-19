@@ -8,12 +8,12 @@ each turn. Reading this file never mutates anything.
 The renderer (:func:`render_status`) is also imported by the REPL's
 ``/status`` slash command so the two surfaces stay byte-identical.
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
 from ..config import load_config, profile_dir
@@ -23,14 +23,12 @@ from ..profiles.resolution import resolve_active_profile
 def cmd_status(args: argparse.Namespace) -> int:
     cfg = load_config()
     profile = resolve_active_profile(
-        cli_arg=args.profile, config_default=cfg.profile,
+        cli_arg=args.profile,
+        config_default=cfg.profile,
     )
     snapshot_path = profile_dir(profile) / ".status.json"
     if not snapshot_path.exists():
-        msg = (
-            f"no live athena process for profile {profile!r} "
-            "(no .status.json snapshot found)"
-        )
+        msg = f"no live athena process for profile {profile!r} (no .status.json snapshot found)"
         if args.json:
             sys.stdout.write(
                 json.dumps({"active": False, "profile": profile}) + "\n",
@@ -86,7 +84,8 @@ def render_status(snapshot: dict[str, Any]) -> str:
         # Sorted by count desc — most-used at top, easier to spot
         # which tool is dominating a turn.
         for tool, count in sorted(
-            tool_counts.items(), key=lambda kv: -int(kv[1]),
+            tool_counts.items(),
+            key=lambda kv: -int(kv[1]),
         ):
             lines.append(f"  {tool:<20} {count:>4}")
     return "\n".join(lines)
@@ -114,7 +113,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Profile whose status to read (default: active).",
     )
     ap.add_argument(
-        "--json", action="store_true", help="JSON output for scripting.",
+        "--json",
+        action="store_true",
+        help="JSON output for scripting.",
     )
     ap.set_defaults(handler=cmd_status)
     return ap

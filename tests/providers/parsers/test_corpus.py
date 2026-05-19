@@ -18,6 +18,7 @@ Real samples can be dropped in over time; the corpus structure is the
 same. The model directory name must match what the provider reports for
 that model (e.g. ``claude-sonnet-4-6``, ``qwen2.5-coder-14b``).
 """
+
 from __future__ import annotations
 
 import json
@@ -27,11 +28,7 @@ import pytest
 
 from athena.providers.parsers import resolve_parser
 
-
-_CORPUS_ROOT = (
-    Path(__file__).resolve().parents[2]
-    / "fixtures" / "tool_call_outputs"
-)
+_CORPUS_ROOT = Path(__file__).resolve().parents[2] / "fixtures" / "tool_call_outputs"
 
 
 def _walk_fixtures() -> list[Path]:
@@ -69,10 +66,7 @@ def test_corpus_fixture(expected_path: Path) -> None:
 
     # raw_response: <slug>.raw.json (optional).
     raw_path = base.with_suffix(".raw.json")
-    raw: dict = (
-        json.loads(raw_path.read_text(encoding="utf-8"))
-        if raw_path.exists() else {}
-    )
+    raw: dict = json.loads(raw_path.read_text(encoding="utf-8")) if raw_path.exists() else {}
 
     expected = json.loads(expected_path.read_text(encoding="utf-8"))
 

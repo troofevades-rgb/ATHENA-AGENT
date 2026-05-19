@@ -1,4 +1,5 @@
 """OllamaProvider — stream_chat parses /api/chat NDJSON into StreamChunks."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from athena.providers import StreamChunk, get_provider_class
+from athena.providers import get_provider_class
 from athena.providers.ollama import OllamaProvider
 
 
@@ -31,9 +32,14 @@ def test_stream_chat_yields_content_chunks(provider: OllamaProvider):
     sample = _ndjson(
         {"message": {"role": "assistant", "content": "Hello "}, "done": False},
         {"message": {"role": "assistant", "content": "world."}, "done": False},
-        {"message": {"role": "assistant", "content": ""},
-         "done": True, "done_reason": "stop",
-         "prompt_eval_count": 8, "eval_count": 2, "eval_duration": 1_000_000},
+        {
+            "message": {"role": "assistant", "content": ""},
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 8,
+            "eval_count": 2,
+            "eval_duration": 1_000_000,
+        },
     )
     with respx.mock(assert_all_called=False) as m:
         m.post("http://test-host.invalid:11434/api/chat").mock(
@@ -50,9 +56,14 @@ def test_stream_chat_yields_content_chunks(provider: OllamaProvider):
 def test_stream_chat_yields_usage_with_ollama_extras(provider: OllamaProvider):
     sample = _ndjson(
         {"message": {"role": "assistant", "content": "hi"}, "done": False},
-        {"message": {"role": "assistant", "content": ""},
-         "done": True, "done_reason": "stop",
-         "prompt_eval_count": 42, "eval_count": 7, "eval_duration": 5_000_000_000},
+        {
+            "message": {"role": "assistant", "content": ""},
+            "done": True,
+            "done_reason": "stop",
+            "prompt_eval_count": 42,
+            "eval_count": 7,
+            "eval_duration": 5_000_000_000,
+        },
     )
     with respx.mock() as m:
         m.post("http://test-host.invalid:11434/api/chat").mock(
@@ -70,13 +81,23 @@ def test_stream_chat_yields_usage_with_ollama_extras(provider: OllamaProvider):
 
 def test_stream_chat_yields_tool_call_chunks(provider: OllamaProvider):
     sample = _ndjson(
-        {"message": {"role": "assistant", "content": "", "tool_calls": [
-            {"function": {"name": "Read",
-                          "arguments": {"file_path": "/tmp/x"}}}
-        ]}, "done": False},
-        {"message": {"role": "assistant", "content": ""},
-         "done": True, "done_reason": "tool_calls",
-         "prompt_eval_count": 5, "eval_count": 3},
+        {
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"function": {"name": "Read", "arguments": {"file_path": "/tmp/x"}}}
+                ],
+            },
+            "done": False,
+        },
+        {
+            "message": {"role": "assistant", "content": ""},
+            "done": True,
+            "done_reason": "tool_calls",
+            "prompt_eval_count": 5,
+            "eval_count": 3,
+        },
     )
     with respx.mock() as m:
         m.post("http://test-host.invalid:11434/api/chat").mock(
@@ -95,16 +116,23 @@ def test_stream_chat_passes_num_ctx_and_temperature(provider: OllamaProvider):
 
     def _record(request):
         captured["body"] = json.loads(request.content)
-        return httpx.Response(200, content=_ndjson(
-            {"message": {"content": ""}, "done": True,
-             "prompt_eval_count": 1, "eval_count": 1},
-        ))
+        return httpx.Response(
+            200,
+            content=_ndjson(
+                {"message": {"content": ""}, "done": True, "prompt_eval_count": 1, "eval_count": 1},
+            ),
+        )
 
     with respx.mock() as m:
         m.post("http://test-host.invalid:11434/api/chat").mock(side_effect=_record)
-        list(provider.stream_chat(
-            model="qwen", messages=[], temperature=0.3, num_ctx=8192,
-        ))
+        list(
+            provider.stream_chat(
+                model="qwen",
+                messages=[],
+                temperature=0.3,
+                num_ctx=8192,
+            )
+        )
     body = captured["body"]
     assert body["model"] == "qwen"
     assert body["stream"] is True
@@ -118,10 +146,12 @@ def test_stream_chat_omits_num_ctx_when_unset(provider: OllamaProvider):
 
     def _record(request):
         captured["body"] = json.loads(request.content)
-        return httpx.Response(200, content=_ndjson(
-            {"message": {"content": ""}, "done": True,
-             "prompt_eval_count": 1, "eval_count": 1},
-        ))
+        return httpx.Response(
+            200,
+            content=_ndjson(
+                {"message": {"content": ""}, "done": True, "prompt_eval_count": 1, "eval_count": 1},
+            ),
+        )
 
     with respx.mock() as m:
         m.post("http://test-host.invalid:11434/api/chat").mock(side_effect=_record)
@@ -134,15 +164,19 @@ def test_stream_chat_passes_tools_when_provided(provider: OllamaProvider):
 
     def _record(request):
         captured["body"] = json.loads(request.content)
-        return httpx.Response(200, content=_ndjson(
-            {"message": {"content": ""}, "done": True,
-             "prompt_eval_count": 1, "eval_count": 1},
-        ))
+        return httpx.Response(
+            200,
+            content=_ndjson(
+                {"message": {"content": ""}, "done": True, "prompt_eval_count": 1, "eval_count": 1},
+            ),
+        )
 
-    tools = [{
-        "type": "function",
-        "function": {"name": "Read", "description": "x", "parameters": {}},
-    }]
+    tools = [
+        {
+            "type": "function",
+            "function": {"name": "Read", "description": "x", "parameters": {}},
+        }
+    ]
     with respx.mock() as m:
         m.post("http://test-host.invalid:11434/api/chat").mock(side_effect=_record)
         list(provider.stream_chat(model="qwen", messages=[], tools=tools))
@@ -152,9 +186,9 @@ def test_stream_chat_passes_tools_when_provided(provider: OllamaProvider):
 def test_show_model_returns_metadata_dict(provider: OllamaProvider):
     with respx.mock() as m:
         m.post("http://test-host.invalid:11434/api/show").mock(
-            return_value=httpx.Response(200, json={
-                "modelfile": "FROM qwen", "system": "be terse", "details": {}
-            })
+            return_value=httpx.Response(
+                200, json={"modelfile": "FROM qwen", "system": "be terse", "details": {}}
+            )
         )
         data = provider.show_model("qwen")
     assert data["system"] == "be terse"
@@ -163,10 +197,15 @@ def test_show_model_returns_metadata_dict(provider: OllamaProvider):
 def test_list_models_returns_names(provider: OllamaProvider):
     with respx.mock() as m:
         m.get("http://test-host.invalid:11434/api/tags").mock(
-            return_value=httpx.Response(200, json={"models": [
-                {"name": "qwen2.5-coder:14b"},
-                {"name": "llama3.1:8b"},
-            ]})
+            return_value=httpx.Response(
+                200,
+                json={
+                    "models": [
+                        {"name": "qwen2.5-coder:14b"},
+                        {"name": "llama3.1:8b"},
+                    ]
+                },
+            )
         )
         names = provider.list_models()
     assert names == ["qwen2.5-coder:14b", "llama3.1:8b"]

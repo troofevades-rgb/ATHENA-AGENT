@@ -13,15 +13,15 @@ Tests the full lifecycle:
 - user-text builder including attachments
 - agent resume from JSONL
 """
+
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -32,7 +32,6 @@ from athena.gateway.base import (
     _chunk_text,
 )
 from athena.gateway.events import MessageEvent, MessageType
-
 
 # ---- doubles ---------------------------------------------------------
 
@@ -63,7 +62,14 @@ class _FakeApprovals:
         pass
 
     def request_sync(
-        self, *, session_id, tool_name, tool_args, platform, chat_id, timeout=None,
+        self,
+        *,
+        session_id,
+        tool_name,
+        tool_args,
+        platform,
+        chat_id,
+        timeout=None,
     ):
         self.requests.append((session_id, tool_name, dict(tool_args)))
         return "deny"
@@ -94,7 +100,9 @@ class _FakePool:
             agent = SimpleNamespace(
                 session_id=session_id,
                 run_until_done=lambda text="": setattr(
-                    agent, "last_text", text,
+                    agent,
+                    "last_text",
+                    text,
                 ),
                 last_assistant_message=lambda: f"response-to-{getattr(agent, 'last_text', '')}",
             )
@@ -139,9 +147,7 @@ class _TestAdapter(GatewayAdapter):
         self.sent_text.append((chat_id, text))
         return "msg-id"
 
-    async def send_file(
-        self, chat_id: str, file_path: Path, caption: str | None = None
-    ) -> str:
+    async def send_file(self, chat_id: str, file_path: Path, caption: str | None = None) -> str:
         self.sent_files.append((chat_id, file_path, caption))
         return "msg-id"
 
@@ -269,6 +275,7 @@ async def test_typing_heartbeat_fires_during_long_run(tmp_path: Path) -> None:
 
     # Shorten the heartbeat cadence so the test doesn't take 4s.
     import athena.gateway.base as base_mod
+
     monkey_orig = base_mod._TYPING_REFRESH_SECONDS
     base_mod._TYPING_REFRESH_SECONDS = 0.01
 
@@ -276,6 +283,7 @@ async def test_typing_heartbeat_fires_during_long_run(tmp_path: Path) -> None:
         # Simulate a 50ms agent run so the heartbeat fires a few times.
         def slow_run(text=""):
             import time
+
             time.sleep(0.05)
 
         daemon.pool.agents["sess-1"] = SimpleNamespace(
@@ -300,6 +308,7 @@ async def test_typing_heartbeat_cancelled_on_exit(tmp_path: Path) -> None:
     adapter._active_sessions["sess-1"] = asyncio.Event()
 
     import athena.gateway.base as base_mod
+
     monkey_orig = base_mod._TYPING_REFRESH_SECONDS
     base_mod._TYPING_REFRESH_SECONDS = 0.005
 
@@ -453,7 +462,6 @@ async def test_agent_factory_resumes_from_jsonl(tmp_path: Path) -> None:
 
     from athena.config import Config
     from athena.gateway.daemon import GatewayDaemon
-    from athena.sessions.store import SessionStore
 
     cfg = Config(profile="agentfactory-test", model="qwen2.5-coder:14b")
     # Build a daemon (with a stubbed approvals/pool so we just get the
@@ -476,8 +484,10 @@ async def test_agent_factory_resumes_from_jsonl(tmp_path: Path) -> None:
         sessions_dir.mkdir(parents=True, exist_ok=True)
         jsonl = sessions_dir / "resume-me.jsonl"
         jsonl.write_text(
-            _json.dumps({"role": "user", "content": "prior question"}) + "\n"
-            + _json.dumps({"role": "assistant", "content": "prior answer"}) + "\n",
+            _json.dumps({"role": "user", "content": "prior question"})
+            + "\n"
+            + _json.dumps({"role": "assistant", "content": "prior answer"})
+            + "\n",
             encoding="utf-8",
         )
 
@@ -488,13 +498,24 @@ async def test_agent_factory_resumes_from_jsonl(tmp_path: Path) -> None:
         class _FakeProvider(Provider):
             name = "ollama"
             requires_api_key = False
-            def __init__(self, *a, **kw): pass
-            def show_model(self, model): return {"system": ""}
-            def list_models(self): return []
-            def stream_chat(self, **kw): yield StreamChunk("end", {"reason": "stop"})
+
+            def __init__(self, *a, **kw):
+                pass
+
+            def show_model(self, model):
+                return {"system": ""}
+
+            def list_models(self):
+                return []
+
+            def stream_chat(self, **kw):
+                yield StreamChunk("end", {"reason": "stop"})
+
             def parse_tool_calls(self, content, raw_response):
                 return content, []
-            def close(self): pass
+
+            def close(self):
+                pass
 
         saved = _REGISTRY.get("ollama")
         _REGISTRY["ollama"] = _FakeProvider

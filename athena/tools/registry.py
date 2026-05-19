@@ -8,11 +8,13 @@ the model by filtering the registry to a subset of toolsets via the
 ``enabled_toolsets`` keyword. A tool may also declare a ``check_fn`` whose
 return value gates whether the tool is advertised at all on a given call.
 """
+
 import inspect
 import json
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 
 @dataclass
@@ -50,6 +52,7 @@ def tool(
     ``aliases`` registers additional dispatch names — aliases are NOT included
     in the schema sent to the model.
     """
+
     def deco(fn: Callable[..., str]) -> Callable[..., str]:
         t = Tool(
             name=name,
@@ -66,6 +69,7 @@ def tool(
         for alias in t.aliases:
             _ALIASES[alias] = name
         return fn
+
     return deco
 
 
@@ -143,9 +147,7 @@ def dispatch(name: str, arguments: Any) -> str:
     if not isinstance(arguments, dict):
         return f"ERROR: arguments to '{name}' must be an object, got {type(arguments).__name__}"
     sig = inspect.signature(t.func)
-    accepts_var_kw = any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-    )
+    accepts_var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
     if accepts_var_kw:
         valid = dict(arguments)
     else:
@@ -157,5 +159,6 @@ def dispatch(name: str, arguments: Any) -> str:
         return result
     except Exception as e:
         import sys
+
         print(f"[tool {name}] {traceback.format_exc()}", file=sys.stderr)
         return f"ERROR running {name}: {type(e).__name__}: {e}"

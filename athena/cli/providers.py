@@ -9,6 +9,7 @@ hosted provider (and a cheap reachability check against ollama);
 Operates on the global pool by default; tests pass their own pool via
 ``--pool-path`` for isolation.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,46 +27,51 @@ def _build_parser() -> argparse.ArgumentParser:
         "--pool-path",
         type=Path,
         default=None,
-        help="Override the credential-pool file (default: "
-             "<CONFIG_DIR>/credentials.json).",
+        help="Override the credential-pool file (default: <CONFIG_DIR>/credentials.json).",
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("list", help="Show configured providers and credential counts.")
 
     p_test = sub.add_parser(
-        "test", help="Ping each provider with a tiny completion request.",
+        "test",
+        help="Ping each provider with a tiny completion request.",
     )
-    p_test.add_argument("--provider", default=None,
-                        help="Limit the test to one provider name.")
-    p_test.add_argument("--model", default=None,
-                        help="Probe this specific model instead of the "
-                             "built-in sample. Useful when the bundled sample "
-                             "is stale (provider retired the model).")
+    p_test.add_argument("--provider", default=None, help="Limit the test to one provider name.")
+    p_test.add_argument(
+        "--model",
+        default=None,
+        help="Probe this specific model instead of the "
+        "built-in sample. Useful when the bundled sample "
+        "is stale (provider retired the model).",
+    )
 
     p_add = sub.add_parser("add-key", help="Add a credential for a provider.")
     p_add.add_argument("provider")
     p_add.add_argument("key")
-    p_add.add_argument("--label", default="",
-                       help="Optional human-readable label (e.g. 'personal').")
+    p_add.add_argument(
+        "--label", default="", help="Optional human-readable label (e.g. 'personal')."
+    )
 
     p_rm = sub.add_parser(
         "remove-key",
         help="Remove a credential by exact key, unambiguous prefix, "
-             "or suffix (the form `athena providers list` displays — "
-             "the leading '...' is optional).",
+        "or suffix (the form `athena providers list` displays — "
+        "the leading '...' is optional).",
     )
     p_rm.add_argument("provider")
-    p_rm.add_argument("key_or_match",
-                      help="Exact key, prefix, or suffix (e.g. 'ttWN' or '...ttWN').")
+    p_rm.add_argument(
+        "key_or_match", help="Exact key, prefix, or suffix (e.g. 'ttWN' or '...ttWN')."
+    )
 
     p_models = sub.add_parser(
         "models",
         help="List models the configured key has access to on a provider.",
     )
     p_models.add_argument("provider")
-    p_models.add_argument("--limit", type=int, default=0,
-                          help="Truncate the list to N entries (0 = unlimited).")
+    p_models.add_argument(
+        "--limit", type=int, default=0, help="Truncate the list to N entries (0 = unlimited)."
+    )
 
     return ap
 
@@ -85,9 +91,7 @@ def _cmd_list(args) -> int:
     for name in sorted(registered):
         bucket = with_creds.get(name, [])
         in_cooldown = sum(1 for c in bucket if c.get("in_cooldown"))
-        cooldown_note = (
-            f" ({in_cooldown} in cooldown)" if in_cooldown else ""
-        )
+        cooldown_note = f" ({in_cooldown} in cooldown)" if in_cooldown else ""
         suffixes = ", ".join(c["key_suffix"] for c in bucket) or "-"
         print(f"  {name:<14} {len(bucket)} key(s){cooldown_note}   {suffixes}")
     extra = sorted(set(with_creds) - registered)
@@ -166,7 +170,11 @@ def _cmd_test(args) -> int:
 
 
 def _probe_provider(
-    name: str, cfg, pool: CredentialPool, *, model_override: str | None = None,
+    name: str,
+    cfg,
+    pool: CredentialPool,
+    *,
+    model_override: str | None = None,
 ) -> tuple[bool, str]:
     """Send the smallest possible probe to ``name``. Returns
     (ok, one-line-detail)."""
@@ -201,8 +209,7 @@ def _probe_provider(
     sample_model = model_override or _SAMPLE_MODELS.get(name)
     if sample_model is None:
         return False, (
-            "no sample model known for this provider; "
-            "pass --model <name> to probe a specific model"
+            "no sample model known for this provider; pass --model <name> to probe a specific model"
         )
     try:
         provider, bare = resolve_provider(sample_model, cfg, pool)
@@ -252,8 +259,7 @@ def _cmd_models(args) -> int:
     registered = set(list_providers())
     if name not in registered:
         print(
-            f"error: {name!r} is not registered. "
-            f"Known: {', '.join(sorted(registered))}",
+            f"error: {name!r} is not registered. Known: {', '.join(sorted(registered))}",
             file=sys.stderr,
         )
         return 2

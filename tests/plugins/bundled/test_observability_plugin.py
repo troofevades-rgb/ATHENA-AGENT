@@ -4,18 +4,17 @@ Uses the InMemoryMetricReader / InMemorySpanExporter helpers from
 OTel SDK to inspect emitted telemetry without spinning up a real
 collector.
 """
+
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import pytest
 
 from athena.plugins.bundled.observability.plugin import (
-    ObservabilityPlugin,
     _HAVE_OTEL,
+    ObservabilityPlugin,
 )
-
 
 pytestmark = pytest.mark.skipif(
     not _HAVE_OTEL,
@@ -57,13 +56,18 @@ def test_install_creates_all_metric_instruments() -> None:
         METRIC_TURN_COUNT,
         METRIC_TURN_LATENCY,
     )
+
     for name in (
-        METRIC_TOOL_CALL_COUNT, METRIC_FORK_COUNT, METRIC_TURN_COUNT,
-        METRIC_PROMPT_TOKENS, METRIC_COMPLETION_TOKENS,
+        METRIC_TOOL_CALL_COUNT,
+        METRIC_FORK_COUNT,
+        METRIC_TURN_COUNT,
+        METRIC_PROMPT_TOKENS,
+        METRIC_COMPLETION_TOKENS,
     ):
         assert name in p._counters
     for name in (
-        METRIC_TOOL_CALL_LATENCY, METRIC_TURN_LATENCY,
+        METRIC_TOOL_CALL_LATENCY,
+        METRIC_TURN_LATENCY,
     ):
         assert name in p._histograms
 
@@ -155,10 +159,10 @@ def test_tool_span_carries_redacted_args_and_latency() -> None:
     call, and verify the resulting span has redacted args + latency."""
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
         InMemorySpanExporter,
     )
-    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
     # Construct a LOCAL TracerProvider (don't make it global — OTel
     # rejects setting the global twice, and other tests in this run
@@ -199,10 +203,10 @@ def test_tool_span_carries_redacted_args_and_latency() -> None:
 def test_session_span_attributes_on_close() -> None:
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
         InMemorySpanExporter,
     )
-    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
     exporter = InMemorySpanExporter()
     provider = TracerProvider(resource=Resource.create({"service.name": "test"}))

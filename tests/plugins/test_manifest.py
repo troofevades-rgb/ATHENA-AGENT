@@ -1,11 +1,12 @@
 """plugin.toml parser tests."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
 
-from athena.plugins.manifest import ManifestError, PluginManifest, parse_manifest
+from athena.plugins.manifest import ManifestError, parse_manifest
 
 
 def write_manifest(tmp_path: Path, body: str) -> Path:

@@ -33,6 +33,7 @@ unknown provider name) bubble up immediately — fallback is only for
 credential exhaustion. The final error after every chain entry is
 exhausted lists the providers attempted so the user can correct.
 """
+
 from __future__ import annotations
 
 import logging
@@ -59,9 +60,14 @@ _PREFIX_TO_PROVIDER: dict[str, str] = {
 
 # Providers whose prefix is just a routing hint and should be stripped
 # off before the model name goes on the wire.
-_STRIP_PREFIX_FOR: frozenset[str] = frozenset({
-    "anthropic", "openai", "google", "nous",
-})
+_STRIP_PREFIX_FOR: frozenset[str] = frozenset(
+    {
+        "anthropic",
+        "openai",
+        "google",
+        "nous",
+    }
+)
 
 
 class _CredentialUnavailable(RuntimeError):
@@ -72,7 +78,7 @@ class _CredentialUnavailable(RuntimeError):
     """
 
 
-def _route(model: str, cfg: "Config") -> str:
+def _route(model: str, cfg: Config) -> str:
     """Decide which provider serves ``model``. Pure dispatch — no
     network calls, no credential lookups."""
     routing = (cfg.providers or {}).get("routing") or {}
@@ -105,13 +111,13 @@ def _bare_model(provider_name: str, model: str) -> str:
     if provider_name in _STRIP_PREFIX_FOR:
         for prefix, name in _PREFIX_TO_PROVIDER.items():
             if name == provider_name and model.startswith(prefix):
-                return model[len(prefix):]
+                return model[len(prefix) :]
         # google: "gemini-..." passes through as-is
     return model
 
 
 def _build_provider(
-    name: str, model: str, cfg: "Config", pool: CredentialPool
+    name: str, model: str, cfg: Config, pool: CredentialPool
 ) -> tuple[Provider, str]:
     """Construct the provider class registered under ``name`` for ``model``.
 
@@ -135,7 +141,7 @@ def _build_provider(
                 "openai_compat provider requires a host. Set "
                 "providers.openai_compat.host in config.toml, e.g.\n\n"
                 "    [providers.openai_compat]\n"
-                "    host = \"http://localhost:8000\"\n"
+                '    host = "http://localhost:8000"\n'
             )
         cred = pool.get(name)
         api_key = cred.key if cred is not None else None
@@ -144,9 +150,7 @@ def _build_provider(
     # Hosted providers: anthropic / openai / google / openrouter / nous.
     cred = pool.get(name)
     if cred is None and getattr(cls, "requires_api_key", True):
-        raise _CredentialUnavailable(
-            f"no credentials available for provider {name!r}"
-        )
+        raise _CredentialUnavailable(f"no credentials available for provider {name!r}")
     api_key = cred.key if cred is not None else None
     kwargs: dict = {"api_key": api_key}
     if "base_url" in provider_cfg:
@@ -154,9 +158,7 @@ def _build_provider(
     return cls(**kwargs), bare
 
 
-def _fallback_chain(
-    primary: str, cfg: "Config"
-) -> list[tuple[str, str | None]]:
+def _fallback_chain(primary: str, cfg: Config) -> list[tuple[str, str | None]]:
     """Parse the fallback config for ``primary`` into a list of
     ``(provider_name, model_override)`` pairs.
 
@@ -182,14 +184,13 @@ def _fallback_chain(
         else:
             logger.warning(
                 "providers.%s.fallback: unexpected entry %r — skipping",
-                primary, entry,
+                primary,
+                entry,
             )
     return out
 
 
-def resolve_provider(
-    model: str, cfg: "Config", pool: CredentialPool
-) -> tuple[Provider, str]:
+def resolve_provider(model: str, cfg: Config, pool: CredentialPool) -> tuple[Provider, str]:
     """Return a ``(Provider, bare_model)`` for ``model``.
 
     Walks the fallback chain when the primary's credentials are

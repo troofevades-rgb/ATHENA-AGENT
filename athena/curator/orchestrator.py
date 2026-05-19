@@ -6,6 +6,7 @@ the interval gate, and the idle gate; otherwise it spawns a fork with
 failed parse rejects the run without updating ``last_run_at`` so the
 next session retries cleanly.
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,18 +25,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _skills_root_for(agent: "Agent") -> Path:
+def _skills_root_for(agent: Agent) -> Path:
     """Where the curator's .curator_state lives. Skills are user-global, so
     we anchor to CONFIG_DIR rather than the per-profile dir."""
     return CONFIG_DIR / "skills"
 
 
-def _logs_root_for(agent: "Agent") -> Path:
+def _logs_root_for(agent: Agent) -> Path:
     return CONFIG_DIR / "logs"
 
 
 def maybe_run_curator(
-    agent: "Agent",
+    agent: Agent,
     *,
     force: bool = False,
     dry_run: bool = False,
@@ -81,12 +82,12 @@ def maybe_run_curator(
     # we skip the snapshot — nothing should change on disk anyway, and
     # paying the iterdir cost twice is wasteful.
     from . import reconciliation
-    before_snapshot = (
-        None if dry_run else reconciliation.snapshot_skills(agent.workspace)
-    )
+
+    before_snapshot = None if dry_run else reconciliation.snapshot_skills(agent.workspace)
 
     # Defer fork import to call time to keep the orchestrator import-light.
     from ..agent.fork import fork
+
     fork_start = time.monotonic()
     result = fork(
         agent,
@@ -98,9 +99,9 @@ def maybe_run_curator(
         # inherit, so synthesize an explicit user "begin" turn so
         # the model has something to respond to.
         user_prompt="Begin the curator consolidation pass now. "
-                    "Use the skill_view tool to inspect each existing "
-                    "skill, then emit the structured YAML report per "
-                    "the schema in your system prompt.",
+        "Use the skill_view tool to inspect each existing "
+        "skill, then emit the structured YAML report per "
+        "the schema in your system prompt.",
         max_iterations=agent.cfg.curator.max_iterations,
         write_origin="curator",
         auxiliary_client=True,
@@ -118,13 +119,14 @@ def maybe_run_curator(
         # all three indistinguishable.
         if result.error:
             logger.warning(
-                "curator run rejected: fork error: %s", result.error,
+                "curator run rejected: fork error: %s",
+                result.error,
             )
         elif not result.final_response:
             logger.warning(
-                "curator run rejected: fork returned empty response "
-                "(stderr len=%d, %d tool calls)",
-                len(result.stderr or ""), len(result.tool_calls),
+                "curator run rejected: fork returned empty response (stderr len=%d, %d tool calls)",
+                len(result.stderr or ""),
+                len(result.tool_calls),
             )
             if result.stderr:
                 logger.warning(
@@ -133,8 +135,7 @@ def maybe_run_curator(
                 )
         else:
             logger.warning(
-                "curator run rejected: malformed YAML in response "
-                "(len=%d, head=%r)",
+                "curator run rejected: malformed YAML in response (len=%d, head=%r)",
                 len(result.final_response),
                 result.final_response[:300],
             )
@@ -144,7 +145,9 @@ def maybe_run_curator(
     if before_snapshot is not None:
         after_snapshot = reconciliation.snapshot_skills(agent.workspace)
         drift_report = reconciliation.reconcile(
-            before_snapshot, after_snapshot, parsed["runs"],
+            before_snapshot,
+            after_snapshot,
+            parsed["runs"],
         )
         drift = drift_report.to_dict()
         if not drift_report.is_clean:
@@ -158,6 +161,7 @@ def maybe_run_curator(
 
     # Reports come from a separate module — keep this orchestrator focused.
     from . import reports
+
     summary = reports.write_run(
         agent,
         result,
@@ -173,15 +177,18 @@ def maybe_run_curator(
     # re-parsing the report. Mirrors Hermes's last_run_summary +
     # last_report_path fields.
     last_summary = _format_one_line_summary(summary)
-    state.write_state(skills_root, state.State(
-        last_run_at=now,
-        last_run_duration_seconds=duration,
-        last_run_summary=last_summary,
-        last_run_summary_shown_at=cur_state.last_run_summary_shown_at,
-        last_report_path=summary.get("report_path") if isinstance(summary, dict) else None,
-        run_count=cur_state.run_count + 1,
-        paused=cur_state.paused,
-    ))
+    state.write_state(
+        skills_root,
+        state.State(
+            last_run_at=now,
+            last_run_duration_seconds=duration,
+            last_run_summary=last_summary,
+            last_run_summary_shown_at=cur_state.last_run_summary_shown_at,
+            last_report_path=summary.get("report_path") if isinstance(summary, dict) else None,
+            run_count=cur_state.run_count + 1,
+            paused=cur_state.paused,
+        ),
+    )
     return summary
 
 

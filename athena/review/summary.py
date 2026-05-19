@@ -5,10 +5,10 @@ extracted from the structured tool responses (skill_manage, write_memory).
 We bucket them into ``memory_writes`` and ``skill_changes`` so the parent
 agent can show a one-line acknowledgment on the next prompt.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 _SKILL_TARGETS = {"skill"}
 _MEMORY_TARGETS = {"memory"}

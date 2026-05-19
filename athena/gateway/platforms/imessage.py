@@ -21,6 +21,7 @@ The adapter:
 
 Setup is documented under ``docs/guides/gateway-imessage.md``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,12 +32,13 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from ..events import ApprovalRequest, MessageEvent, MessageType
 from ..base import GatewayAdapter
+from ..events import ApprovalRequest, MessageEvent, MessageType
 from ._text_approval import TextApprovalState
 
 if TYPE_CHECKING:
     import socketio
+
     from ..daemon import GatewayDaemon
 
 logger = logging.getLogger(__name__)
@@ -51,7 +53,7 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
 
     def __init__(
         self,
-        daemon: "GatewayDaemon",
+        daemon: GatewayDaemon,
         *,
         server_url: str,
         password: str,
@@ -72,7 +74,7 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
             if attachment_dir is not None
             else daemon.profile_dir / "gateway_attachments" / self.name
         )
-        self._sio: "socketio.AsyncClient" | None = None
+        self._sio: socketio.AsyncClient | None = None
         self._http: httpx.AsyncClient | None = None
         self._stop = asyncio.Event()
 
@@ -83,7 +85,8 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
 
         self._http = httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=30))
         self.daemon.approvals.register_platform_renderer(
-            self.name, self._render_approval,
+            self.name,
+            self._render_approval,
         )
 
         backoff = _RECONNECT_BASE
@@ -105,7 +108,8 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
             except Exception:
                 logger.exception(
                     "[%s] socket.io connection failed; backoff %.1fs",
-                    self.name, backoff,
+                    self.name,
+                    backoff,
                 )
             finally:
                 try:
@@ -183,7 +187,8 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
         return None
 
     async def _event_from_data(
-        self, data: dict[str, Any],
+        self,
+        data: dict[str, Any],
     ) -> MessageEvent | None:
         text = data.get("text") or ""
         # chatGuid is the canonical chat identifier; handle is the
@@ -207,7 +212,8 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
 
         attachments_raw = data.get("attachments") or []
         attachments, message_type = await self._classify_and_download(
-            attachments_raw, str(chat_guid),
+            attachments_raw,
+            str(chat_guid),
         )
 
         if not text and not attachments:
@@ -263,7 +269,9 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
             except Exception:
                 logger.warning(
                     "[%s] attachment %s download failed",
-                    self.name, guid, exc_info=True,
+                    self.name,
+                    guid,
+                    exc_info=True,
                 )
         return out, mt
 
@@ -279,7 +287,8 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
         if chat_guid is None:
             logger.warning(
                 "[%s] no iMessage route for session %s; cannot render approval",
-                self.name, request.session_id,
+                self.name,
+                request.session_id,
             )
             return
         body = self.format_text_approval_prompt(request)
@@ -288,14 +297,16 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
         except Exception:
             logger.exception(
                 "[%s] approval send failed for %s",
-                self.name, request.request_id,
+                self.name,
+                request.request_id,
             )
             return
         if user_id:
             self.record_pending(user_id, request.request_id)
 
     def _resolve_chat_and_user(
-        self, request: ApprovalRequest,
+        self,
+        request: ApprovalRequest,
     ) -> tuple[str | None, str | None]:
         if request.chat_id:
             return request.chat_id, request.chat_id
@@ -371,12 +382,11 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
             await self._sio.emit("start-typing", {"chatGuid": chat_id})
         except Exception:
             logger.debug(
-                "[%s] start-typing emit raised", self.name, exc_info=True,
+                "[%s] start-typing emit raised",
+                self.name,
+                exc_info=True,
             )
 
 
 def _safe_name(value: str) -> str:
-    return "".join(
-        ch if ch.isalnum() or ch in "-._" else "_"
-        for ch in value
-    ) or "anon"
+    return "".join(ch if ch.isalnum() or ch in "-._" else "_" for ch in value) or "anon"

@@ -14,6 +14,7 @@ Three channels separated by special tokens::
 If no ``<|channel|>`` structure is detected, the parser conservatively
 returns ``(content, [])`` rather than mangling text from other formats.
 """
+
 from __future__ import annotations
 
 import json
@@ -36,9 +37,7 @@ _TOOL_CALL_LINE_RE = re.compile(
 )
 
 
-def parse(
-    content: str, raw_response: dict[str, Any]
-) -> tuple[str, list[dict[str, Any]]]:
+def parse(content: str, raw_response: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     if not isinstance(content, str):
         return "", []
 

@@ -1,4 +1,5 @@
 """SFT + DPO dataset construction and JSONL serialization."""
+
 from __future__ import annotations
 
 import json
@@ -130,9 +131,7 @@ def test_sft_tool_calls_normalized_to_canonical_shape():
         {
             "role": "assistant",
             "content": "",
-            "tool_calls": [
-                {"function": {"name": "Read", "arguments": {"path": "/tmp/x"}}}
-            ],
+            "tool_calls": [{"function": {"name": "Read", "arguments": {"path": "/tmp/x"}}}],
         },
         {"role": "tool", "name": "Read", "content": "file contents"},
         {"role": "assistant", "content": "done"},
@@ -142,9 +141,7 @@ def test_sft_tool_calls_normalized_to_canonical_shape():
     assert asst["tool_calls"][0]["function"]["name"] == "Read"
     # Arguments dict → JSON string (qwen-coder convention).
     assert isinstance(asst["tool_calls"][0]["function"]["arguments"], str)
-    assert json.loads(asst["tool_calls"][0]["function"]["arguments"]) == {
-        "path": "/tmp/x"
-    }
+    assert json.loads(asst["tool_calls"][0]["function"]["arguments"]) == {"path": "/tmp/x"}
 
 
 def test_sft_rejects_unknown_chat_template():
@@ -225,8 +222,10 @@ def test_write_jsonl_one_object_per_line(tmp_path: Path):
     target = tmp_path / "out.jsonl"
     write_jsonl(
         target,
-        [{"messages": [{"role": "user", "content": "a"}]},
-         {"messages": [{"role": "user", "content": "b"}]}],
+        [
+            {"messages": [{"role": "user", "content": "a"}]},
+            {"messages": [{"role": "user", "content": "b"}]},
+        ],
     )
     lines = target.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 2

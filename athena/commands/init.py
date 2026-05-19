@@ -2,10 +2,10 @@
 
 Asks the model to write ATHENA.md based on what it finds in the project.
 """
+
 from __future__ import annotations
 
 from . import command
-
 
 _PROMPT = """\
 Initialize this project with an ATHENA.md file. Survey the codebase using \

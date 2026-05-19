@@ -1,4 +1,5 @@
 """Tests for athena.skills.validation.validate_skill."""
+
 from __future__ import annotations
 
 from pathlib import Path

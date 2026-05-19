@@ -1,5 +1,6 @@
 """In-process gateway registry — cross-subsystem lookup for the
 running :class:`GatewayDaemon`."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace

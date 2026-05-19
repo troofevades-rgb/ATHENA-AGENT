@@ -1,4 +1,5 @@
 """Tests for athena.tools.delta_lint.lint_after_write."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -82,6 +83,7 @@ def test_trailing_whitespace_is_fine() -> None:
 def test_lint_called_from_file_write_tool(tmp_path: Path, monkeypatch) -> None:
     """The Write tool surfaces lint errors as part of its result."""
     from athena.tools import file_ops
+
     monkeypatch.setattr(file_ops, "_WORKSPACE", tmp_path)
     result = file_ops.Write(file_path="bad.json", content="{not valid")
     assert "failed validation" in result
@@ -90,6 +92,7 @@ def test_lint_called_from_file_write_tool(tmp_path: Path, monkeypatch) -> None:
 
 def test_lint_called_from_edit_tool(tmp_path: Path, monkeypatch) -> None:
     from athena.tools import file_ops
+
     monkeypatch.setattr(file_ops, "_WORKSPACE", tmp_path)
     p = tmp_path / "f.py"
     p.write_text("x = 1\n", encoding="utf-8")
@@ -102,6 +105,7 @@ def test_lint_error_surfaces_to_caller(tmp_path: Path, monkeypatch) -> None:
     """The Write tool returns an error string that names the file AND the
     underlying syntax problem so the model can fix it."""
     from athena.tools import file_ops
+
     monkeypatch.setattr(file_ops, "_WORKSPACE", tmp_path)
     result = file_ops.Write(file_path="b.py", content="def f(:\n")
     assert "b.py" in result
@@ -117,18 +121,22 @@ def test_lint_called_from_skill_manage_create(
     """skill_manage create must reject content that would yield invalid YAML
     in the frontmatter — and not leave a half-built skill dir."""
     from athena.tools import file_ops, skill_tools
+
     monkeypatch.setattr(file_ops, "_WORKSPACE", tmp_path)
 
     # Description containing a YAML-breaking control char (unbalanced quote +
     # newline in the middle) trips the frontmatter validator.
     bad_desc = 'has "unclosed quote' + "\nand a newline\n"
     import json as _json
-    out = _json.loads(skill_tools.skill_manage(
-        action="create",
-        name="bad-skill",
-        frontmatter={"description": bad_desc},
-        body="body",
-    ))
+
+    out = _json.loads(
+        skill_tools.skill_manage(
+            action="create",
+            name="bad-skill",
+            frontmatter={"description": bad_desc},
+            body="body",
+        )
+    )
     # We don't care if it succeeds or fails — only that no directory exists
     # if it failed. If it succeeded, validation passed (description was
     # actually well-formed once YAML escaped it), which is also fine.
@@ -141,31 +149,40 @@ def test_lint_error_in_skill_manage_does_not_corrupt_existing_skill(
 ) -> None:
     """If skill_manage patch is given content that fails frontmatter lint,
     the existing SKILL.md must be unchanged."""
-    from athena.tools import file_ops, skill_tools
     import json as _json
 
-    monkeypatch.setattr(file_ops, "_WORKSPACE", tmp_path)
-    _json.loads(skill_tools.skill_manage(
-        action="create",
-        name="precious",
-        frontmatter={"description": "original"},
-        body="ORIGINAL_BODY\n",
-    ))
+    from athena.tools import file_ops, skill_tools
 
-    original_text = (tmp_path / ".athena" / "skills" / "precious" / "SKILL.md").read_text(encoding="utf-8")
+    monkeypatch.setattr(file_ops, "_WORKSPACE", tmp_path)
+    _json.loads(
+        skill_tools.skill_manage(
+            action="create",
+            name="precious",
+            frontmatter={"description": "original"},
+            body="ORIGINAL_BODY\n",
+        )
+    )
+
+    original_text = (tmp_path / ".athena" / "skills" / "precious" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
 
     # Try to patch with a name that violates the schema. Forces the manager
     # to attempt a write that fails validation.
-    out = _json.loads(skill_tools.skill_manage(
-        action="patch",
-        name="precious",
-        frontmatter={"state": "totally-invalid-state"},
-        body="NEW_BODY\n",
-    ))
+    out = _json.loads(
+        skill_tools.skill_manage(
+            action="patch",
+            name="precious",
+            frontmatter={"state": "totally-invalid-state"},
+            body="NEW_BODY\n",
+        )
+    )
     # The patch may succeed (state isn't yaml-invalid, just semantically odd
     # — frontmatter has no enum check) OR fail. Either way the file on disk
     # must remain valid YAML.
-    final_text = (tmp_path / ".athena" / "skills" / "precious" / "SKILL.md").read_text(encoding="utf-8")
+    final_text = (tmp_path / ".athena" / "skills" / "precious" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
     assert final_text.startswith("---")
     assert "name: precious" in final_text
     # If validation rejected it, ORIGINAL_BODY must still be present.

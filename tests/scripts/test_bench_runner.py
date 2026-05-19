@@ -1,21 +1,20 @@
 """Benchmark runner — discovery + compare logic."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
-
 
 # Add scripts/bench to importable paths so the runner module loads.
 _SCRIPTS = Path(__file__).parent.parent.parent / "scripts"
 import sys
+
 sys.path.insert(0, str(_SCRIPTS.parent))
 
 
 from scripts.bench import runner
-
 
 # ---- discovery ----------------------------------------------------
 
@@ -113,7 +112,10 @@ def test_compare_skips_errored_baseline() -> None:
 
 def test_render_no_regressions() -> None:
     report = {
-        "threshold": 0.1, "regressions": [], "improvements": [], "missing": [],
+        "threshold": 0.1,
+        "regressions": [],
+        "improvements": [],
+        "missing": [],
     }
     out = runner.render_comparison(report)
     assert "no regressions" in out
@@ -122,11 +124,17 @@ def test_render_no_regressions() -> None:
 def test_render_regression_includes_delta() -> None:
     report = {
         "threshold": 0.1,
-        "regressions": [{
-            "name": "tool_call_latency", "metric": "p50_ms",
-            "baseline": 10.0, "current": 13.0, "delta_pct": 0.3,
-        }],
-        "improvements": [], "missing": [],
+        "regressions": [
+            {
+                "name": "tool_call_latency",
+                "metric": "p50_ms",
+                "baseline": 10.0,
+                "current": 13.0,
+                "delta_pct": 0.3,
+            }
+        ],
+        "improvements": [],
+        "missing": [],
     }
     out = runner.render_comparison(report)
     assert "tool_call_latency" in out
@@ -136,11 +144,17 @@ def test_render_regression_includes_delta() -> None:
 
 def test_render_improvement_included() -> None:
     report = {
-        "threshold": 0.1, "regressions": [],
-        "improvements": [{
-            "name": "x", "metric": "ms", "baseline": 10, "current": 7,
-            "delta_pct": -0.3,
-        }],
+        "threshold": 0.1,
+        "regressions": [],
+        "improvements": [
+            {
+                "name": "x",
+                "metric": "ms",
+                "baseline": 10,
+                "current": 7,
+                "delta_pct": -0.3,
+            }
+        ],
         "missing": [],
     }
     out = runner.render_comparison(report)
@@ -150,7 +164,9 @@ def test_render_improvement_included() -> None:
 
 def test_render_missing_listed() -> None:
     report = {
-        "threshold": 0.1, "regressions": [], "improvements": [],
+        "threshold": 0.1,
+        "regressions": [],
+        "improvements": [],
         "missing": ["new_bench"],
     }
     out = runner.render_comparison(report)
@@ -162,7 +178,8 @@ def test_render_missing_listed() -> None:
 
 
 def test_write_results_creates_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(runner, "_RESULTS_DIR", tmp_path / "results")
     suite = {"results": [_result("a", 1.0)]}
@@ -173,7 +190,8 @@ def test_write_results_creates_file(
 
 
 def test_write_baseline_creates_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     target = tmp_path / "baseline.json"
     runner.write_baseline({"results": [_result("a", 1.0)]}, target=target)
@@ -206,7 +224,8 @@ def test_skill_discovery_bench_runs() -> None:
 
 
 def test_full_suite_runs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """End-to-end: discover + run + write. Each bench appears in the
     result with status=ok."""

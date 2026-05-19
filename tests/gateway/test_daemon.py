@@ -1,10 +1,9 @@
 """GatewayDaemon — wires router, pool, adapters, command dispatch."""
+
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -40,9 +39,7 @@ class _NoopAdapter(GatewayAdapter):
     async def send_text(self, chat_id: str, text: str) -> str:
         return "msg-1"
 
-    async def send_file(
-        self, chat_id: str, file_path: Path, caption: str | None = None
-    ) -> str:
+    async def send_file(self, chat_id: str, file_path: Path, caption: str | None = None) -> str:
         return "msg-1"
 
 
@@ -67,6 +64,7 @@ def isolated_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Config:
 
     monkeypatch.setattr(cfg_mod, "profile_dir", fake_profile_dir)
     from athena.gateway import daemon as daemon_mod
+
     monkeypatch.setattr(daemon_mod, "profile_dir", fake_profile_dir)
     return _cfg(tmp_path)
 
@@ -83,7 +81,8 @@ def test_daemon_constructs_router_pool_store(isolated_cfg: Config) -> None:
 
 
 def test_daemon_pool_respects_max_warm_agents_config(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ATHENA_HOME", str(tmp_path))
     from athena import config as cfg_mod
@@ -194,6 +193,7 @@ async def test_stop_bounded_by_timeout_on_wedged_adapter(
     await daemon.start()
 
     import time
+
     start = time.monotonic()
     # The wait_for inside _bounded_stop caps at 10s; for the test we
     # want to confirm the bound exists, not actually wait 10s. We pass
@@ -215,7 +215,10 @@ async def test_dispatch_command_default_returns_placeholder(
 ) -> None:
     daemon = GatewayDaemon(isolated_cfg)
     event = MessageEvent(
-        platform="t", chat_id="c", user_id="u", text="/stop",
+        platform="t",
+        chat_id="c",
+        user_id="u",
+        text="/stop",
     )
     out = await daemon.dispatch_command(event, "sess-1", "stop")
     assert "/stop" in out
@@ -259,7 +262,10 @@ async def test_router_creates_session_for_first_inbound(
     mints a route and a session via the shared SessionStore."""
     daemon = GatewayDaemon(isolated_cfg)
     event = MessageEvent(
-        platform="telegram", chat_id="chat-1", user_id="user-1", text="hi",
+        platform="telegram",
+        chat_id="chat-1",
+        user_id="user-1",
+        text="hi",
     )
     session_id = await daemon.router.resolve(event)
     assert session_id
@@ -283,6 +289,7 @@ async def test_default_pool_factory_constructs_real_agent(
     assert callable(daemon.pool._factory)
     # The factory closes over the daemon; calling it is async.
     import asyncio
+
     assert asyncio.iscoroutinefunction(daemon.pool._factory)
 
 
@@ -321,8 +328,10 @@ async def test_stop_cancels_pending_approvals(isolated_cfg: Config) -> None:
     daemon.register(_NoopAdapter(daemon))
     await daemon.start()
     try:
+
         async def renderer(_req):
             return None  # never resolves
+
         daemon.approvals.set_renderer(renderer)
 
         results: list[str] = []
@@ -330,7 +339,9 @@ async def test_stop_cancels_pending_approvals(isolated_cfg: Config) -> None:
         async def one():
             results.append(
                 await daemon.approvals.request_async(
-                    session_id="s", tool_name="Bash", tool_args={},
+                    session_id="s",
+                    tool_name="Bash",
+                    tool_args={},
                     timeout=30.0,
                 )
             )

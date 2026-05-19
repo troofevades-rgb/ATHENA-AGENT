@@ -18,6 +18,7 @@ blocks become tool_calls.
 Falls back to the global fallback parser's behavior when raw_response
 doesn't carry an Anthropic content array.
 """
+
 from __future__ import annotations
 
 import logging
@@ -28,9 +29,7 @@ from . import register
 logger = logging.getLogger(__name__)
 
 
-def parse(
-    content: str, raw_response: dict[str, Any]
-) -> tuple[str, list[dict[str, Any]]]:
+def parse(content: str, raw_response: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     """Extract text and tool_use blocks from Anthropic's content array.
 
     If raw_response doesn't carry a content array (common when only
@@ -59,11 +58,13 @@ def parse(
             if not isinstance(input_args, dict):
                 input_args = {"_raw": str(input_args)}
             tc_id = block.get("id", "")
-            tool_calls.append({
-                "name": name,
-                "arguments": input_args,
-                "id": tc_id if isinstance(tc_id, str) else "",
-            })
+            tool_calls.append(
+                {
+                    "name": name,
+                    "arguments": input_args,
+                    "id": tc_id if isinstance(tc_id, str) else "",
+                }
+            )
     cleaned = "".join(text_parts).strip()
     return cleaned, tool_calls
 

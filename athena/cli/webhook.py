@@ -10,10 +10,10 @@ configured URL, and surfaces the HTTP response so the operator
 sees auth + rate-limit + dispatch all working before pointing a
 real source at the URL.
 """
+
 from __future__ import annotations
 
 import argparse
-import asyncio
 import hashlib
 import hmac
 import json
@@ -24,7 +24,8 @@ from typing import Any
 
 import httpx
 
-from ..config import Config, load_config, profile_dir as _profile_dir
+from ..config import Config, load_config
+from ..config import profile_dir as _profile_dir
 from ..profiles.resolution import resolve_active_profile
 from ..webhooks.subscription import (
     AuthType,
@@ -52,9 +53,7 @@ def _format_sub(sub: WebhookSubscription) -> dict[str, Any]:
         "rate_limit_per_minute": sub.rate_limit_per_minute,
         "enabled": sub.enabled,
         "fire_count": sub.fire_count,
-        "last_fired_at": (
-            sub.last_fired_at.isoformat() if sub.last_fired_at else None
-        ),
+        "last_fired_at": (sub.last_fired_at.isoformat() if sub.last_fired_at else None),
         "created_at": sub.created_at.isoformat(),
     }
 
@@ -64,14 +63,10 @@ def _format_sub(sub: WebhookSubscription) -> dict[str, Any]:
 
 def cmd_add(args: argparse.Namespace) -> int:
     if args.skill and args.prompt_template:
-        sys.stderr.write(
-            "error: pass either --skill or --prompt-template, not both\n"
-        )
+        sys.stderr.write("error: pass either --skill or --prompt-template, not both\n")
         return 2
     if not args.skill and not args.prompt_template:
-        sys.stderr.write(
-            "error: pass either --skill <name> or --prompt-template <text>\n"
-        )
+        sys.stderr.write("error: pass either --skill <name> or --prompt-template <text>\n")
         return 2
 
     auth_type: AuthType = args.auth
@@ -112,11 +107,17 @@ def cmd_add(args: argparse.Namespace) -> int:
     url = f"http://{host}:{port}/webhook/{sub.id}"
 
     if args.json:
-        sys.stdout.write(json.dumps({
-            "id": sub.id,
-            "url": url,
-            "auth_type": sub.auth_type,
-        }, indent=2) + "\n")
+        sys.stdout.write(
+            json.dumps(
+                {
+                    "id": sub.id,
+                    "url": url,
+                    "auth_type": sub.auth_type,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
         return 0
 
     sys.stdout.write(f"webhook registered: {sub.id}\n")
@@ -130,9 +131,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     if sub.binding_type == "skill":
         sys.stdout.write(f"  skill: {sub.skill_name}\n")
     else:
-        sys.stdout.write(
-            f"  prompt: {(sub.prompt_template or '')[:80]}\n"
-        )
+        sys.stdout.write(f"  prompt: {(sub.prompt_template or '')[:80]}\n")
     sys.stdout.write(f"  delivery: {sub.delivery_target}\n")
     sys.stdout.write(f"  rate limit: {sub.rate_limit_per_minute}/min\n")
     return 0
@@ -146,9 +145,13 @@ def cmd_list(args: argparse.Namespace) -> int:
     store = _store_for_active_profile(cfg)
     subs = store.list()
     if args.json:
-        sys.stdout.write(json.dumps(
-            [_format_sub(s) for s in subs], indent=2,
-        ) + "\n")
+        sys.stdout.write(
+            json.dumps(
+                [_format_sub(s) for s in subs],
+                indent=2,
+            )
+            + "\n"
+        )
         return 0
     if not subs:
         sys.stdout.write("(no webhooks registered)\n")
@@ -157,15 +160,10 @@ def cmd_list(args: argparse.Namespace) -> int:
         flags = []
         if not sub.enabled:
             flags.append("disabled")
-        bind = (
-            f"skill:{sub.skill_name}"
-            if sub.binding_type == "skill"
-            else "prompt-template"
-        )
+        bind = f"skill:{sub.skill_name}" if sub.binding_type == "skill" else "prompt-template"
         suffix = f"  [{', '.join(flags)}]" if flags else ""
         sys.stdout.write(
-            f"{sub.id[:8]}…  {sub.auth_type:12}  {bind:30}  "
-            f"fires={sub.fire_count}{suffix}\n"
+            f"{sub.id[:8]}…  {sub.auth_type:12}  {bind:30}  fires={sub.fire_count}{suffix}\n"
         )
     return 0
 
@@ -247,7 +245,9 @@ def cmd_test(args: argparse.Namespace) -> int:
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if sub.auth_type == "hmac_sha256":
         sig = hmac.new(
-            sub.auth_secret.encode(), body, hashlib.sha256,
+            sub.auth_secret.encode(),
+            body,
+            hashlib.sha256,
         ).hexdigest()
         headers["X-Webhook-Signature"] = sig
     elif sub.auth_type == "bearer":
@@ -264,15 +264,19 @@ def cmd_test(args: argparse.Namespace) -> int:
         return 1
 
     if args.json:
-        sys.stdout.write(json.dumps({
-            "status_code": response.status_code,
-            "body": response.text,
-            "url": url,
-        }, indent=2) + "\n")
-    else:
         sys.stdout.write(
-            f"POST {url} → {response.status_code}\n"
+            json.dumps(
+                {
+                    "status_code": response.status_code,
+                    "body": response.text,
+                    "url": url,
+                },
+                indent=2,
+            )
+            + "\n"
         )
+    else:
+        sys.stdout.write(f"POST {url} → {response.status_code}\n")
         if response.text.strip():
             sys.stdout.write(f"  body: {response.text.strip()}\n")
     return 0 if response.status_code < 400 else 1
@@ -294,7 +298,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_add = sub.add_parser("add", help="Register a new webhook.")
     p_add.add_argument("--description", help="Human-readable label.")
     p_add.add_argument(
-        "--auth", choices=("hmac_sha256", "bearer", "none"),
+        "--auth",
+        choices=("hmac_sha256", "bearer", "none"),
         default="hmac_sha256",
     )
     p_add.add_argument(
@@ -307,16 +312,21 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Prompt template; supports {{ payload }} / {{ headers }}.",
     )
     p_add.add_argument(
-        "--deliver", default="log",
+        "--deliver",
+        default="log",
         help="log | none | file:<path> | gateway://<platform>/<chat>",
     )
     p_add.add_argument(
-        "--rate-limit", type=int, default=60,
+        "--rate-limit",
+        type=int,
+        default=60,
         help="Max calls per minute (default 60).",
     )
     p_add.add_argument("--host", help="Display host in the printed URL.")
     p_add.add_argument(
-        "--port", type=int, help="Display port in the printed URL.",
+        "--port",
+        type=int,
+        help="Display port in the printed URL.",
     )
     p_add.add_argument("--json", action="store_true")
     p_add.set_defaults(handler=cmd_add)
@@ -342,17 +352,19 @@ def _build_parser() -> argparse.ArgumentParser:
     p_disable.set_defaults(handler=cmd_disable)
 
     p_test = sub.add_parser(
-        "test", help="POST a synthetic payload to verify the URL works.",
+        "test",
+        help="POST a synthetic payload to verify the URL works.",
     )
     p_test.add_argument("id")
     p_test.add_argument("--host", help="Override host (default 127.0.0.1).")
     p_test.add_argument(
-        "--port", type=int, help="Override port (default 4747).",
+        "--port",
+        type=int,
+        help="Override port (default 4747).",
     )
     p_test.add_argument(
         "--payload-file",
-        help="Path to a JSON file to use as the body (default: a small "
-        "synthetic payload).",
+        help="Path to a JSON file to use as the body (default: a small synthetic payload).",
     )
     p_test.add_argument("--json", action="store_true")
     p_test.set_defaults(handler=cmd_test)

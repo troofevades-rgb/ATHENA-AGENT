@@ -1,4 +1,5 @@
 """Tests for the on-demand skill body loader."""
+
 from __future__ import annotations
 
 from pathlib import Path

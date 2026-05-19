@@ -5,6 +5,7 @@ SessionRouter; ContinuityManager adds bulk-operation helpers used by
 the CLI. These tests cover the bulk paths and the route-resolution
 interaction.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,7 +23,8 @@ def _router(tmp_path: Path, *, continuity: bool = False) -> SessionRouter:
     profile_dir.mkdir(parents=True, exist_ok=True)
     store = SessionStore(profile_dir)
     return SessionRouter(
-        profile_dir, store,
+        profile_dir,
+        store,
         profile="default",
         model="parent-model",
         provider="ollama",
@@ -32,7 +34,10 @@ def _router(tmp_path: Path, *, continuity: bool = False) -> SessionRouter:
 
 def _evt(platform: str, user_id: str, chat_id: str = "c-1") -> MessageEvent:
     return MessageEvent(
-        platform=platform, chat_id=chat_id, user_id=user_id, text="hi",
+        platform=platform,
+        chat_id=chat_id,
+        user_id=user_id,
+        text="hi",
     )
 
 
@@ -42,11 +47,14 @@ def _evt(platform: str, user_id: str, chat_id: str = "c-1") -> MessageEvent:
 def test_link_canonical_binds_multiple_platforms_at_once(tmp_path: Path) -> None:
     router = _router(tmp_path)
     cm = ContinuityManager(router)
-    cm.link_canonical("alice@home", {
-        "telegram": "tg-alice",
-        "slack": "sl-alice",
-        "discord": "dc-alice",
-    })
+    cm.link_canonical(
+        "alice@home",
+        {
+            "telegram": "tg-alice",
+            "slack": "sl-alice",
+            "discord": "dc-alice",
+        },
+    )
     assert cm.canonical_for("telegram", "tg-alice") == "alice@home"
     assert cm.canonical_for("slack", "sl-alice") == "alice@home"
     assert cm.canonical_for("discord", "dc-alice") == "alice@home"
@@ -108,11 +116,14 @@ def test_unlink_canonical_ignores_empty_id(tmp_path: Path) -> None:
 
 def test_platforms_for_returns_sorted_pairs(tmp_path: Path) -> None:
     cm = ContinuityManager(_router(tmp_path))
-    cm.link_canonical("alice", {
-        "telegram": "tg-2",
-        "slack": "sl-1",
-        "discord": "dc-1",
-    })
+    cm.link_canonical(
+        "alice",
+        {
+            "telegram": "tg-2",
+            "slack": "sl-1",
+            "discord": "dc-1",
+        },
+    )
     cm.link_canonical("alice", {"telegram": "tg-1"})  # add another telegram id
     pairs = cm.platforms_for("alice")
     # Sorted by platform asc, then platform_user_id asc.

@@ -18,11 +18,11 @@ should set custom patterns via plugin config when they need them.
 Keys preserved in the output dict so the trace UI shows what
 arguments existed; values get redacted/truncated as needed.
 """
+
 from __future__ import annotations
 
 import re
 from typing import Any
-
 
 REDACTED = "<redacted>"
 MAX_LEN = 200

@@ -22,6 +22,7 @@ Two signature additions vs. the design doc:
   tool names within the chosen toolsets (the Explore / Plan sub-agents need
   this — the ``"file"`` toolset includes Write / Edit).
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -32,7 +33,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..provenance import (
     BACKGROUND_REVIEW,
@@ -61,8 +62,9 @@ class ForkAction:
     uses ``ForkResult.actions`` to summarize what a background review or
     curator fork did without re-reading every tool message.
     """
-    action: str           # "created" | "updated" | "deleted" | "patched" | "pin" | ...
-    target: str           # "skill" | "memory" | "file"
+
+    action: str  # "created" | "updated" | "deleted" | "patched" | "pin" | ...
+    target: str  # "skill" | "memory" | "file"
     name: str
     detail: str | None = None
 
@@ -80,7 +82,7 @@ class ForkResult:
 
 
 def fork(
-    self: "Agent",
+    self: Agent,
     *,
     enabled_toolsets: list[str],
     system_addendum: str,
@@ -101,7 +103,9 @@ def fork(
     child_cfg = dataclasses.replace(
         self.cfg,
         enabled_toolsets=list(enabled_toolsets),
-        disabled_tools=list(disabled_tools) if disabled_tools is not None else list(self.cfg.disabled_tools),
+        disabled_tools=list(disabled_tools)
+        if disabled_tools is not None
+        else list(self.cfg.disabled_tools),
         auto_approve_tools=True,
         lean_prompt=True,
         max_turn_steps=max_iterations,
@@ -109,6 +113,7 @@ def fork(
 
     # 2. Construct child agent — defer import so module load order is safe.
     from .core import Agent, _current_agent
+
     client = build_auxiliary_client(self) if auxiliary_client else self.client
     child = Agent(
         child_cfg,
@@ -142,9 +147,7 @@ def fork(
             else child.messages[0]["content"]
         )
         if system_addendum:
-            child.messages[0]["content"] = (
-                parent_system.rstrip() + "\n\n" + system_addendum
-            )
+            child.messages[0]["content"] = parent_system.rstrip() + "\n\n" + system_addendum
         else:
             child.messages[0]["content"] = parent_system
 
@@ -160,6 +163,7 @@ def fork(
                 reset_approvals,
                 scope_fresh_approvals,
             )
+
             origin_token = set_current_write_origin(write_origin)
             approval_token = set_approval_callback(AUTO_DENY)
             grants_token = scope_fresh_approvals()
@@ -228,15 +232,17 @@ def _extract_actions(messages: list[dict[str, Any]]) -> list[ForkAction]:
             continue
         if "action" not in parsed:
             continue
-        actions.append(ForkAction(
-            action=str(parsed.get("action") or ""),
-            target=str(parsed.get("target") or "unknown"),
-            name=str(
-                parsed.get("skill_name")
-                or parsed.get("memory_name")
-                or parsed.get("path")
-                or ""
-            ),
-            detail=parsed.get("message"),
-        ))
+        actions.append(
+            ForkAction(
+                action=str(parsed.get("action") or ""),
+                target=str(parsed.get("target") or "unknown"),
+                name=str(
+                    parsed.get("skill_name")
+                    or parsed.get("memory_name")
+                    or parsed.get("path")
+                    or ""
+                ),
+                detail=parsed.get("message"),
+            )
+        )
     return actions

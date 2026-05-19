@@ -7,6 +7,7 @@ tool name, args, and a truncated result.
 Useful for after-the-fact audits of what the agent ran. Disabled by default;
 enable with ``athena plugins enable shell_audit``.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 from athena.plugins.base import Plugin
-
 
 _SHELL_TOOLS = {"Bash", "bash", "shell", "execute"}
 _RESULT_TRUNC = 500
@@ -37,9 +37,7 @@ class ShellAuditPlugin(Plugin):
         self._log_path = self._log_root / f"{session_id}.jsonl"
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def post_tool_call(
-        self, tool_name: str, tool_args: dict[str, Any], result: str
-    ) -> None:
+    def post_tool_call(self, tool_name: str, tool_args: dict[str, Any], result: str) -> None:
         if tool_name not in _SHELL_TOOLS:
             return
         if self._log_path is None:

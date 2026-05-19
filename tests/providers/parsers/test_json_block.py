@@ -1,4 +1,5 @@
 """Bare-JSON content recovery (last-resort parser)."""
+
 from __future__ import annotations
 
 from athena.providers.parsers.json_block import parse
@@ -23,10 +24,7 @@ def test_whitespace_around_json_tolerated():
 def test_embedded_json_in_prose_NOT_recovered():
     """Conservative: a JSON object inside surrounding prose is NOT
     treated as a tool call — would mangle legitimate documentation."""
-    content = (
-        'Look at this example: {"name": "X", "arguments": {}} '
-        "— that's how tool calls work."
-    )
+    content = 'Look at this example: {"name": "X", "arguments": {}} — that\'s how tool calls work.'
     cleaned, calls = parse(content, {})
     assert calls == []
     assert cleaned == content  # passed through unchanged
@@ -43,7 +41,7 @@ def test_json_without_name_field_passed_through():
 
 def test_non_dict_json_passed_through():
     """JSON array, number, string, bool — none of these are tool calls."""
-    for content in ('[1, 2, 3]', '42', '"hello"', 'true', 'null'):
+    for content in ("[1, 2, 3]", "42", '"hello"', "true", "null"):
         cleaned, calls = parse(content, {})
         assert calls == [], f"falsely matched: {content!r}"
 

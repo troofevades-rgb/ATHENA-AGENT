@@ -1,13 +1,12 @@
 """WebhookSubscription dataclass + SQLite WebhookStore."""
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from athena.webhooks.subscription import WebhookStore, WebhookSubscription
-
 
 # ---- dataclass validation -------------------------------------------
 
@@ -28,7 +27,8 @@ def test_construct_minimal_skill_binding() -> None:
 def test_prompt_binding_requires_template() -> None:
     with pytest.raises(ValueError, match="prompt_template"):
         WebhookSubscription(
-            binding_type="prompt", prompt_template=None,
+            binding_type="prompt",
+            prompt_template=None,
             auth_secret="x",
         )
 
@@ -41,20 +41,26 @@ def test_skill_binding_requires_skill_name() -> None:
 def test_auth_hmac_requires_secret() -> None:
     with pytest.raises(ValueError, match="auth_secret"):
         WebhookSubscription(
-            skill_name="x", auth_type="hmac_sha256", auth_secret="",
+            skill_name="x",
+            auth_type="hmac_sha256",
+            auth_secret="",
         )
 
 
 def test_auth_bearer_requires_secret() -> None:
     with pytest.raises(ValueError, match="auth_secret"):
         WebhookSubscription(
-            skill_name="x", auth_type="bearer", auth_secret="",
+            skill_name="x",
+            auth_type="bearer",
+            auth_secret="",
         )
 
 
 def test_auth_none_doesnt_require_secret() -> None:
     sub = WebhookSubscription(
-        skill_name="x", auth_type="none", auth_secret="",
+        skill_name="x",
+        auth_type="none",
+        auth_secret="",
     )
     assert sub.auth_type == "none"
 
@@ -62,21 +68,25 @@ def test_auth_none_doesnt_require_secret() -> None:
 def test_invalid_auth_type_rejected() -> None:
     with pytest.raises(ValueError, match="auth_type"):
         WebhookSubscription(
-            skill_name="x", auth_type="basic_auth",  # type: ignore[arg-type]
+            skill_name="x",
+            auth_type="basic_auth",  # type: ignore[arg-type]
         )
 
 
 def test_invalid_binding_type_rejected() -> None:
     with pytest.raises(ValueError, match="binding_type"):
         WebhookSubscription(
-            skill_name="x", binding_type="magic",  # type: ignore[arg-type]
+            skill_name="x",
+            binding_type="magic",  # type: ignore[arg-type]
         )
 
 
 def test_rate_limit_must_be_positive() -> None:
     with pytest.raises(ValueError, match="rate_limit"):
         WebhookSubscription(
-            skill_name="x", auth_secret="s", rate_limit_per_minute=0,
+            skill_name="x",
+            auth_secret="s",
+            rate_limit_per_minute=0,
         )
 
 

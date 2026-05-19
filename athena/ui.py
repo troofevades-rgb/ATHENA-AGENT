@@ -1,10 +1,13 @@
 """Rich terminal UI helpers — confirmation prompts, diff rendering, status."""
+
 from __future__ import annotations
+
 import difflib
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from rich.console import Console
 from rich.live import Live
@@ -12,7 +15,6 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
-
 
 # On legacy Windows consoles (cp1252-encoded stdout), `console.print` crashes
 # on common UI glyphs like ✗ / ✓ / ↳ / ▰ because they aren't representable.
@@ -102,11 +104,13 @@ def banner(model: str, workspace: Path) -> None:
     console.print(_gradient_text(_ATHENA_AGENT))
     console.print(Text(_SPRAY, style=LIME_DIM))
     accent = _model_color(model)
-    console.print(Text.from_markup(
-        f"  [bold {LIME}]▰[/] [{LIME}]model[/]  [bold {accent}]{model}[/]\n"
-        f"  [bold {LIME}]▰[/] [{LIME}]cwd[/]    [white]{workspace}[/]\n"
-        f"  [bold {LIME}]▰[/] [{LIME_DIM}]/help · /status · /cost · /plan · /exit[/]"
-    ))
+    console.print(
+        Text.from_markup(
+            f"  [bold {LIME}]▰[/] [{LIME}]model[/]  [bold {accent}]{model}[/]\n"
+            f"  [bold {LIME}]▰[/] [{LIME}]cwd[/]    [white]{workspace}[/]\n"
+            f"  [bold {LIME}]▰[/] [{LIME_DIM}]/help · /status · /cost · /plan · /exit[/]"
+        )
+    )
     console.print()
 
 
@@ -125,7 +129,9 @@ def error(msg: str) -> None:
 def tool_call_summary(name: str, args: dict) -> None:
     # Compact one-liner so the user sees what the model is doing
     args_str = ", ".join(f"{k}={_short(v)}" for k, v in args.items())
-    console.print(f"[bold {LIME}]▰▰[/] [bold {LIME}]{name}[/][{LIME_DIM}]([/][dim]{args_str}[/][{LIME_DIM}])[/]")
+    console.print(
+        f"[bold {LIME}]▰▰[/] [bold {LIME}]{name}[/][{LIME_DIM}]([/][dim]{args_str}[/][{LIME_DIM}])[/]"
+    )
 
 
 def _short(v, n: int = 60) -> str:
@@ -139,7 +145,9 @@ def tool_result(name: str, output: str, max_lines: int = 12) -> None:
     body = "\n".join(shown)
     if len(lines) > max_lines:
         body += f"\n[dim]... ({len(lines) - max_lines} more lines)[/]"
-    console.print(Panel(body, title=f"↳ {name}", border_style=LIME_FAINT, title_align="left", padding=(0, 1)))
+    console.print(
+        Panel(body, title=f"↳ {name}", border_style=LIME_FAINT, title_align="left", padding=(0, 1))
+    )
 
 
 def show_diff(path: str, old: str, new: str) -> None:
@@ -293,16 +301,12 @@ def stream_stats(raw: dict) -> None:
     ``completion_tokens`` (no per-call duration means tps is omitted)."""
     eval_count = raw.get("eval_count") or raw.get("completion_tokens") or 0
     eval_duration = raw.get("eval_duration") or 0  # nanoseconds
-    prompt_count = (
-        raw.get("prompt_eval_count")
-        or raw.get("prompt_tokens")
-        or 0
-    )
+    prompt_count = raw.get("prompt_eval_count") or raw.get("prompt_tokens") or 0
     if eval_count and eval_duration:
         secs = eval_duration / 1e9
         tps = eval_count / secs if secs > 0 else 0
         _tps_history.append(tps)
-        del _tps_history[:max(0, len(_tps_history) - _TPS_HISTORY_MAX)]
+        del _tps_history[: max(0, len(_tps_history) - _TPS_HISTORY_MAX)]
         spark = _sparkline(_tps_history)
         console.print(
             f"[{LIME_DIM}]→ {eval_count} tok · {secs:.1f}s · "
@@ -313,10 +317,7 @@ def stream_stats(raw: dict) -> None:
         # Hosted providers usually don't report per-call duration; show
         # the counts without the tps/sparkline so the footer doesn't
         # mislead.
-        console.print(
-            f"[{LIME_DIM}]→ {eval_count} tok · "
-            f"prompt {prompt_count} tok[/]"
-        )
+        console.print(f"[{LIME_DIM}]→ {eval_count} tok · prompt {prompt_count} tok[/]")
 
 
 _MODEL_PRICING_PER_MILLION: dict[str, tuple[float, float]] = {
@@ -402,14 +403,14 @@ def build_bottom_toolbar(agent: Any) -> Callable[[], str]:
         # prompt_toolkit's HTML supports a limited tag set; use named
         # colors that map across the ansi-16 palette. Lime is bg=ansigreen.
         return HTML(
-            f' <ansigreen><b>▰▰</b></ansigreen>'
-            f' <b>{model}</b>'
-            f' · <ansigreen>{profile}</ansigreen>'
-            f' · {elapsed}'
-            f' · <ansiblue>↑</ansiblue>{prompt_tokens:,}'
-            f' <ansicyan>↓</ansicyan>{eval_tokens:,}'
-            f' · <ansiyellow>{cost_str}</ansiyellow>'
-            f' · <ansibrightblack>{tool_hist}</ansibrightblack>'
+            f" <ansigreen><b>▰▰</b></ansigreen>"
+            f" <b>{model}</b>"
+            f" · <ansigreen>{profile}</ansigreen>"
+            f" · {elapsed}"
+            f" · <ansiblue>↑</ansiblue>{prompt_tokens:,}"
+            f" <ansicyan>↓</ansicyan>{eval_tokens:,}"
+            f" · <ansiyellow>{cost_str}</ansiyellow>"
+            f" · <ansibrightblack>{tool_hist}</ansibrightblack>"
         )
 
     return _render
@@ -431,6 +432,7 @@ def live_status(agent: Any) -> None:
     # captures don't fill with refresh frames.
     if not console.is_terminal:
         from .cli.status import render_status
+
         snapshot = agent.stats.to_snapshot(
             session_id=agent.session_id,
             model=agent.model,
@@ -443,7 +445,9 @@ def live_status(agent: Any) -> None:
     def _counters_panel() -> Panel:
         stats = agent.stats
         cost = estimated_cost_usd(
-            agent.model, stats.prompt_tokens, stats.eval_tokens,
+            agent.model,
+            stats.prompt_tokens,
+            stats.eval_tokens,
         )
         cost_str = f"${cost:.4f}" if cost > 0 else "—"
         t = Table.grid(padding=(0, 1))
@@ -456,8 +460,7 @@ def live_status(agent: Any) -> None:
         t.add_row("turns", str(stats.turns))
         t.add_row(
             "tokens",
-            f"[ansiblue]↑[/]{stats.prompt_tokens:,} "
-            f"[ansicyan]↓[/]{stats.eval_tokens:,}",
+            f"[ansiblue]↑[/]{stats.prompt_tokens:,} [ansicyan]↓[/]{stats.eval_tokens:,}",
         )
         t.add_row("cost", f"[yellow]{cost_str}[/]")
         return Panel(t, title="counters", border_style=LIME_FAINT, padding=(1, 1))
@@ -486,13 +489,16 @@ def live_status(agent: Any) -> None:
         if len(text) > 400:
             text = text[:397] + "…"
         return Panel(
-            text, title="last assistant message",
-            border_style=LIME_FAINT, padding=(1, 1),
+            text,
+            title="last assistant message",
+            border_style=LIME_FAINT,
+            padding=(1, 1),
         )
 
     def _snapshots_panel() -> Panel:
         try:
             from .safety.context import get_snapshot_store
+
             store = get_snapshot_store()
             snaps = store.list_snapshots(limit=6)
         except Exception:
@@ -500,8 +506,10 @@ def live_status(agent: Any) -> None:
         if not snaps:
             body = "[dim](no snapshots yet)[/]"
             return Panel(
-                body, title="recent snapshots",
-                border_style=LIME_FAINT, padding=(1, 1),
+                body,
+                title="recent snapshots",
+                border_style=LIME_FAINT,
+                padding=(1, 1),
             )
         t = Table.grid(padding=(0, 1))
         t.add_column(style=LIME_DIM)
@@ -514,8 +522,10 @@ def live_status(agent: Any) -> None:
                 (s.tool_name or "-")[:14],
             )
         return Panel(
-            t, title="recent snapshots",
-            border_style=LIME_FAINT, padding=(1, 1),
+            t,
+            title="recent snapshots",
+            border_style=LIME_FAINT,
+            padding=(1, 1),
         )
 
     def _render() -> Layout:

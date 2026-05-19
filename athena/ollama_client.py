@@ -11,6 +11,7 @@ provider yields — providers now yield :class:`athena.providers.StreamChunk`.
 ``ChatChunk`` here is purely for import compatibility; constructing one
 won't get you a usable response.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from .providers.ollama import OllamaProvider as OllamaClient  # noqa: F401
 class ChatChunk:
     """Deprecated v1 chunk shape — present only so legacy imports don't
     break. Phase 8 providers yield :class:`athena.providers.StreamChunk`."""
+
     content: str = ""
     tool_calls: list[dict[str, Any]] | None = None
     done: bool = False

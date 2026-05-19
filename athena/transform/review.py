@@ -15,6 +15,7 @@ The TUI is in :meth:`start`, which delegates the actual user prompt to a
 :class:`LabelPrompt` callable. Tests substitute a scripted prompt to
 drive the loop deterministically.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,6 @@ from typing import Any
 
 from ..sessions.store import SessionMeta, SessionStore
 from .classifier import Label, Trajectory, auto_classify, extract_trajectories
-
 
 logger = logging.getLogger(__name__)
 
@@ -67,9 +67,7 @@ def load_labels(profile_dir: Path, session_id: str) -> dict[str, str]:
     return data if isinstance(data, dict) else {}
 
 
-def save_label(
-    profile_dir: Path, session_id: str, key: str, label: Label
-) -> None:
+def save_label(profile_dir: Path, session_id: str, key: str, label: Label) -> None:
     """Persist a single trajectory label to the session's labels file."""
     p = labels_path(profile_dir, session_id)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -159,9 +157,7 @@ class ReviewSession:
             if chosen == "skip":
                 progress.skipped += 1
                 continue
-            save_label(
-                self.profile_dir, meta.session_id, _trajectory_key(t), chosen
-            )
+            save_label(self.profile_dir, meta.session_id, _trajectory_key(t), chosen)
             progress.labeled += 1
         return progress
 
@@ -173,9 +169,7 @@ class ReviewSession:
                 pass
 
 
-def _next_user_message(
-    trajectories: list[Trajectory], idx: int
-) -> dict[str, Any] | None:
+def _next_user_message(trajectories: list[Trajectory], idx: int) -> dict[str, Any] | None:
     """For trajectory ``idx``, return the first ``user`` message of the
     following trajectory (the natural "follow-up" signal). ``None`` if
     this is the last trajectory."""
@@ -196,7 +190,7 @@ _LABEL_BY_KEY: dict[str, Label] = {
     "b": "bad",
     "p": "preference_pair",
     "s": "skip",
-    "q": "unreviewed",   # quit sentinel
+    "q": "unreviewed",  # quit sentinel
 }
 
 
@@ -204,24 +198,24 @@ def default_prompt(trajectory: Trajectory, suggestion: Label) -> Label:
     """Default rich+prompt_toolkit prompt. Tests pass their own callable
     so this code path isn't exercised in CI; the real TUI lives behind
     a lazy import."""
+    from prompt_toolkit import prompt as pt_prompt
     from rich.console import Console
     from rich.panel import Panel
-    from prompt_toolkit import prompt as pt_prompt
 
     console = Console()
-    console.print(Panel.fit(
-        _render_trajectory(trajectory),
-        title=f"session {trajectory.session_id[:8]} | turns "
-              f"{trajectory.turn_start}-{trajectory.turn_end}",
-        subtitle=f"auto: {suggestion}",
-    ))
+    console.print(
+        Panel.fit(
+            _render_trajectory(trajectory),
+            title=f"session {trajectory.session_id[:8]} | turns "
+            f"{trajectory.turn_start}-{trajectory.turn_end}",
+            subtitle=f"auto: {suggestion}",
+        )
+    )
     while True:
         raw = pt_prompt("[g]ood [b]ad [p]ref [s]kip [q]uit > ").strip().lower()
         if raw in _LABEL_BY_KEY:
             return _LABEL_BY_KEY[raw]
-        console.print(
-            "[yellow]choose one of g / b / p / s / q[/]"
-        )
+        console.print("[yellow]choose one of g / b / p / s / q[/]")
 
 
 def _render_trajectory(t: Trajectory) -> str:
@@ -231,9 +225,7 @@ def _render_trajectory(t: Trajectory) -> str:
         role = m.get("role", "?")
         content = m.get("content") or ""
         if isinstance(content, list):
-            content = " ".join(
-                c.get("text", "") for c in content if isinstance(c, dict)
-            )
+            content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
         snippet = (content or "").strip()
         if len(snippet) > 400:
             snippet = snippet[:400] + "…"

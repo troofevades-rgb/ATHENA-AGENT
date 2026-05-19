@@ -4,6 +4,7 @@ These are intentionally loose — we don't pin exact wording, but we lock in
 the load-bearing phrases the architecture depends on (anti-capture list,
 umbrella preference) so a future edit can't silently drop them.
 """
+
 from __future__ import annotations
 
 from athena.review.prompts import COMBINED, MEMORY_REVIEW, SKILL_REVIEW
@@ -17,8 +18,7 @@ def test_combined_includes_memory_and_skill_blocks() -> None:
 def test_combined_includes_anti_capture_list() -> None:
     assert "Anti-capture list" in COMBINED
     # Specific anti-bias phrases that the architecture relies on:
-    assert "frustration is a first-class signal" in COMBINED.lower() or \
-           "Frustration" in COMBINED
+    assert "frustration is a first-class signal" in COMBINED.lower() or "Frustration" in COMBINED
     assert "the-thing-we-just-did-once" in COMBINED
 
 

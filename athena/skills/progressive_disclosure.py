@@ -8,12 +8,12 @@ Pinned skills sort to the top of the active section so they get the model's
 attention first. Archived skills are omitted entirely — they don't exist
 from the model's perspective unless ``skills_list state=archived`` is called.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 from .discovery import discover_skills
-
 
 _CATALOG_HEADER = (
     "# Skills available\n"
@@ -84,8 +84,4 @@ def build_catalog(workspace: Path | None = None, *, max_chars: int = 10_000) -> 
         running += len(r) + 1
 
     leftover = len(rows) - len(truncated_rows)
-    return (
-        _CATALOG_HEADER + "\n\n"
-        + "\n".join(truncated_rows)
-        + _TRAILER.format(n=leftover)
-    )
+    return _CATALOG_HEADER + "\n\n" + "\n".join(truncated_rows) + _TRAILER.format(n=leftover)

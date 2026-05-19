@@ -1,14 +1,15 @@
 """/memory — list, view, or delete persistent memories from the REPL."""
+
 from __future__ import annotations
 
-from . import command
 from .. import ui
 from ..memory import (
+    delete_memory,
     list_memories,
     memory_dir,
     parse_memory_file,
-    delete_memory,
 )
+from . import command
 
 
 @command("memory")

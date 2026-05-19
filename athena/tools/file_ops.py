@@ -5,7 +5,9 @@ names (read_file, write_file, str_replace) remain as aliases so legacy
 ATHENA.md (or pre-rename OCODE.md) instructions and saved sessions keep
 working.
 """
+
 from __future__ import annotations
+
 from pathlib import Path
 
 from .delta_lint import lint_after_write
@@ -44,6 +46,7 @@ def _within_workspace(p: Path) -> bool:
 
 
 # ---- Read ---------------------------------------------------------------
+
 
 @tool(
     name="Read",
@@ -94,7 +97,7 @@ def Read(file_path: str, offset: int | None = None, limit: int | None = None, **
     start = max(0, (offset or 1) - 1)
     end = min(len(lines), start + (limit if limit else len(lines)))
     width = max(len(str(end)), 1)
-    out = "\n".join(f"{i+1:>{width}}\t{lines[i]}" for i in range(start, end))
+    out = "\n".join(f"{i + 1:>{width}}\t{lines[i]}" for i in range(start, end))
     truncated = ""
     if len(out) > _MAX_READ:
         out = out[:_MAX_READ]
@@ -106,6 +109,7 @@ def Read(file_path: str, offset: int | None = None, limit: int | None = None, **
 
 
 # ---- Write --------------------------------------------------------------
+
 
 @tool(
     name="Write",
@@ -146,6 +150,7 @@ def Write(file_path: str = "", content: str = "", **legacy) -> str:
 
 # ---- Edit (str_replace) -------------------------------------------------
 
+
 @tool(
     name="Edit",
     toolset="file",
@@ -161,7 +166,10 @@ def Write(file_path: str = "", content: str = "", **legacy) -> str:
         "properties": {
             "file_path": {"type": "string"},
             "old_string": {"type": "string", "description": "Exact text to find."},
-            "new_string": {"type": "string", "description": "Replacement text. Empty string deletes."},
+            "new_string": {
+                "type": "string",
+                "description": "Replacement text. Empty string deletes.",
+            },
             "replace_all": {"type": "boolean", "description": "Default false."},
         },
         "required": ["file_path", "old_string", "new_string"],
@@ -213,6 +221,7 @@ def Edit(
 
 # ---- list_dir (kept for convenience; no Claude Code analogue) -----------
 
+
 @tool(
     name="list_dir",
     toolset="file",
@@ -220,7 +229,10 @@ def Edit(
     parameters={
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Directory path; defaults to workspace root."},
+            "path": {
+                "type": "string",
+                "description": "Directory path; defaults to workspace root.",
+            },
         },
     },
 )

@@ -1,8 +1,8 @@
 """Tests for the per-turn review orchestrator."""
+
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -59,6 +59,7 @@ def test_fires_at_interval_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_fork(parent, **kwargs):
         calls.append(kwargs)
         from athena.agent.fork import ForkResult
+
         return ForkResult(final_response="ok")
 
     monkeypatch.setattr("athena.agent.fork.fork", fake_fork)
@@ -79,6 +80,7 @@ def test_review_fork_uses_correct_toolsets(monkeypatch: pytest.MonkeyPatch) -> N
     def fake_fork(parent, **kwargs):
         calls.append(kwargs)
         from athena.agent.fork import ForkResult
+
         return ForkResult(final_response="")
 
     monkeypatch.setattr("athena.agent.fork.fork", fake_fork)
@@ -97,6 +99,7 @@ def test_review_fork_write_origin_is_background_review(
     def fake_fork(parent, **kwargs):
         calls.append(kwargs)
         from athena.agent.fork import ForkResult
+
         return ForkResult(final_response="")
 
     monkeypatch.setattr("athena.agent.fork.fork", fake_fork)
@@ -113,6 +116,7 @@ def test_review_fork_inherits_last_messages(monkeypatch: pytest.MonkeyPatch) -> 
     def fake_fork(parent, **kwargs):
         calls.append(kwargs)
         from athena.agent.fork import ForkResult
+
         return ForkResult(final_response="")
 
     monkeypatch.setattr("athena.agent.fork.fork", fake_fork)
@@ -151,7 +155,9 @@ def test_review_fork_fire_and_forget(monkeypatch: pytest.MonkeyPatch) -> None:
     required to join — it's a fire-and-forget contract."""
     monkeypatch.setattr(
         "athena.agent.fork.fork",
-        lambda *a, **k: __import__("athena.agent.fork", fromlist=["ForkResult"]).ForkResult(final_response=""),
+        lambda *a, **k: __import__("athena.agent.fork", fromlist=["ForkResult"]).ForkResult(
+            final_response=""
+        ),
     )
     agent = _agent_stub()
     agent.cfg.review.nudge_interval = 1

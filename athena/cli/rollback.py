@@ -13,14 +13,15 @@ Both verbs follow the same shape:
    to the target. After restore, append an audit record so the
    rollback itself is recorded.
 """
+
 from __future__ import annotations
 
 import difflib
 import sys
 import tarfile
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from ..provenance import FOREGROUND, get_current_write_origin
 from ..safety.audit import MutationRecord, now_iso, sha_of_file
@@ -34,7 +35,9 @@ class RollbackError(RuntimeError):
 
 
 def _resolve_snapshot(
-    store: SnapshotStore, target: Path, snapshot_id: str | None,
+    store: SnapshotStore,
+    target: Path,
+    snapshot_id: str | None,
 ) -> Snapshot:
     if snapshot_id is not None:
         snaps = [s for s in store.list_snapshots() if s.snapshot_id == snapshot_id]
@@ -43,14 +46,14 @@ def _resolve_snapshot(
         return snaps[0]
     snap = store.find_most_recent_for(target)
     if snap is None:
-        raise RollbackError(
-            f"no snapshots cover {target} — nothing to roll back to"
-        )
+        raise RollbackError(f"no snapshots cover {target} — nothing to roll back to")
     return snap
 
 
 def _extract_member_to_tempdir(
-    snap: Snapshot, target: Path, relative_to: Path,
+    snap: Snapshot,
+    target: Path,
+    relative_to: Path,
 ) -> Path | None:
     """Extract the tarball member corresponding to ``target`` to a
     tempdir. Returns the extracted file path, or None if no member
@@ -94,16 +97,12 @@ def diff_target(
     rel_root = relative_to or store.relative_to
     extracted = _extract_member_to_tempdir(snap, target, rel_root)
     if extracted is None or not extracted.exists():
-        raise RollbackError(
-            f"snapshot {snap.snapshot_id} does not include {target}"
-        )
+        raise RollbackError(f"snapshot {snap.snapshot_id} does not include {target}")
     before = extracted.read_text(encoding="utf-8", errors="replace")
-    after = (
-        target.read_text(encoding="utf-8", errors="replace")
-        if target.exists() else ""
-    )
+    after = target.read_text(encoding="utf-8", errors="replace") if target.exists() else ""
     return render_diff(
-        before, after,
+        before,
+        after,
         label_before=f"{snap.snapshot_id}:{extracted.name}",
         label_after=f"current:{target.name}",
     )
@@ -136,25 +135,28 @@ def rollback_target(
             return {"status": "aborted", "snapshot_id": snap.snapshot_id}
 
     restored = store.restore(
-        snap, path_filter=target, confirm=lambda _: True,
+        snap,
+        path_filter=target,
+        confirm=lambda _: True,
     )
     sha_after = sha_of_file(target)
-    audit.append(MutationRecord(
-        timestamp=now_iso(),
-        write_origin=get_current_write_origin() or FOREGROUND,
-        session_id=None,
-        parent_session_id=None,
-        tool_name=tool_name,
-        tool_call_id="",
-        path=str(target),
-        snapshot_id=snap.snapshot_id,
-        sha_before=sha_before,
-        sha_after=sha_after,
-        byte_delta=(
-            (target.stat().st_size if target.exists() else 0)
-            - (len(diff.encode("utf-8")) * 0)
-        ),
-    ))
+    audit.append(
+        MutationRecord(
+            timestamp=now_iso(),
+            write_origin=get_current_write_origin() or FOREGROUND,
+            session_id=None,
+            parent_session_id=None,
+            tool_name=tool_name,
+            tool_call_id="",
+            path=str(target),
+            snapshot_id=snap.snapshot_id,
+            sha_before=sha_before,
+            sha_after=sha_after,
+            byte_delta=(
+                (target.stat().st_size if target.exists() else 0) - (len(diff.encode("utf-8")) * 0)
+            ),
+        )
+    )
     return {
         "status": "restored",
         "snapshot_id": snap.snapshot_id,

@@ -12,6 +12,7 @@ per index when the stream ends.
 
 Used as the base for OpenAI-compat / OpenRouter / Nous in Prompt 8.4.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,7 +23,6 @@ import httpx
 
 from . import register_provider
 from .base import Provider, StreamChunk
-
 
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
@@ -50,6 +50,7 @@ class OpenAICompatibleProvider(Provider):
     """Shared base for OpenAI + every OpenAI-compatible service. Subclasses
     set ``name`` and may override ``base_url`` / extra request headers.
     """
+
     name = ""
     requires_api_key = True
 
@@ -69,9 +70,7 @@ class OpenAICompatibleProvider(Provider):
             headers["authorization"] = f"Bearer {api_key}"
         if extra_headers:
             headers.update(extra_headers)
-        self._client = httpx.Client(
-            base_url=self.base_url, headers=headers, timeout=timeout
-        )
+        self._client = httpx.Client(base_url=self.base_url, headers=headers, timeout=timeout)
 
     def _default_base_url(self) -> str:
         return _DEFAULT_BASE_URL
@@ -100,9 +99,7 @@ class OpenAICompatibleProvider(Provider):
         if tools:
             payload["tools"] = tools
 
-        with self._client.stream(
-            "POST", "/chat/completions", json=payload
-        ) as r:
+        with self._client.stream("POST", "/chat/completions", json=payload) as r:
             _raise_with_body(r)
             yield from self._parse_sse(r)
 
@@ -114,6 +111,7 @@ class OpenAICompatibleProvider(Provider):
         uses tool_calls; gpt-oss-* uses harmony channels) get tried
         first, then the provider-default."""
         from .parsers import resolve_parser
+
         model = ""
         if isinstance(raw_response, dict):
             m = raw_response.get("model")
@@ -134,7 +132,8 @@ class OpenAICompatibleProvider(Provider):
         data = r.json() or {}
         items = data.get("data") or []
         return [
-            item["id"] for item in items
+            item["id"]
+            for item in items
             if isinstance(item, dict) and isinstance(item.get("id"), str)
         ]
 
@@ -161,7 +160,7 @@ class OpenAICompatibleProvider(Provider):
         for raw in response.iter_lines():
             if not raw or not raw.startswith("data: "):
                 continue
-            data = raw[len("data: "):].strip()
+            data = raw[len("data: ") :].strip()
             if data == "[DONE]":
                 break
             try:
@@ -178,11 +177,14 @@ class OpenAICompatibleProvider(Provider):
                 # Tool-call deltas.
                 for tc in delta.get("tool_calls") or []:
                     idx = int(tc.get("index", 0))
-                    bucket = partial_tools.setdefault(idx, {
-                        "name": "",
-                        "args": "",
-                        "id": tc.get("id", ""),
-                    })
+                    bucket = partial_tools.setdefault(
+                        idx,
+                        {
+                            "name": "",
+                            "args": "",
+                            "id": tc.get("id", ""),
+                        },
+                    )
                     if tc.get("id") and not bucket["id"]:
                         bucket["id"] = tc["id"]
                     fn = tc.get("function") or {}
@@ -208,11 +210,14 @@ class OpenAICompatibleProvider(Provider):
                 args = json.loads(args_raw) if args_raw else {}
             except json.JSONDecodeError:
                 args = {"_raw": args_raw}
-            yield StreamChunk("tool_call", {
-                "name": tool["name"],
-                "arguments": args,
-                "id": tool["id"],
-            })
+            yield StreamChunk(
+                "tool_call",
+                {
+                    "name": tool["name"],
+                    "arguments": args,
+                    "id": tool["id"],
+                },
+            )
 
         yield StreamChunk("usage", usage or {"prompt_tokens": 0, "completion_tokens": 0})
         yield StreamChunk("end", {"reason": finish_reason})

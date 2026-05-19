@@ -10,6 +10,7 @@ whichever model they started with. This is on purpose: an in-flight
 training run that completed mid-session shouldn't suddenly speak with a
 different voice.
 """
+
 from __future__ import annotations
 
 import argparse

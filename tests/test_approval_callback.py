@@ -1,4 +1,5 @@
 """Tests for the approval-callback ContextVar."""
+
 import logging
 import threading
 
@@ -43,6 +44,7 @@ def test_auto_deny_returns_deny():
 def test_callback_isolated_per_thread():
     """A child thread starts with the default callback regardless of the parent's
     setting, and the parent's callback survives whatever the child installs."""
+
     def parent_cb(tool_name: str, args: dict) -> str:
         return "parent"
 

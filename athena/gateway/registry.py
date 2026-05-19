@@ -12,6 +12,7 @@ of scope here — that requires Unix-socket or HTTP-localhost IPC and
 lands in a later phase. For the common case (one process running both
 gateway and cron), this registry is enough.
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,10 +24,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-_active: dict[str, "GatewayDaemon"] = {}
+_active: dict[str, GatewayDaemon] = {}
 
 
-def register(daemon: "GatewayDaemon") -> None:
+def register(daemon: GatewayDaemon) -> None:
     """Record ``daemon`` as the active gateway for its profile.
 
     A second register call for the same profile overwrites the first
@@ -43,7 +44,7 @@ def register(daemon: "GatewayDaemon") -> None:
     _active[profile] = daemon
 
 
-def unregister(daemon: "GatewayDaemon") -> None:
+def unregister(daemon: GatewayDaemon) -> None:
     """Remove ``daemon`` from the registry. Identity-checked so a
     stopped-then-restarted daemon doesn't accidentally wipe its
     successor's slot."""
@@ -52,12 +53,12 @@ def unregister(daemon: "GatewayDaemon") -> None:
         _active.pop(profile, None)
 
 
-def get(profile: str = "default") -> "GatewayDaemon | None":
+def get(profile: str = "default") -> GatewayDaemon | None:
     """Return the active daemon for ``profile``, or ``None``."""
     return _active.get(profile)
 
 
-def list_active() -> list["GatewayDaemon"]:
+def list_active() -> list[GatewayDaemon]:
     """Snapshot of every active daemon — useful for diagnostics."""
     return list(_active.values())
 

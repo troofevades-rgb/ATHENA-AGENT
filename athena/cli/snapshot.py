@@ -4,6 +4,7 @@ Browse the content-addressed snapshot store (Phase 17.1). Snapshots
 are pre-state tarballs taken before every agent-driven mutation;
 this CLI is the user's window into the store for audit and recovery.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,22 +39,32 @@ def cmd_list(args: argparse.Namespace) -> int:
         sys.stdout.write("(no snapshots)\n")
         return 0
     if args.json:
-        sys.stdout.write(json.dumps([
-            {
-                "snapshot_id": s.snapshot_id,
-                "created_at": s.created_at.isoformat(),
-                "write_origin": s.write_origin,
-                "tool_name": s.tool_name,
-                "paths": [str(p) for p in s.paths],
-                "pinned": s.pinned,
-            } for s in snaps
-        ], indent=2) + "\n")
+        sys.stdout.write(
+            json.dumps(
+                [
+                    {
+                        "snapshot_id": s.snapshot_id,
+                        "created_at": s.created_at.isoformat(),
+                        "write_origin": s.write_origin,
+                        "tool_name": s.tool_name,
+                        "paths": [str(p) for p in s.paths],
+                        "pinned": s.pinned,
+                    }
+                    for s in snaps
+                ],
+                indent=2,
+            )
+            + "\n"
+        )
         return 0
     sys.stdout.write(
         "   created_at           snapshot_id"
-        + " " * 38 + "write_origin"
-        + " " * 8 + "tool_name"
-        + " " * 13 + "paths\n"
+        + " " * 38
+        + "write_origin"
+        + " " * 8
+        + "tool_name"
+        + " " * 13
+        + "paths\n"
     )
     for s in snaps:
         sys.stdout.write(_fmt_row(s) + "\n")
@@ -74,9 +85,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         with tarfile.open(target.tarball_path, "r:gz") as tf:
             for m in tf.getmembers():
                 kind = "d" if m.isdir() else "f"
-                sys.stdout.write(
-                    f"  {kind} {m.size:>10} {m.name}\n"
-                )
+                sys.stdout.write(f"  {kind} {m.size:>10} {m.name}\n")
     except (tarfile.TarError, OSError) as e:
         sys.stderr.write(f"warning: could not read tarball: {e}\n")
     return 0
@@ -106,12 +115,10 @@ def cmd_prune(args: argparse.Namespace) -> int:
         # Replicate prune's selection logic in a read-only form.
         snaps = store.list_snapshots()
         from datetime import timedelta, timezone
+
         now = datetime.now(timezone.utc)
         cutoff = timedelta(days=store.retention_days)
-        candidates = [
-            s for s in snaps
-            if not s.pinned and (now - s.created_at) > cutoff
-        ]
+        candidates = [s for s in snaps if not s.pinned and (now - s.created_at) > cutoff]
         sys.stdout.write(
             f"dry-run: would remove {len(candidates)} of {len(snaps)} snapshots "
             f"(retention_days={store.retention_days}, "
@@ -123,9 +130,7 @@ def cmd_prune(args: argparse.Namespace) -> int:
         return 0
     summary = store.prune()
     sys.stdout.write(
-        f"removed={summary['removed']} "
-        f"kept={summary['kept']} "
-        f"pinned={summary['pinned']}\n"
+        f"removed={summary['removed']} kept={summary['kept']} pinned={summary['pinned']}\n"
     )
     return 0
 

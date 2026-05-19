@@ -1,4 +1,5 @@
 """Phase 17.3 — word-boundary allowlist + denylist for Bash."""
+
 from __future__ import annotations
 
 import pytest
@@ -8,7 +9,6 @@ from athena.safety.shell_policy import (
     PolicyDecision,
     ShellPolicy,
 )
-
 
 # ---- allowlist: word boundaries ------------------------------------------
 
@@ -225,6 +225,7 @@ def dataclasses_frozen_error():
     versions raised AttributeError. Match either."""
     try:
         import dataclasses
+
         return dataclasses.FrozenInstanceError
     except (AttributeError, ImportError):  # pragma: no cover
         return AttributeError

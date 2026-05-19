@@ -19,6 +19,7 @@ the offending input length and exception. The seed is fixed so a
 green run is reproducible; a regression is reproducible from the
 failure message.
 """
+
 from __future__ import annotations
 
 import random
@@ -27,7 +28,6 @@ import string
 import pytest
 
 from athena.providers.parsers import resolve_parser
-
 
 _FUZZ_RUNS = 1000
 
@@ -56,12 +56,13 @@ _ALPHABET = (
     + "<>{}[]\"'\\/|"
     + "\x00\x01\x02"
     + "—…→"  # a few real Unicode chars; emoji deliberately excluded
-              # because they take 4 bytes in UTF-8 and skew length stats
+    # because they take 4 bytes in UTF-8 and skew length stats
 )
 
 
-@pytest.mark.parametrize("provider,model", _PROVIDERS_AND_MODELS,
-                         ids=lambda p: p if isinstance(p, str) else "")
+@pytest.mark.parametrize(
+    "provider,model", _PROVIDERS_AND_MODELS, ids=lambda p: p if isinstance(p, str) else ""
+)
 def test_parser_never_raises_on_random_strings(provider: str, model: str) -> None:
     """1000 randomized inputs per (provider, model); parser must never
     raise, and every returned tool call must be well-shaped."""
@@ -104,8 +105,7 @@ def test_parser_never_raises_on_random_raw_response():
             cleaned, calls = parser("", raw)
         except Exception as e:  # pragma: no cover
             pytest.fail(
-                f"parser raised on raw_response iter {i}: {type(e).__name__}: {e}\n"
-                f"raw: {raw!r}"
+                f"parser raised on raw_response iter {i}: {type(e).__name__}: {e}\nraw: {raw!r}"
             )
         assert isinstance(cleaned, str)
         assert isinstance(calls, list)

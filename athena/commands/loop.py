@@ -8,14 +8,15 @@ A single loop runs at a time; calling /loop again replaces it. The runner
 uses the agent's _turn_lock so it can't interleave with the REPL, and uses
 prompt_toolkit's run_in_terminal so output doesn't corrupt the user's prompt.
 """
+
 from __future__ import annotations
+
 import re
 import threading
 from typing import Any
 
-from . import command
 from .. import ui
-
+from . import command
 
 _LOOP: dict[str, Any] | None = None
 
@@ -40,6 +41,7 @@ def _run_iteration(agent, body: str) -> None:
         try:
             if body.startswith("/"):
                 from ..__main__ import _handle_slash
+
                 _handle_slash(agent, body)
             else:
                 agent.run_turn(body)
@@ -49,8 +51,9 @@ def _run_iteration(agent, body: str) -> None:
     # Pause the active prompt so streamed output doesn't tear the input line.
     # If no prompt session is running (one-shot mode, etc.), run inline.
     try:
-        from prompt_toolkit.application.current import get_app_or_none
         from prompt_toolkit.application import run_in_terminal
+        from prompt_toolkit.application.current import get_app_or_none
+
         app = get_app_or_none()
         if app is not None and app.is_running:
             future = run_in_terminal(_do)

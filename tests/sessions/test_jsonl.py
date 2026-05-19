@@ -1,4 +1,5 @@
 """Tests for athena.sessions.jsonl."""
+
 from __future__ import annotations
 
 import logging
@@ -29,14 +30,12 @@ def test_jsonl_handles_unicode(tmp_path: Path) -> None:
     assert read_back == msg
 
 
-def test_jsonl_skips_malformed_lines_with_warning(
-    tmp_path: Path, caplog
-) -> None:
+def test_jsonl_skips_malformed_lines_with_warning(tmp_path: Path, caplog) -> None:
     path = tmp_path / "m.jsonl"
     # Write a mixed file: valid, broken, valid.
     path.write_text(
         '{"role": "user", "content": "ok1"}\n'
-        '{this is not json\n'
+        "{this is not json\n"
         '{"role": "user", "content": "ok2"}\n',
         encoding="utf-8",
     )

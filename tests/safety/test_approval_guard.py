@@ -1,4 +1,5 @@
 """ContextVar-scoped approval grants (Phase 17.2)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -113,6 +114,7 @@ async def test_background_raises_approval_denied() -> None:
 
 async def test_curator_origin_also_denied() -> None:
     """All non-foreground origins behave the same."""
+
     async def prompt(resource_id: str) -> bool:  # pragma: no cover
         raise AssertionError("never called")
 
@@ -131,7 +133,9 @@ async def test_background_auto_approve_returns_true_without_prompt() -> None:
     origin = set_current_write_origin(BACKGROUND_REVIEW)
     try:
         ok = await request_approval(
-            "skill:demo", prompt, auto_approve_in_background=True,
+            "skill:demo",
+            prompt,
+            auto_approve_in_background=True,
         )
     finally:
         reset_current_write_origin(origin)
@@ -143,6 +147,7 @@ async def test_background_does_not_consult_foreground_cache() -> None:
     fork. The fork should always go through scope_fresh_approvals(); this
     test verifies the second line of defense — even without scoping, the
     code refuses to read the cache when origin != foreground."""
+
     async def yes(_: str) -> bool:
         return True
 
@@ -172,6 +177,7 @@ async def test_background_does_not_consult_foreground_cache() -> None:
 async def test_scope_fresh_isolates_then_restores() -> None:
     """scope_fresh_approvals() empties the cache; reset_approvals()
     brings the parent cache back."""
+
     async def yes(_: str) -> bool:
         return True
 
@@ -209,8 +215,10 @@ async def test_grants_do_not_leak_across_concurrent_tasks() -> None:
 
     async def task_a() -> None:
         nonlocal captured_a
+
         async def yes(_: str) -> bool:
             return True
+
         token = set_current_write_origin(FOREGROUND)
         try:
             await request_approval("resource:a", yes)
@@ -222,8 +230,10 @@ async def test_grants_do_not_leak_across_concurrent_tasks() -> None:
 
     async def task_b() -> None:
         nonlocal captured_b
+
         async def yes(_: str) -> bool:
             return True
+
         token = set_current_write_origin(FOREGROUND)
         try:
             await barrier_a.wait()

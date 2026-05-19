@@ -1,9 +1,10 @@
 """/plan — toggle plan mode, or enter plan mode and seed a prompt."""
+
 from __future__ import annotations
 
-from . import command
 from .. import ui
 from ..tools import plan as plan_mod
+from . import command
 
 
 @command("plan")

@@ -1,6 +1,7 @@
 """Unit tests for athena.skills.manager — exercised end-to-end through
 test_skill_tools.py in prompt 1.6, but this file checks the lower-level
 contract directly (existence, write_origin policy, file path safety)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,8 +11,8 @@ import pytest
 from athena.provenance import (
     CURATOR,
     FOREGROUND,
-    set_current_write_origin,
     reset_current_write_origin,
+    set_current_write_origin,
 )
 from athena.skills.archive import SkillNotFoundError
 from athena.skills.frontmatter import parse_frontmatter
@@ -107,6 +108,7 @@ def test_curator_cannot_patch_foreground_skill(isolated_home: Path) -> None:
 
 def test_curator_cannot_pin(isolated_home: Path) -> None:
     from athena.skills.manager import skill_pin, skill_unpin
+
     token = set_current_write_origin(CURATOR)
     try:
         skill_create("pinnable", {"description": "x"}, "")
@@ -121,6 +123,7 @@ def test_curator_cannot_pin(isolated_home: Path) -> None:
 def test_background_review_cannot_pin(isolated_home: Path) -> None:
     from athena.provenance import BACKGROUND_REVIEW
     from athena.skills.manager import skill_pin
+
     token = set_current_write_origin(BACKGROUND_REVIEW)
     try:
         skill_create("br-skill", {"description": "x"}, "")
@@ -133,11 +136,13 @@ def test_background_review_cannot_pin(isolated_home: Path) -> None:
 def test_curator_cannot_touch_pinned_skill(isolated_home: Path) -> None:
     """Pinned skills are inviolate to autonomous mutation even when the
     skill's own write_origin would normally permit it."""
-    from athena.skills.manager import skill_pin
     # Create + pin under foreground; curator can't unpin (foreground-only)
     # so pinning has to stick.
-    skill_create("pinned-precious", {"description": "x", "pinned": True,
-                                     "write_origin": "background_review"}, "")
+    skill_create(
+        "pinned-precious",
+        {"description": "x", "pinned": True, "write_origin": "background_review"},
+        "",
+    )
     token = set_current_write_origin(CURATOR)
     try:
         with pytest.raises(CuratorPolicyError, match="pinned"):
@@ -153,7 +158,8 @@ def test_curator_blocked_on_migration_origin_until_local_activity(
 ) -> None:
     """Migration-origin skills are write-protected until the user has
     interacted with them (last_activity_at > imported_at)."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
+
     imported = datetime.now(timezone.utc) - timedelta(days=100)
     skill_create(
         "imported",
@@ -175,6 +181,7 @@ def test_curator_blocked_on_migration_origin_until_local_activity(
 
 def test_foreground_can_pin_and_unpin(isolated_home: Path) -> None:
     from athena.skills.manager import skill_pin, skill_unpin
+
     skill_create("pinme", {"description": "x"}, "")
     # FOREGROUND is the default origin in tests; just call directly.
     skill_pin("pinme")
@@ -214,5 +221,6 @@ def test_view_missing_returns_none(isolated_home: Path) -> None:
 
 def test_unarchive_unknown_raises(isolated_home: Path) -> None:
     from athena.skills.manager import skill_unarchive
+
     with pytest.raises(SkillNotFoundError):
         skill_unarchive("never-was")

@@ -34,18 +34,16 @@ proactively if within :data:`needs_refresh` window, and re-runs
 :func:`run_authorization_flow` if no token exists. A 401 mid-stream
 triggers a refresh-and-reconnect.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import threading
-import time
-import uuid
-from concurrent.futures import Future, TimeoutError as FutTimeout
-from datetime import datetime, timezone
+from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutTimeout
 from typing import Any
-from urllib.parse import urljoin
 
 import httpx
 
@@ -154,9 +152,7 @@ class SSETransport:
                     for task in pending:
                         task.cancel()
                     if pending:
-                        loop.run_until_complete(
-                            asyncio.gather(*pending, return_exceptions=True)
-                        )
+                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
                 except Exception:
                     pass
                 loop.close()
@@ -175,9 +171,7 @@ class SSETransport:
             return cf.result(timeout=timeout)
         except FutTimeout as e:
             cf.cancel()
-            raise SSEError(
-                f"MCP SSE request timed out after {timeout}s"
-            ) from e
+            raise SSEError(f"MCP SSE request timed out after {timeout}s") from e
 
     # ---- async open ----
 
@@ -234,9 +228,7 @@ class SSETransport:
     def _auth_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {"Accept": "text/event-stream, application/json"}
         if self._token is not None:
-            headers["Authorization"] = (
-                f"{self._token.token_type} {self._token.access_token}"
-            )
+            headers["Authorization"] = f"{self._token.token_type} {self._token.access_token}"
         return headers
 
     # ---- SSE listener ----
@@ -265,8 +257,10 @@ class SSETransport:
                             base_url=self.base_url,
                             headers=self._auth_headers(),
                             timeout=httpx.Timeout(
-                                connect=10.0, read=None,
-                                write=30.0, pool=30.0,
+                                connect=10.0,
+                                read=None,
+                                write=30.0,
+                                pool=30.0,
                             ),
                         )
                         continue
@@ -280,7 +274,9 @@ class SSETransport:
                     break
                 logger.warning(
                     "[%s] SSE stream lost; backoff %.1fs",
-                    self.name, backoff, exc_info=True,
+                    self.name,
+                    backoff,
+                    exc_info=True,
                 )
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, _RECONNECT_MAX)
@@ -326,14 +322,15 @@ class SSETransport:
             self._post_endpoint = data.strip() or _DEFAULT_POST_ENDPOINT
             self._endpoint_ready.set()
             logger.info(
-                "[%s] received endpoint %s", self.name, self._post_endpoint,
+                "[%s] received endpoint %s",
+                self.name,
+                self._post_endpoint,
             )
             return
         try:
             payload = json.loads(data)
         except json.JSONDecodeError:
-            logger.debug("[%s] non-JSON SSE frame dropped: %r",
-                         self.name, data[:100])
+            logger.debug("[%s] non-JSON SSE frame dropped: %r", self.name, data[:100])
             return
         # Drop our message-id key for the pending lookup.
         msg_id = payload.get("id")
@@ -346,7 +343,8 @@ class SSETransport:
         # subscribes. Future work: route to a callback.
         logger.debug(
             "[%s] notification: %s",
-            self.name, payload.get("method") or "?",
+            self.name,
+            payload.get("method") or "?",
         )
 
     # ---- public sync API ----
@@ -398,9 +396,7 @@ class SSETransport:
         )
         if "error" in result_box:
             err = result_box["error"]
-            raise SSEError(
-                f"[{self.name}] {method} returned error: {err}"
-            )
+            raise SSEError(f"[{self.name}] {method} returned error: {err}")
         return result_box.get("result") or {}
 
     async def _async_request(
@@ -422,31 +418,31 @@ class SSETransport:
             "method": method,
             "params": params or {},
         }
-        future: asyncio.Future[dict[str, Any]] = (
-            asyncio.get_event_loop().create_future()
-        )
+        future: asyncio.Future[dict[str, Any]] = asyncio.get_event_loop().create_future()
         self._pending[msg_id] = future
 
         try:
             r = await self._client.post(
-                self._post_endpoint, json=envelope,
+                self._post_endpoint,
+                json=envelope,
             )
             if r.status_code == 401 and self.oauth_cfg is not None:
                 logger.info(
                     "[%s] 401 on POST %s; refreshing token",
-                    self.name, method,
+                    self.name,
+                    method,
                 )
                 await self._ensure_token()
                 # Update the client headers in place.
                 self._client.headers.update(self._auth_headers())
                 r = await self._client.post(
-                    self._post_endpoint, json=envelope,
+                    self._post_endpoint,
+                    json=envelope,
                 )
             if r.status_code >= 400:
                 self._pending.pop(msg_id, None)
                 raise SSEError(
-                    f"POST {self._post_endpoint} returned {r.status_code}: "
-                    f"{(r.text or '')[:500]}"
+                    f"POST {self._post_endpoint} returned {r.status_code}: {(r.text or '')[:500]}"
                 )
         except SSEError:
             raise
@@ -464,7 +460,8 @@ class SSETransport:
         if loop is not None and loop.is_running():
             try:
                 cf = asyncio.run_coroutine_threadsafe(
-                    self._async_close(), loop,
+                    self._async_close(),
+                    loop,
                 )
                 try:
                     cf.result(timeout=5.0)

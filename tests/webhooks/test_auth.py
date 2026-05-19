@@ -1,13 +1,11 @@
 """HMAC and Bearer verification — constant-time."""
+
 from __future__ import annotations
 
 import hashlib
 import hmac
 
-import pytest
-
 from athena.webhooks.auth import verify_bearer, verify_hmac_sha256
-
 
 # ---- HMAC -----------------------------------------------------------
 

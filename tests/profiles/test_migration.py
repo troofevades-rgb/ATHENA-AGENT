@@ -1,4 +1,5 @@
 """Migration of legacy flat layout to profiles/default/."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,14 +11,17 @@ from athena.profiles import migration, resolution
 
 @pytest.fixture
 def fake_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
     """Redirect CONFIG_DIR-derived state to tmp_path."""
     home = tmp_path / "athena_home"
     home.mkdir()
     monkeypatch.setattr(resolution, "PROFILES_DIR", home / "profiles")
     monkeypatch.setattr(
-        resolution, "ACTIVE_PROFILE_FILE", home / "active_profile",
+        resolution,
+        "ACTIVE_PROFILE_FILE",
+        home / "active_profile",
     )
     # migration.run_migration takes the home path as an arg, so
     # passing tmp_path directly works without monkey-patching
@@ -37,7 +41,8 @@ def _seed_legacy(home: Path, items: list[str]) -> None:
             # Leave a marker file inside so we can verify it survives
             # the move.
             (home / item / "marker.txt").write_text(
-                "marker", encoding="utf-8",
+                "marker",
+                encoding="utf-8",
             )
 
 
@@ -77,28 +82,24 @@ def test_migration_only_triggered_by_profile_items(fake_home: Path) -> None:
 def test_run_migration_moves_skills(fake_home: Path) -> None:
     (fake_home / "skills" / "my-skill").mkdir(parents=True)
     (fake_home / "skills" / "my-skill" / "SKILL.md").write_text(
-        "x", encoding="utf-8",
+        "x",
+        encoding="utf-8",
     )
     result = migration.run_migration(fake_home)
     assert "skills" in result["moved"]
-    assert (
-        fake_home / "profiles" / "default" / "skills" / "my-skill" / "SKILL.md"
-    ).exists()
+    assert (fake_home / "profiles" / "default" / "skills" / "my-skill" / "SKILL.md").exists()
     assert not (fake_home / "skills").exists()
 
 
 def test_run_migration_moves_files(fake_home: Path) -> None:
     (fake_home / "config.toml").write_text(
-        "model = 'qwen2.5'", encoding="utf-8",
+        "model = 'qwen2.5'",
+        encoding="utf-8",
     )
     (fake_home / "sessions.db").write_text("binary", encoding="utf-8")
     migration.run_migration(fake_home)
-    assert (
-        fake_home / "profiles" / "default" / "config.toml"
-    ).read_text() == "model = 'qwen2.5'"
-    assert (
-        fake_home / "profiles" / "default" / "sessions.db"
-    ).exists()
+    assert (fake_home / "profiles" / "default" / "config.toml").read_text() == "model = 'qwen2.5'"
+    assert (fake_home / "profiles" / "default" / "sessions.db").exists()
 
 
 def test_run_migration_preserves_global_items(fake_home: Path) -> None:
@@ -155,7 +156,8 @@ def test_run_migration_skips_collision(fake_home: Path) -> None:
 
 
 def test_run_migration_per_item_isolation(
-    fake_home: Path, monkeypatch: pytest.MonkeyPatch,
+    fake_home: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A failure on one item must not block the others."""
     _seed_legacy(fake_home, ["skills", "memory"])

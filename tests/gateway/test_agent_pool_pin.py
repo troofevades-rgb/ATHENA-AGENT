@@ -7,10 +7,8 @@ in-flight ``Agent.run_until_done`` thread's next sqlite write
 landed on a closed connection: "Cannot operate on a closed
 database — JSONL is intact, run athena reindex to rebuild".
 """
-from __future__ import annotations
 
-import asyncio
-from typing import Any
+from __future__ import annotations
 
 import pytest
 

@@ -6,13 +6,13 @@ athena v2 wrinkle: HTTP and SSE transports aren't supported until Phase 12,
 so any such server is copied through with ``disabled=true`` and a WARNING
 in the report.
 """
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 from .report import Report
-
 
 _HTTP_LIKE = {"http", "https", "sse"}
 
@@ -37,10 +37,13 @@ def translate_mcp(
 
     servers = data.get("mcpServers") or data.get("servers") or {}
     if not isinstance(servers, dict):
-        report.add("mcp_error", {
-            "path": str(mcp_src),
-            "error": "mcpServers/servers is not a mapping",
-        })
+        report.add(
+            "mcp_error",
+            {
+                "path": str(mcp_src),
+                "error": "mcpServers/servers is not a mapping",
+            },
+        )
         return
 
     disabled_names: list[str] = []
@@ -51,19 +54,25 @@ def translate_mcp(
         if transport in _HTTP_LIKE:
             conf["disabled"] = True
             disabled_names.append(name)
-            report.add("mcp_warning", {
-                "reason": "http_or_sse_transport_disabled_until_phase_12",
-                "server": name,
-                "transport": transport,
-            })
+            report.add(
+                "mcp_warning",
+                {
+                    "reason": "http_or_sse_transport_disabled_until_phase_12",
+                    "server": name,
+                    "transport": transport,
+                },
+            )
 
     if not dry_run:
         dest.mkdir(parents=True, exist_ok=True)
         (dest / "mcp.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-    report.add("imported_mcp", {
-        "server_count": len(servers),
-        "disabled_servers": disabled_names,
-        "destination": str(dest / "mcp.json"),
-        "dry_run": dry_run,
-    })
+    report.add(
+        "imported_mcp",
+        {
+            "server_count": len(servers),
+            "disabled_servers": disabled_names,
+            "destination": str(dest / "mcp.json"),
+            "dry_run": dry_run,
+        },
+    )

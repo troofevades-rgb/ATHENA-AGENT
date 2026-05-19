@@ -1,4 +1,5 @@
 """MemoryProvider is an ABC; ensures subclasses must implement the contract."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -19,6 +20,7 @@ def test_subclass_missing_abstract_method_fails():
     class Incomplete(MemoryProvider):
         def load_index(self, profile):
             return None
+
         # Missing the rest.
 
     with pytest.raises(TypeError, match="abstract"):

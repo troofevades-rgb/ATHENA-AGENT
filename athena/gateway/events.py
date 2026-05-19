@@ -18,6 +18,7 @@ slot), while photo bursts *queue without interrupting* so an album
 doesn't keep restarting the agent. Hermes Agent encodes the same rule;
 the field exists so the policy is uniform across adapters.
 """
+
 from __future__ import annotations
 
 import enum

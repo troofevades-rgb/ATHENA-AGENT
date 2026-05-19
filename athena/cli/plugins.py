@@ -4,6 +4,7 @@ Enable state is stored in ``~/.athena/plugins_state.json`` (machine-managed).
 ``config.toml`` stays hand-edited. Per-plugin config slices still go in
 ``config.toml`` under ``[plugins.<name>]``.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -45,15 +46,17 @@ def _list_cmd() -> int:
         print("(no plugins discovered)")
         return 0
     cfg = load_config()
-    overrides = (cfg.plugins.get("enabled") or {})
+    overrides = cfg.plugins.get("enabled") or {}
     rows: list[tuple[str, str, str, str]] = []
     for m in manifests:
-        rows.append((
-            m.name,
-            m.version,
-            "enabled" if _is_enabled(m, overrides) else "disabled",
-            _format_path(m),
-        ))
+        rows.append(
+            (
+                m.name,
+                m.version,
+                "enabled" if _is_enabled(m, overrides) else "disabled",
+                _format_path(m),
+            )
+        )
     widths = [max(len(r[i]) for r in rows) for i in range(4)]
     for name, version, state, path in rows:
         print(
@@ -95,7 +98,7 @@ def _info_cmd(name: str) -> int:
         )
         return 2
     cfg = load_config()
-    overrides = (cfg.plugins.get("enabled") or {})
+    overrides = cfg.plugins.get("enabled") or {}
     state = "enabled" if _is_enabled(target, overrides) else "disabled"
     print(f"name:        {target.name}")
     print(f"version:     {target.version}")

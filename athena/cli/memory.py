@@ -1,11 +1,12 @@
 """``athena memory {diff, rollback}`` — operate on a single memory entry."""
+
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
 
-from ..config import load_config, profile_dir
+from ..config import load_config
 from ..memory.providers.builtin_file import BuiltinFileProvider
 from ..profiles.resolution import resolve_active_profile
 from .rollback import (
@@ -34,10 +35,7 @@ def cmd_diff(args: argparse.Namespace) -> int:
     profile = _active_profile(args.profile)
     target = _resolve_memory_file(args.name, profile)
     if target is None:
-        sys.stderr.write(
-            f"error: no memory entry named {args.name!r} "
-            f"under profile {profile!r}\n"
-        )
+        sys.stderr.write(f"error: no memory entry named {args.name!r} under profile {profile!r}\n")
         return 1
     try:
         diff = diff_target(target, snapshot_id=args.to)
@@ -55,10 +53,7 @@ def cmd_rollback(args: argparse.Namespace) -> int:
     profile = _active_profile(args.profile)
     target = _resolve_memory_file(args.name, profile)
     if target is None:
-        sys.stderr.write(
-            f"error: no memory entry named {args.name!r} "
-            f"under profile {profile!r}\n"
-        )
+        sys.stderr.write(f"error: no memory entry named {args.name!r} under profile {profile!r}\n")
         return 1
     confirm = (lambda _: True) if args.yes else confirm_via_stdio
     try:

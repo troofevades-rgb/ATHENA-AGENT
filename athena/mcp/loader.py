@@ -20,15 +20,17 @@ The `allowed_tools` / `disabled_tools` extensions let you trim what gets
 exposed to the model — useful when you want a server's read tools but not
 its write tools, or to prune for context-window pressure.
 """
+
 from __future__ import annotations
+
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from ..tools.registry import Tool, _REGISTRY  # internal: we register Tool objects directly
-from .client import MCPError, MCPStdioClient, format_tool_result
+from ..tools.registry import _REGISTRY, Tool  # internal: we register Tool objects directly
+from .client import MCPError, format_tool_result
 from .transport_resolver import MCPTransport, open_transport
-
 
 # Anything the resolver returns — stdio or SSE — looks the same here:
 # both expose initialize / list_tools / call_tool / close.
@@ -126,7 +128,9 @@ def _register_mcp_tool(
     """Register one MCP tool into athena's tool registry under '{server}__{tool}'."""
     raw_name = tool_def["name"]
     full_name = f"{server_name}__{raw_name}"
-    description = tool_def.get("description") or f"(MCP tool '{raw_name}' from server '{server_name}')"
+    description = (
+        tool_def.get("description") or f"(MCP tool '{raw_name}' from server '{server_name}')"
+    )
     schema = tool_def.get("inputSchema") or {"type": "object", "properties": {}}
 
     if full_name in _REGISTRY:

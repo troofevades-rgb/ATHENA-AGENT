@@ -1,15 +1,13 @@
 """WebhookServer — aiohttp listener wiring auth + idempotency + rate
 limit + async dispatch."""
+
 from __future__ import annotations
 
 import asyncio
 import base64
 import hashlib
 import hmac
-import json
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -73,11 +71,14 @@ async def test_unknown_id_returns_404(server_client) -> None:
 
 
 async def test_disabled_subscription_returns_404(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     _server, client, _dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
         enabled=False,
     )
     store.add(sub)
@@ -89,18 +90,22 @@ async def test_disabled_subscription_returns_404(
 
 
 async def test_hmac_correct_signature_dispatches(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     server, client, dispatch = server_client
     secret = "shh"
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="hmac_sha256", auth_secret=secret,
+        skill_name="echo",
+        auth_type="hmac_sha256",
+        auth_secret=secret,
     )
     store.add(sub)
     body = b'{"event":"push"}'
     sig = _hmac_sig(body, secret)
     resp = await client.post(
-        f"/webhook/{sub.id}", data=body,
+        f"/webhook/{sub.id}",
+        data=body,
         headers={"X-Webhook-Signature": sig},
     )
     assert resp.status == 202
@@ -113,34 +118,42 @@ async def test_hmac_correct_signature_dispatches(
 
 
 async def test_hmac_github_style_header_works(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     """X-Hub-Signature-256: sha256=<hex> from GitHub."""
     server, client, dispatch = server_client
     secret = "github-secret"
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="hmac_sha256", auth_secret=secret,
+        skill_name="echo",
+        auth_type="hmac_sha256",
+        auth_secret=secret,
     )
     store.add(sub)
     body = b'{"ref":"refs/heads/main"}'
     sig = "sha256=" + _hmac_sig(body, secret)
     resp = await client.post(
-        f"/webhook/{sub.id}", data=body,
+        f"/webhook/{sub.id}",
+        data=body,
         headers={"X-Hub-Signature-256": sig},
     )
     assert resp.status == 202
 
 
 async def test_hmac_wrong_signature_returns_401(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     _server, client, dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="hmac_sha256", auth_secret="real",
+        skill_name="echo",
+        auth_type="hmac_sha256",
+        auth_secret="real",
     )
     store.add(sub)
     resp = await client.post(
-        f"/webhook/{sub.id}", data=b"{}",
+        f"/webhook/{sub.id}",
+        data=b"{}",
         headers={"X-Webhook-Signature": "deadbeef" * 8},
     )
     assert resp.status == 401
@@ -151,7 +164,9 @@ async def test_hmac_wrong_signature_returns_401(
 async def test_missing_signature_returns_401(server_client, store) -> None:
     _server, client, _dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="hmac_sha256", auth_secret="x",
+        skill_name="echo",
+        auth_type="hmac_sha256",
+        auth_secret="x",
     )
     store.add(sub)
     resp = await client.post(f"/webhook/{sub.id}", data=b"{}")
@@ -159,15 +174,19 @@ async def test_missing_signature_returns_401(server_client, store) -> None:
 
 
 async def test_bearer_correct_token_dispatches(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     server, client, dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="bearer", auth_secret="tok-1234",
+        skill_name="echo",
+        auth_type="bearer",
+        auth_secret="tok-1234",
     )
     store.add(sub)
     resp = await client.post(
-        f"/webhook/{sub.id}", data=b"{}",
+        f"/webhook/{sub.id}",
+        data=b"{}",
         headers={"Authorization": "Bearer tok-1234"},
     )
     assert resp.status == 202
@@ -176,15 +195,19 @@ async def test_bearer_correct_token_dispatches(
 
 
 async def test_bearer_wrong_token_returns_401(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     _server, client, _dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="bearer", auth_secret="real",
+        skill_name="echo",
+        auth_type="bearer",
+        auth_secret="real",
     )
     store.add(sub)
     resp = await client.post(
-        f"/webhook/{sub.id}", data=b"{}",
+        f"/webhook/{sub.id}",
+        data=b"{}",
         headers={"Authorization": "Bearer wrong"},
     )
     assert resp.status == 401
@@ -193,7 +216,9 @@ async def test_bearer_wrong_token_returns_401(
 async def test_auth_none_accepts_anything(server_client, store) -> None:
     server, client, dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
     )
     store.add(sub)
     resp = await client.post(f"/webhook/{sub.id}", data=b"{}")
@@ -206,23 +231,30 @@ async def test_auth_none_accepts_anything(server_client, store) -> None:
 
 
 async def test_idempotency_dedupes_within_ttl(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     server, client, dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
     )
     store.add(sub)
     headers = {"X-Webhook-Idempotency-Key": "delivery-7"}
 
     # First call goes through.
     resp1 = await client.post(
-        f"/webhook/{sub.id}", data=b"{}", headers=headers,
+        f"/webhook/{sub.id}",
+        data=b"{}",
+        headers=headers,
     )
     assert resp1.status == 202
     # Second call with same key short-circuits to 200 no-op.
     resp2 = await client.post(
-        f"/webhook/{sub.id}", data=b"{}", headers=headers,
+        f"/webhook/{sub.id}",
+        data=b"{}",
+        headers=headers,
     )
     assert resp2.status == 200
     text = await resp2.text()
@@ -234,19 +266,24 @@ async def test_idempotency_dedupes_within_ttl(
 
 
 async def test_idempotency_different_keys_both_dispatch(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     server, client, dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
     )
     store.add(sub)
     await client.post(
-        f"/webhook/{sub.id}", data=b"{}",
+        f"/webhook/{sub.id}",
+        data=b"{}",
         headers={"X-Webhook-Idempotency-Key": "a"},
     )
     await client.post(
-        f"/webhook/{sub.id}", data=b"{}",
+        f"/webhook/{sub.id}",
+        data=b"{}",
         headers={"X-Webhook-Idempotency-Key": "b"},
     )
     await asyncio.sleep(0.02)
@@ -259,7 +296,9 @@ async def test_idempotency_different_keys_both_dispatch(
 async def test_rate_limit_returns_429(server_client, store) -> None:
     server, client, dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
         rate_limit_per_minute=2,
     )
     store.add(sub)
@@ -274,16 +313,21 @@ async def test_rate_limit_returns_429(server_client, store) -> None:
 
 
 async def test_rate_limit_per_webhook_isolated(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     """One noisy webhook hitting its limit must not block others."""
     server, client, dispatch = server_client
     a = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
         rate_limit_per_minute=1,
     )
     b = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
         rate_limit_per_minute=5,
     )
     store.add(a)
@@ -305,7 +349,9 @@ async def test_rate_limit_per_webhook_isolated(
 async def test_json_body_parsed_to_dict(server_client, store) -> None:
     server, client, dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
     )
     store.add(sub)
     await client.post(
@@ -318,15 +364,19 @@ async def test_json_body_parsed_to_dict(server_client, store) -> None:
 
 
 async def test_non_json_body_wrapped_with_format_hint(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     server, client, dispatch = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
     )
     store.add(sub)
     await client.post(
-        f"/webhook/{sub.id}", data=b"this is not json",
+        f"/webhook/{sub.id}",
+        data=b"this is not json",
         headers={"Content-Type": "text/plain"},
     )
     await asyncio.sleep(0.02)
@@ -339,7 +389,8 @@ async def test_non_json_body_wrapped_with_format_hint(
 
 
 async def test_202_returned_immediately_even_for_slow_dispatch(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     server, client, _dispatch_ignored = server_client
 
@@ -354,11 +405,14 @@ async def test_202_returned_immediately_even_for_slow_dispatch(
 
     server.dispatch = slow_dispatch
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
     )
     store.add(sub)
 
     import time
+
     start = time.monotonic()
     resp = await client.post(f"/webhook/{sub.id}", data=b"{}")
     elapsed = time.monotonic() - start
@@ -368,7 +422,8 @@ async def test_202_returned_immediately_even_for_slow_dispatch(
 
 
 async def test_dispatch_exception_does_not_break_subsequent_requests(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     server, client, _ = server_client
 
@@ -377,7 +432,9 @@ async def test_dispatch_exception_does_not_break_subsequent_requests(
 
     server.dispatch = bad_dispatch
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
     )
     store.add(sub)
     # First request crashes during dispatch — caller still gets 202.
@@ -389,11 +446,14 @@ async def test_dispatch_exception_does_not_break_subsequent_requests(
 
 
 async def test_record_fire_increments_on_dispatch(
-    server_client, store,
+    server_client,
+    store,
 ) -> None:
     server, client, _ = server_client
     sub = WebhookSubscription(
-        skill_name="echo", auth_type="none", auth_secret="",
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
     )
     store.add(sub)
     await client.post(f"/webhook/{sub.id}", data=b"{}")
@@ -438,7 +498,7 @@ def test_parse_body_non_json_text() -> None:
 
 
 def test_parse_body_top_level_array_wrapped() -> None:
-    payload = _parse_body(b'[1, 2, 3]')
+    payload = _parse_body(b"[1, 2, 3]")
     assert payload == {"_top_level": [1, 2, 3]}
 
 

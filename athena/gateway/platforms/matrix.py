@@ -26,6 +26,7 @@ a bot account on your homeserver, get an access token (matrix.to /
 Element under Settings → Help → Access Token), set the user_id and
 device_id, point athena at it.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,11 +34,12 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..events import ApprovalRequest, MessageEvent, MessageType
 from ..base import GatewayAdapter
+from ..events import ApprovalRequest, MessageEvent, MessageType
 
 if TYPE_CHECKING:
     from nio import AsyncClient, MatrixRoom, RoomMessageText
+
     from ..daemon import GatewayDaemon
 
 logger = logging.getLogger(__name__)
@@ -53,7 +55,7 @@ class MatrixAdapter(GatewayAdapter):
 
     def __init__(
         self,
-        daemon: "GatewayDaemon",
+        daemon: GatewayDaemon,
         *,
         homeserver: str,
         user_id: str,
@@ -76,9 +78,7 @@ class MatrixAdapter(GatewayAdapter):
         self.access_token = access_token
         self.device_id = device_id
         self.store_path = (
-            store_path
-            if store_path is not None
-            else daemon.profile_dir / "matrix_store"
+            store_path if store_path is not None else daemon.profile_dir / "matrix_store"
         )
         self.store_path.mkdir(parents=True, exist_ok=True)
         self.attachment_dir = (
@@ -86,7 +86,7 @@ class MatrixAdapter(GatewayAdapter):
             if attachment_dir is not None
             else daemon.profile_dir / "gateway_attachments" / self.name
         )
-        self._client: "AsyncClient" | None = None
+        self._client: AsyncClient | None = None
         self._stop = asyncio.Event()
         # Per-request reaction tracking. When we render an approval
         # we send the prompt message + two reactions, then map
@@ -141,11 +141,13 @@ class MatrixAdapter(GatewayAdapter):
             except Exception:
                 logger.warning(
                     "[%s] keys_upload failed; E2EE rooms may not decrypt",
-                    self.name, exc_info=True,
+                    self.name,
+                    exc_info=True,
                 )
 
         self.daemon.approvals.register_platform_renderer(
-            self.name, self._render_approval,
+            self.name,
+            self._render_approval,
         )
 
         try:
@@ -167,15 +169,17 @@ class MatrixAdapter(GatewayAdapter):
                 await self._client.close()
             except Exception:
                 logger.debug(
-                    "[%s] client.close raised", self.name, exc_info=True,
+                    "[%s] client.close raised",
+                    self.name,
+                    exc_info=True,
                 )
 
     # ---- inbound ----
 
     async def _on_message(
         self,
-        room: "MatrixRoom",
-        event: "RoomMessageText",
+        room: MatrixRoom,
+        event: RoomMessageText,
     ) -> None:
         # Skip our own echoes.
         if event.sender == self.user_id:
@@ -184,15 +188,16 @@ class MatrixAdapter(GatewayAdapter):
             mev = self._event_from_room_message(room, event)
         except Exception:
             logger.exception(
-                "[%s] _event_from_room_message raised", self.name,
+                "[%s] _event_from_room_message raised",
+                self.name,
             )
             return
         await self.handle_inbound(mev)
 
     def _event_from_room_message(
         self,
-        room: "MatrixRoom",
-        event: "RoomMessageText",
+        room: MatrixRoom,
+        event: RoomMessageText,
     ) -> MessageEvent:
         # DM detection: a Matrix DM is conventionally a room with
         # exactly 2 members (the user and the bot). Public rooms
@@ -211,7 +216,7 @@ class MatrixAdapter(GatewayAdapter):
 
     async def _on_reaction(
         self,
-        room: "MatrixRoom",
+        room: MatrixRoom,
         event: Any,
     ) -> None:
         """User reacted to a previous event. If it was one of our
@@ -236,7 +241,8 @@ class MatrixAdapter(GatewayAdapter):
             self.daemon.approvals.resolve(request_id, decision)
         except Exception:
             logger.exception(
-                "[%s] reaction handler raised", self.name,
+                "[%s] reaction handler raised",
+                self.name,
             )
 
     @staticmethod
@@ -253,11 +259,7 @@ class MatrixAdapter(GatewayAdapter):
             # Fallback to parsing the raw source.
             source = getattr(event, "source", None) or {}
             content = source.get("content") if isinstance(source, dict) else None
-            relates = (
-                content.get(_REACTION_CONTENT_KEY)
-                if isinstance(content, dict)
-                else None
-            )
+            relates = content.get(_REACTION_CONTENT_KEY) if isinstance(content, dict) else None
             if isinstance(relates, dict):
                 target = relates.get("event_id")
                 key = relates.get("key") or key
@@ -274,7 +276,8 @@ class MatrixAdapter(GatewayAdapter):
         if room_id is None:
             logger.warning(
                 "[%s] no matrix route for session %s; cannot render approval",
-                self.name, request.session_id,
+                self.name,
+                request.session_id,
             )
             return
         body = _format_approval_body(request)
@@ -287,7 +290,8 @@ class MatrixAdapter(GatewayAdapter):
         except Exception:
             logger.exception(
                 "[%s] approval prompt send failed for %s",
-                self.name, request.request_id,
+                self.name,
+                request.request_id,
             )
             return
         prompt_event_id = getattr(resp, "event_id", None)
@@ -313,7 +317,8 @@ class MatrixAdapter(GatewayAdapter):
             except Exception:
                 logger.debug(
                     "[%s] seed reaction send failed",
-                    self.name, exc_info=True,
+                    self.name,
+                    exc_info=True,
                 )
 
     def _resolve_room_id(self, request: ApprovalRequest) -> str | None:
@@ -389,7 +394,9 @@ class MatrixAdapter(GatewayAdapter):
             await self._client.room_typing(chat_id, typing_state=True, timeout=4000)
         except Exception:
             logger.debug(
-                "[%s] room_typing raised", self.name, exc_info=True,
+                "[%s] room_typing raised",
+                self.name,
+                exc_info=True,
             )
 
 
@@ -430,6 +437,7 @@ def _e2e_available() -> bool:
     encrypted blobs the adapter can't decrypt."""
     try:
         import olm  # noqa: F401
+
         return True
     except ImportError:
         return False

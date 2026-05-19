@@ -6,6 +6,7 @@ abort the others. The migration always runs under
 ``write_origin="migration"`` so any frontmatter writes pick up the right
 provenance.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -25,10 +26,15 @@ from . import (
 )
 from .report import Report
 
-
-DEFAULT_DOMAINS: frozenset[str] = frozenset({
-    "skills", "memory", "sessions", "config", "mcp",
-})
+DEFAULT_DOMAINS: frozenset[str] = frozenset(
+    {
+        "skills",
+        "memory",
+        "sessions",
+        "config",
+        "mcp",
+    }
+)
 
 
 def run_import(
@@ -52,23 +58,32 @@ def run_import(
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     report_dir = dest / "logs" / "migration" / stamp
     report = Report(path=report_dir)
-    report.add("invocation", {
-        "source": str(source),
-        "dest": str(dest),
-        "profile": profile,
-        "include": sorted(active),
-        "exclude": sorted(exclude),
-        "dry_run": dry_run,
-    })
+    report.add(
+        "invocation",
+        {
+            "source": str(source),
+            "dest": str(dest),
+            "profile": profile,
+            "include": sorted(active),
+            "exclude": sorted(exclude),
+            "dry_run": dry_run,
+        },
+    )
 
     token = set_current_write_origin(MIGRATION)
     try:
         if "skills" in active:
-            skills_mapper.import_skills(source, dest, profile=profile, report=report, dry_run=dry_run)
+            skills_mapper.import_skills(
+                source, dest, profile=profile, report=report, dry_run=dry_run
+            )
         if "memory" in active:
-            memory_exporter.export_memory(source, dest, profile=profile, report=report, dry_run=dry_run)
+            memory_exporter.export_memory(
+                source, dest, profile=profile, report=report, dry_run=dry_run
+            )
         if "sessions" in active:
-            sessions_importer.import_sessions(source, dest, profile=profile, report=report, dry_run=dry_run)
+            sessions_importer.import_sessions(
+                source, dest, profile=profile, report=report, dry_run=dry_run
+            )
         if "config" in active:
             config_translator.translate_config(source, dest, report=report, dry_run=dry_run)
         if "mcp" in active:

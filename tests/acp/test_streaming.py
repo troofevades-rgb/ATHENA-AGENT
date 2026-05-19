@@ -1,12 +1,9 @@
 """StreamingSender + capabilities advertisement."""
+
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
-from unittest.mock import AsyncMock
-
-import pytest
 
 from athena.acp import capabilities
 from athena.acp.streaming import StreamingSender
@@ -25,7 +22,11 @@ class _FakeServer:
         self.notifications.append((method, params))
 
     async def send_request(
-        self, method: str, params: dict, *, timeout: float = 60.0,
+        self,
+        method: str,
+        params: dict,
+        *,
+        timeout: float = 60.0,
     ) -> Any:
         self.request_calls.append((method, params))
         if self.request_raises:
@@ -95,7 +96,8 @@ async def test_tool_call_result_carries_id_and_payload() -> None:
     server = _FakeServer()
     sender = StreamingSender(server, "s1")
     await sender.tool_call_result(
-        "call-7", "total 12\ndrwxr-xr-x ...",
+        "call-7",
+        "total 12\ndrwxr-xr-x ...",
     )
     [(method, params)] = server.notifications
     assert method == "session/tool_result"
@@ -108,7 +110,9 @@ async def test_tool_call_result_is_error_flag() -> None:
     server = _FakeServer()
     sender = StreamingSender(server, "s1")
     await sender.tool_call_result(
-        "call-x", "permission denied", is_error=True,
+        "call-x",
+        "permission denied",
+        is_error=True,
     )
     _, params = server.notifications[0]
     assert params["is_error"] is True
@@ -225,8 +229,13 @@ def test_capabilities_table_has_required_keys() -> None:
     """The IDE handshake needs these exact keys; check we advertise
     all of them."""
     required = {
-        "streaming", "tools", "approvals", "file_attachments",
-        "slash_commands", "models_listing", "session_lifecycle",
+        "streaming",
+        "tools",
+        "approvals",
+        "file_attachments",
+        "slash_commands",
+        "models_listing",
+        "session_lifecycle",
     }
     assert required.issubset(capabilities.CAPABILITIES.keys())
 

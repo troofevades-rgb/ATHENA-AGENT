@@ -13,15 +13,15 @@ Three delivery targets parsed from ``CronJob.delivery_target``:
   ``athena gateway run``). Falls back to log when no gateway is
   available.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .jobs import CronJob
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("athena.cron")
 
 
-def deliver(job: "CronJob", result: dict[str, Any]) -> None:
+def deliver(job: CronJob, result: dict[str, Any]) -> None:
     """Route ``result`` to the destination specified by ``job.delivery_target``.
 
     All exceptions are caught and logged at WARNING; delivery failure must
@@ -42,26 +42,25 @@ def deliver(job: "CronJob", result: dict[str, Any]) -> None:
         if target == "log":
             _deliver_log(job, result)
         elif target.startswith("file:"):
-            _deliver_file(job, result, target[len("file:"):])
+            _deliver_file(job, result, target[len("file:") :])
         elif target.startswith("gateway://"):
             _deliver_gateway(job, result, target)
         else:
             logger.warning(
                 "cron %s: unknown delivery target %r — falling back to log",
-                job.id, target,
+                job.id,
+                target,
             )
             _deliver_log(job, result)
     except Exception as e:
         logger.warning("cron %s: delivery failed: %s", job.id, e)
 
 
-def _deliver_log(job: "CronJob", result: dict[str, Any]) -> None:
+def _deliver_log(job: CronJob, result: dict[str, Any]) -> None:
     logger.info("cron %s: %s", job.id, json.dumps(result, default=str))
 
 
-def _deliver_file(
-    job: "CronJob", result: dict[str, Any], path_str: str
-) -> None:
+def _deliver_file(job: CronJob, result: dict[str, Any], path_str: str) -> None:
     if not path_str:
         logger.warning("cron %s: empty file: path; skipping", job.id)
         return
@@ -88,7 +87,7 @@ def _parse_gateway_target(target: str) -> tuple[str, str] | None:
     """
     if not target.startswith(_GATEWAY_PREFIX):
         return None
-    rest = target[len(_GATEWAY_PREFIX):]
+    rest = target[len(_GATEWAY_PREFIX) :]
     if "/" not in rest:
         return None
     platform, chat_id = rest.split("/", 1)
@@ -98,7 +97,9 @@ def _parse_gateway_target(target: str) -> tuple[str, str] | None:
 
 
 def _deliver_gateway(
-    job: "CronJob", result: dict[str, Any], target: str,
+    job: CronJob,
+    result: dict[str, Any],
+    target: str,
 ) -> None:
     """Dispatch the cron result through the running gateway daemon's
     adapter for the named platform.
@@ -120,7 +121,8 @@ def _deliver_gateway(
     if parsed is None:
         logger.warning(
             "cron %s: malformed gateway target %r — falling back to log",
-            job.id, target,
+            job.id,
+            target,
         )
         _deliver_log(job, result)
         return
@@ -136,7 +138,8 @@ def _deliver_gateway(
             "cron %s: no running gateway for profile %r — "
             "falling back to log. Schedule the job inside "
             "`athena gateway run` for gateway delivery.",
-            job.id, profile,
+            job.id,
+            profile,
         )
         _deliver_log(job, result)
         return
@@ -144,9 +147,9 @@ def _deliver_gateway(
     adapter = daemon.adapter_for(platform)
     if adapter is None:
         logger.warning(
-            "cron %s: gateway has no %r adapter registered — "
-            "falling back to log",
-            job.id, platform,
+            "cron %s: gateway has no %r adapter registered — falling back to log",
+            job.id,
+            platform,
         )
         _deliver_log(job, result)
         return
@@ -162,19 +165,21 @@ def _deliver_gateway(
         return
 
     cf = asyncio.run_coroutine_threadsafe(
-        adapter.send_text(chat_id, body), loop,
+        adapter.send_text(chat_id, body),
+        loop,
     )
     try:
         cf.result(timeout=10.0)
     except Exception as e:
         logger.warning(
             "cron %s: gateway send failed (%s) — falling back to log",
-            job.id, e,
+            job.id,
+            e,
         )
         _deliver_log(job, result)
 
 
-def _format_cron_body(job: "CronJob", result: dict[str, Any]) -> str:
+def _format_cron_body(job: CronJob, result: dict[str, Any]) -> str:
     """Render the cron result for a chat message.
 
     Keep it terse — chats are not log files. Includes the job

@@ -6,13 +6,13 @@ attachments. A per-process cache avoids re-reading the same file repeatedly
 within a session; ``invalidate(name, workspace)`` is called by the skill
 manager when a body is rewritten.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
 from .discovery import discover_skills
 from .frontmatter import parse_frontmatter
-
 
 # Cache key is (workspace_path_str_or_empty, skill_name) so a workspace
 # override and a user skill of the same name don't collide.
@@ -81,9 +81,7 @@ def load_reference(
     if ".." in parts:
         raise ValueError(f"reference path may not contain '..': {ref_path!r}")
     if not parts or parts[0] not in _ALLOWED_SUBDIRS:
-        raise ValueError(
-            f"reference path must start with one of {_ALLOWED_SUBDIRS}: {ref_path!r}"
-        )
+        raise ValueError(f"reference path must start with one of {_ALLOWED_SUBDIRS}: {ref_path!r}")
 
     skill_dir = _resolve(name, workspace)
     if skill_dir is None:

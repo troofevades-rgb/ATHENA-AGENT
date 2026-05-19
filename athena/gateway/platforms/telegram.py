@@ -25,6 +25,7 @@ than at module load. That keeps a headless install (no ``gateway``
 extra) from import-erroring just because ``athena`` is invoked
 without ``athena gateway run``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
         InlineKeyboardMarkup,
         Message,
     )
+
     from ..daemon import GatewayDaemon
 
 logger = logging.getLogger(__name__)
@@ -68,7 +70,7 @@ class TelegramAdapter(GatewayAdapter):
 
     def __init__(
         self,
-        daemon: "GatewayDaemon",
+        daemon: GatewayDaemon,
         *,
         bot_token: str,
         parse_mode: str = "Markdown",
@@ -86,8 +88,8 @@ class TelegramAdapter(GatewayAdapter):
             if attachment_dir is not None
             else daemon.profile_dir / "gateway_attachments" / self.name
         )
-        self._bot: "Bot" | None = None
-        self._dp: "Dispatcher" | None = None
+        self._bot: Bot | None = None
+        self._dp: Dispatcher | None = None
         self._polling_task: asyncio.Task | None = None
 
     # ---- lifecycle ----
@@ -111,7 +113,8 @@ class TelegramAdapter(GatewayAdapter):
         self._dp.callback_query.register(self._on_callback)
 
         self.daemon.approvals.register_platform_renderer(
-            self.name, self._render_approval,
+            self.name,
+            self._render_approval,
         )
 
         try:
@@ -138,7 +141,7 @@ class TelegramAdapter(GatewayAdapter):
 
     # ---- inbound ----
 
-    async def _on_message(self, message: "Message") -> None:
+    async def _on_message(self, message: Message) -> None:
         try:
             event = await self._event_from_message(message)
         except Exception:
@@ -146,7 +149,7 @@ class TelegramAdapter(GatewayAdapter):
             return
         await self.handle_inbound(event)
 
-    async def _event_from_message(self, message: "Message") -> MessageEvent:
+    async def _event_from_message(self, message: Message) -> MessageEvent:
         """Convert an aiogram :class:`Message` into a platform-neutral
         :class:`MessageEvent`.
 
@@ -184,7 +187,7 @@ class TelegramAdapter(GatewayAdapter):
         )
 
     @staticmethod
-    def _classify(message: "Message") -> tuple[str, MessageType]:
+    def _classify(message: Message) -> tuple[str, MessageType]:
         """Return ``(text, message_type)`` from a Telegram message.
 
         Captions are surfaced as ``text`` for photo / video /
@@ -206,7 +209,9 @@ class TelegramAdapter(GatewayAdapter):
         return (message.text or "", MessageType.TEXT)
 
     async def _download_attachments(
-        self, message: "Message", chat_id: str,
+        self,
+        message: Message,
+        chat_id: str,
     ) -> list[Path]:
         """Eagerly download every file_id on ``message`` to disk.
 
@@ -231,12 +236,14 @@ class TelegramAdapter(GatewayAdapter):
             except Exception:
                 logger.warning(
                     "[%s] failed to download attachment %s",
-                    self.name, file_id, exc_info=True,
+                    self.name,
+                    file_id,
+                    exc_info=True,
                 )
         return out
 
     @staticmethod
-    def _extract_file_ids(message: "Message") -> list[tuple[str, str | None]]:
+    def _extract_file_ids(message: Message) -> list[tuple[str, str | None]]:
         """Return list of ``(file_id, suggested_filename)`` from a
         Telegram message. Photos resolve to their largest size; videos
         / documents / voice / audio use their single file_id."""
@@ -282,21 +289,24 @@ class TelegramAdapter(GatewayAdapter):
         if chat_id is None:
             logger.warning(
                 "[%s] no telegram route for session %s; cannot render approval",
-                self.name, request.session_id,
+                self.name,
+                request.session_id,
             )
             return
         markup = self._build_approval_keyboard(request.request_id)
         body = self._format_approval_body(request)
         try:
             await self._bot.send_message(
-                chat_id, body,
+                chat_id,
+                body,
                 parse_mode=self.parse_mode,
                 reply_markup=markup,
             )
         except Exception:
             logger.exception(
                 "[%s] failed to render approval %s",
-                self.name, request.request_id,
+                self.name,
+                request.request_id,
             )
 
     def _resolve_chat_id(self, request: ApprovalRequest) -> str | None:
@@ -309,7 +319,7 @@ class TelegramAdapter(GatewayAdapter):
         return max(matching, key=lambda r: r.last_seen_at).chat_id
 
     @staticmethod
-    def _build_approval_keyboard(request_id: str) -> "InlineKeyboardMarkup":
+    def _build_approval_keyboard(request_id: str) -> InlineKeyboardMarkup:
         from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
         allow_data = _CALLBACK_SEPARATOR.join((_CALLBACK_PREFIX, request_id, "allow"))
@@ -343,7 +353,7 @@ class TelegramAdapter(GatewayAdapter):
             lines.append(f"`{key}` = `{repr_value}`")
         return "\n".join(lines)
 
-    async def _on_callback(self, callback: "CallbackQuery") -> None:
+    async def _on_callback(self, callback: CallbackQuery) -> None:
         """Inline-button click → route into the approval router.
 
         Acks the callback at the end (Telegram requires this within
@@ -364,18 +374,20 @@ class TelegramAdapter(GatewayAdapter):
                 await callback.answer()
             except Exception:
                 logger.debug(
-                    "[%s] callback.answer raised", self.name, exc_info=True,
+                    "[%s] callback.answer raised",
+                    self.name,
+                    exc_info=True,
                 )
 
     # ---- outbound ----
 
     async def send_text(self, chat_id: str, text: str) -> str:
         if self._bot is None:
-            raise RuntimeError(
-                "TelegramAdapter.send_text called before start()"
-            )
+            raise RuntimeError("TelegramAdapter.send_text called before start()")
         msg = await self._bot.send_message(
-            chat_id, text, parse_mode=self.parse_mode,
+            chat_id,
+            text,
+            parse_mode=self.parse_mode,
         )
         return str(msg.message_id)
 
@@ -388,11 +400,11 @@ class TelegramAdapter(GatewayAdapter):
         from aiogram.types import FSInputFile
 
         if self._bot is None:
-            raise RuntimeError(
-                "TelegramAdapter.send_file called before start()"
-            )
+            raise RuntimeError("TelegramAdapter.send_file called before start()")
         msg = await self._bot.send_document(
-            chat_id, FSInputFile(str(file_path)), caption=caption,
+            chat_id,
+            FSInputFile(str(file_path)),
+            caption=caption,
         )
         return str(msg.message_id)
 
@@ -409,7 +421,9 @@ class TelegramAdapter(GatewayAdapter):
             await self._bot.send_chat_action(chat_id, "typing")
         except Exception:
             logger.debug(
-                "[%s] send_chat_action raised", self.name, exc_info=True,
+                "[%s] send_chat_action raised",
+                self.name,
+                exc_info=True,
             )
 
 

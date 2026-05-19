@@ -1,4 +1,5 @@
 """Tests for athena.migration.sessions_importer."""
+
 from __future__ import annotations
 
 import json
@@ -18,14 +19,16 @@ def _write_session(hermes_source: Path, name: str, lines: list[dict]) -> Path:
     return p
 
 
-def test_translates_jsonl_schema(
-    hermes_source: Path, ocode_dest: Path, migration_report
-) -> None:
-    _write_session(hermes_source, "sess1", [
-        {"_meta": {"model": "qwen2.5", "started_at": "2026-04-01T00:00:00Z"}},
-        {"role": "user", "content": "hello"},
-        {"role": "assistant", "content": "hi there"},
-    ])
+def test_translates_jsonl_schema(hermes_source: Path, ocode_dest: Path, migration_report) -> None:
+    _write_session(
+        hermes_source,
+        "sess1",
+        [
+            {"_meta": {"model": "qwen2.5", "started_at": "2026-04-01T00:00:00Z"}},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi there"},
+        ],
+    )
     import_sessions(hermes_source, ocode_dest, report=migration_report)
 
     out = ocode_dest / "profiles" / "default" / "sessions" / "sess1.jsonl"
@@ -40,27 +43,33 @@ def test_translates_jsonl_schema(
 def test_extracts_metadata_to_meta_json(
     hermes_source: Path, ocode_dest: Path, migration_report
 ) -> None:
-    _write_session(hermes_source, "with-meta", [
-        {"_meta": {"model": "qwen2.5", "workspace": "/proj", "tags": ["x"]}},
-        {"role": "user", "content": "go"},
-    ])
+    _write_session(
+        hermes_source,
+        "with-meta",
+        [
+            {"_meta": {"model": "qwen2.5", "workspace": "/proj", "tags": ["x"]}},
+            {"role": "user", "content": "go"},
+        ],
+    )
     import_sessions(hermes_source, ocode_dest, report=migration_report)
-    meta = json.loads((
-        ocode_dest / "profiles" / "default" / "sessions" / "with-meta.meta.json"
-    ).read_text(encoding="utf-8"))
+    meta = json.loads(
+        (ocode_dest / "profiles" / "default" / "sessions" / "with-meta.meta.json").read_text(
+            encoding="utf-8"
+        )
+    )
     assert meta["model"] == "qwen2.5"
     assert meta["workspace"] == "/proj"
     assert meta["tags"] == ["x"]
     assert meta["session_id"] == "with-meta"
 
 
-def test_preserves_message_order(
-    hermes_source: Path, ocode_dest: Path, migration_report
-) -> None:
+def test_preserves_message_order(hermes_source: Path, ocode_dest: Path, migration_report) -> None:
     msgs = [{"role": "user", "content": str(i)} for i in range(20)]
     _write_session(hermes_source, "ordered", msgs)
     import_sessions(hermes_source, ocode_dest, report=migration_report)
-    out = (ocode_dest / "profiles" / "default" / "sessions" / "ordered.jsonl").read_text(encoding="utf-8")
+    out = (ocode_dest / "profiles" / "default" / "sessions" / "ordered.jsonl").read_text(
+        encoding="utf-8"
+    )
     parsed = [json.loads(line) for line in out.splitlines()]
     assert parsed == msgs
 
@@ -68,13 +77,19 @@ def test_preserves_message_order(
 def test_fallback_meta_when_no_header(
     hermes_source: Path, ocode_dest: Path, migration_report
 ) -> None:
-    _write_session(hermes_source, "no-header", [
-        {"role": "user", "content": "hello"},
-    ])
+    _write_session(
+        hermes_source,
+        "no-header",
+        [
+            {"role": "user", "content": "hello"},
+        ],
+    )
     import_sessions(hermes_source, ocode_dest, report=migration_report)
-    meta = json.loads((
-        ocode_dest / "profiles" / "default" / "sessions" / "no-header.meta.json"
-    ).read_text(encoding="utf-8"))
+    meta = json.loads(
+        (ocode_dest / "profiles" / "default" / "sessions" / "no-header.meta.json").read_text(
+            encoding="utf-8"
+        )
+    )
     assert meta["session_id"] == "no-header"
     assert "started_at" in meta
 

@@ -24,6 +24,7 @@ phase calls for a "status message edit" pattern instead — Phase 10.8
 wires that in when the heartbeat loop lights up. For now,
 :meth:`show_typing` is a documented no-op.
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
     from slack_sdk.socket_mode.aiohttp import SocketModeClient
     from slack_sdk.socket_mode.request import SocketModeRequest
     from slack_sdk.web.async_client import AsyncWebClient
+
     from ..daemon import GatewayDaemon
 
 logger = logging.getLogger(__name__)
@@ -54,7 +56,7 @@ class SlackAdapter(GatewayAdapter):
 
     def __init__(
         self,
-        daemon: "GatewayDaemon",
+        daemon: GatewayDaemon,
         *,
         bot_token: str,
         app_token: str,
@@ -72,8 +74,8 @@ class SlackAdapter(GatewayAdapter):
             if attachment_dir is not None
             else daemon.profile_dir / "gateway_attachments" / self.name
         )
-        self._web: "AsyncWebClient" | None = None
-        self._socket: "SocketModeClient" | None = None
+        self._web: AsyncWebClient | None = None
+        self._socket: SocketModeClient | None = None
         # Bot's own user id, populated at start() from auth.test, so
         # we can filter out messages we sent ourselves.
         self._bot_user_id: str | None = None
@@ -98,11 +100,13 @@ class SlackAdapter(GatewayAdapter):
         except Exception:
             logger.warning(
                 "[%s] auth.test failed; bot-self filter disabled",
-                self.name, exc_info=True,
+                self.name,
+                exc_info=True,
             )
 
         self.daemon.approvals.register_platform_renderer(
-            self.name, self._render_approval,
+            self.name,
+            self._render_approval,
         )
 
         await self._socket.connect()
@@ -110,6 +114,7 @@ class SlackAdapter(GatewayAdapter):
         # runs as long as the websocket stays open. Block here until
         # someone cancels us so the daemon's start-task semantics work.
         import asyncio
+
         await asyncio.Future()  # never completes; cancelled by stop()
 
     async def stop(self) -> None:
@@ -119,7 +124,9 @@ class SlackAdapter(GatewayAdapter):
                 await self._socket.disconnect()
             except Exception:
                 logger.debug(
-                    "[%s] socket.disconnect raised", self.name, exc_info=True,
+                    "[%s] socket.disconnect raised",
+                    self.name,
+                    exc_info=True,
                 )
         if self._web is not None:
             try:
@@ -131,15 +138,17 @@ class SlackAdapter(GatewayAdapter):
                         await result
             except Exception:
                 logger.debug(
-                    "[%s] web.close raised", self.name, exc_info=True,
+                    "[%s] web.close raised",
+                    self.name,
+                    exc_info=True,
                 )
 
     # ---- request fan-out --------------------------------------------
 
     async def _on_request(
         self,
-        client: "SocketModeClient",
-        req: "SocketModeRequest",
+        client: SocketModeClient,
+        req: SocketModeRequest,
     ) -> None:
         """Single listener for every Socket Mode envelope.
 
@@ -158,17 +167,20 @@ class SlackAdapter(GatewayAdapter):
             else:
                 logger.debug(
                     "[%s] ignoring unknown request type: %s",
-                    self.name, req.type,
+                    self.name,
+                    req.type,
                 )
         except Exception:
             logger.exception(
-                "[%s] handler raised for %s request", self.name, req.type,
+                "[%s] handler raised for %s request",
+                self.name,
+                req.type,
             )
 
     async def _ack(
         self,
-        client: "SocketModeClient",
-        req: "SocketModeRequest",
+        client: SocketModeClient,
+        req: SocketModeRequest,
     ) -> None:
         from slack_sdk.socket_mode.response import SocketModeResponse
 
@@ -179,7 +191,9 @@ class SlackAdapter(GatewayAdapter):
         except Exception:
             logger.debug(
                 "[%s] socket ack raised for envelope %s",
-                self.name, getattr(req, "envelope_id", "?"), exc_info=True,
+                self.name,
+                getattr(req, "envelope_id", "?"),
+                exc_info=True,
             )
 
     # ---- inbound message --------------------------------------------
@@ -196,7 +210,8 @@ class SlackAdapter(GatewayAdapter):
             msg_event = await self._event_from_slack(event)
         except Exception:
             logger.exception(
-                "[%s] failed to normalize event", self.name,
+                "[%s] failed to normalize event",
+                self.name,
             )
             return
         await self.handle_inbound(msg_event)
@@ -209,15 +224,13 @@ class SlackAdapter(GatewayAdapter):
             return True
         if event.get("subtype") == "bot_message":
             return True
-        if (
-            self._bot_user_id is not None
-            and event.get("user") == self._bot_user_id
-        ):
+        if self._bot_user_id is not None and event.get("user") == self._bot_user_id:
             return True
         return False
 
     async def _event_from_slack(
-        self, event: dict[str, Any],
+        self,
+        event: dict[str, Any],
     ) -> MessageEvent:
         chat_id = str(event.get("channel") or "")
         user_id = str(event.get("user") or "")
@@ -226,11 +239,7 @@ class SlackAdapter(GatewayAdapter):
         channel_type = event.get("channel_type") or ""
         is_dm = channel_type == "im"
         reply_to = event.get("thread_ts")
-        reply_to_id = (
-            str(reply_to)
-            if reply_to and reply_to != event.get("ts")
-            else None
-        )
+        reply_to_id = str(reply_to) if reply_to and reply_to != event.get("ts") else None
         attachments, message_type = await self._classify_and_download(event, chat_id)
         return MessageEvent(
             platform=self.name,
@@ -246,7 +255,9 @@ class SlackAdapter(GatewayAdapter):
         )
 
     async def _classify_and_download(
-        self, event: dict[str, Any], chat_id: str,
+        self,
+        event: dict[str, Any],
+        chat_id: str,
     ) -> tuple[list[Path], MessageType]:
         """Pick the message type and (eagerly) download attachments.
 
@@ -297,7 +308,9 @@ class SlackAdapter(GatewayAdapter):
                 except Exception:
                     logger.warning(
                         "[%s] failed to download slack file %s",
-                        self.name, f.get("id"), exc_info=True,
+                        self.name,
+                        f.get("id"),
+                        exc_info=True,
                     )
 
         return downloaded, message_type
@@ -331,7 +344,8 @@ class SlackAdapter(GatewayAdapter):
         if chat_id is None:
             logger.warning(
                 "[%s] no slack route for session %s; cannot render approval",
-                self.name, request.session_id,
+                self.name,
+                request.session_id,
             )
             return
         text, blocks = self._build_approval_blocks(request)
@@ -344,7 +358,8 @@ class SlackAdapter(GatewayAdapter):
         except Exception:
             logger.exception(
                 "[%s] failed to render approval %s",
-                self.name, request.request_id,
+                self.name,
+                request.request_id,
             )
 
     def _resolve_chat_id(self, request: ApprovalRequest) -> str | None:

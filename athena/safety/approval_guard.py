@@ -14,16 +14,17 @@ that would normally prompt for approval in foreground, the prompt is
 auto-denied in background unless the relevant resource carries
 ``auto_approve_in_background=True``.
 """
+
 from __future__ import annotations
 
 import contextvars
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from ..provenance import FOREGROUND, get_current_write_origin
 
-
 _approval_grants: contextvars.ContextVar[dict[str, bool]] = contextvars.ContextVar(
-    "athena_approval_grants", default={},
+    "athena_approval_grants",
+    default={},
 )
 
 
@@ -63,8 +64,7 @@ async def request_approval(
         if auto_approve_in_background:
             return True
         raise ApprovalDeniedInBackground(
-            f"action on {resource_id!r} requires foreground approval "
-            f"(write_origin={origin!r})"
+            f"action on {resource_id!r} requires foreground approval (write_origin={origin!r})"
         )
 
     granted = await prompt(resource_id)

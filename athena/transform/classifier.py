@@ -12,17 +12,21 @@ results show errors that propagated, ``preference_pair`` when a
 ``/steer`` resulted in recovery) and leaves everything else for human
 review.
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-
 Label = Literal["good", "bad", "preference_pair", "skip", "unreviewed"]
 
 VALID_LABELS: tuple[Label, ...] = (
-    "good", "bad", "preference_pair", "skip", "unreviewed",
+    "good",
+    "bad",
+    "preference_pair",
+    "skip",
+    "unreviewed",
 )
 
 
@@ -32,15 +36,30 @@ VALID_LABELS: tuple[Label, ...] = (
 _ERROR_PREFIX_RE = re.compile(r"^(?:Error:|Traceback|BLOCKED\b|DENIED\b)", re.I)
 _TRACEBACK_SIG_RE = re.compile(
     r"Traceback \(most recent call last\):|"
-    r"^\s*File \".+?\", line \d+", re.M,
+    r"^\s*File \".+?\", line \d+",
+    re.M,
 )
 _NEGATIVE_OPENERS = (
-    "no", "nope", "wrong", "undo", "/undo", "actually",
-    "stop", "don't", "do not",
+    "no",
+    "nope",
+    "wrong",
+    "undo",
+    "/undo",
+    "actually",
+    "stop",
+    "don't",
+    "do not",
 )
 _POSITIVE_OPENERS = (
-    "thanks", "thank you", "perfect", "great", "nice", "good",
-    "awesome", "lgtm", "ship it",
+    "thanks",
+    "thank you",
+    "perfect",
+    "great",
+    "nice",
+    "good",
+    "awesome",
+    "lgtm",
+    "ship it",
 )
 _POSITIVE_EMOJIS = ("👍", "🎉", "✅", "💯")
 _STEER_TAG_RE = re.compile(r"^\[/steer\]", re.M)
@@ -57,6 +76,7 @@ class Trajectory:
     the human reviewer assigned (and is the canonical signal for
     dataset construction).
     """
+
     session_id: str
     turn_start: int
     turn_end: int
@@ -106,13 +126,15 @@ def extract_trajectories(
             # Unterminated trajectory; skip.
             i += 1
             continue
-        slice_ = messages[start: final + 1]
-        out.append(Trajectory(
-            session_id=session_id,
-            turn_start=start,
-            turn_end=final,
-            turns=list(slice_),
-        ))
+        slice_ = messages[start : final + 1]
+        out.append(
+            Trajectory(
+                session_id=session_id,
+                turn_start=start,
+                turn_end=final,
+                turns=list(slice_),
+            )
+        )
         i = final + 1
     return out
 
@@ -138,9 +160,8 @@ def auto_classify(
         text = (next_user_message.get("content") or "").strip().lower()
         if any(text.startswith(op) for op in _NEGATIVE_OPENERS):
             follow_up_label = "bad"
-        elif (
-            any(text.startswith(op) for op in _POSITIVE_OPENERS)
-            or any(emoji in text for emoji in _POSITIVE_EMOJIS)
+        elif any(text.startswith(op) for op in _POSITIVE_OPENERS) or any(
+            emoji in text for emoji in _POSITIVE_EMOJIS
         ):
             follow_up_label = "good"
 
@@ -177,10 +198,7 @@ def _had_propagating_error(turns: list[dict[str, Any]]) -> bool:
         content = m.get("content") or ""
         if not isinstance(content, str):
             content = str(content)
-        is_error = bool(
-            _ERROR_PREFIX_RE.search(content)
-            or _TRACEBACK_SIG_RE.search(content)
-        )
+        is_error = bool(_ERROR_PREFIX_RE.search(content) or _TRACEBACK_SIG_RE.search(content))
         last_tool_error = is_error
     return bool(last_tool_error)
 
@@ -211,10 +229,9 @@ def _had_recovery_after_steer(turns: list[dict[str, Any]]) -> bool:
             break
     if steer_idx is None:
         return False
-    tail = turns[steer_idx + 1:]
+    tail = turns[steer_idx + 1 :]
     has_final_assistant = any(
-        m.get("role") == "assistant" and not m.get("tool_calls")
-        for m in tail
+        m.get("role") == "assistant" and not m.get("tool_calls") for m in tail
     )
     if not has_final_assistant:
         return False

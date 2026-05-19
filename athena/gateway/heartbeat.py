@@ -8,6 +8,7 @@ Uses :func:`time.monotonic` — never wall-clock — because the only thing
 this tracker is asked about is *elapsed time since the last mark* and
 clock skew during NTP sync would otherwise produce spurious staleness.
 """
+
 from __future__ import annotations
 
 import time

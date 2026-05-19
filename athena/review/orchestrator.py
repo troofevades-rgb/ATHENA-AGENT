@@ -5,6 +5,7 @@ The orchestrator is fire-and-forget: it spawns a daemon thread that runs
 for status-line display, depending on caller). The foreground turn never
 waits on the review.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,16 +28,14 @@ def _format_last_messages(messages: list[dict[str, Any]]) -> str:
         role = m.get("role", "?")
         content = m.get("content", "")
         if isinstance(content, list):
-            content = " ".join(
-                c.get("text", "") for c in content if isinstance(c, dict)
-            )
+            content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
         if not isinstance(content, str):
             content = json.dumps(content, ensure_ascii=False)
         parts.append(f"[{role}] {content}")
     return "\n".join(parts)
 
 
-def maybe_fire_review(parent_agent: "Agent") -> threading.Thread | None:
+def maybe_fire_review(parent_agent: Agent) -> threading.Thread | None:
     """Increment the nudge counter; if it's at an interval boundary, spawn a
     review fork on a daemon thread and return the thread (so tests can join).
     Returns None when the review doesn't fire (counter not at boundary,
@@ -59,15 +58,13 @@ def maybe_fire_review(parent_agent: "Agent") -> threading.Thread | None:
     # Build the addendum at fire time (deferred import — keeps the review
     # subpackage import-time cheap and avoids a cycle with prompts.py).
     from . import prompts as review_prompts
-    addendum = (
-        review_prompts.COMBINED
-        + "\n\n---\n\n## Last-turn context\n"
-        + history_block
-    )
+
+    addendum = review_prompts.COMBINED + "\n\n---\n\n## Last-turn context\n" + history_block
     captured_result: dict[str, Any] = {}
 
     def _runner() -> None:
         from ..agent.fork import fork
+
         try:
             result = fork(
                 parent_agent,
@@ -84,6 +81,7 @@ def maybe_fire_review(parent_agent: "Agent") -> threading.Thread | None:
             # CLI status helper) can show "Background review: 1 memory entry
             # written" on the next prompt.
             from . import summary as review_summary
+
             summary_obj = review_summary.extract_summary(result)
             parent_agent.last_review_summary = summary_obj
             if summary_obj["memory_writes"] or summary_obj["skill_changes"]:

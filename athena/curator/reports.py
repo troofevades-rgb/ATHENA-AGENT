@@ -12,6 +12,7 @@ Each run lands under ``<logs_root>/curator/<YYYYMMDD-HHMMSS>/``:
 The function returns the same shape the orchestrator hands back to
 ``maybe_run_curator`` callers.
 """
+
 from __future__ import annotations
 
 import json
@@ -76,9 +77,7 @@ def write_run(
         "report_path": str(run_dir / "REPORT.md"),
     }
 
-    (run_dir / "run.json").write_text(
-        json.dumps(summary, indent=2, default=str), encoding="utf-8"
-    )
+    (run_dir / "run.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     (run_dir / "REPORT.md").write_text(_render_markdown(summary), encoding="utf-8")
     if getattr(fork_result, "stdout", None):
         (run_dir / "fork-stdout.log").write_text(fork_result.stdout, encoding="utf-8")
@@ -142,14 +141,10 @@ def _render_markdown(summary: dict) -> str:
             lines.append("")
             lines.append("### Archived on disk but not in YAML output")
             for d in drift["unexpected_archive"]:
-                lines.append(
-                    f"- `{d['skill']}` ({d['before_state']} → {d['after_state']})"
-                )
+                lines.append(f"- `{d['skill']}` ({d['before_state']} → {d['after_state']})")
         if drift.get("no_op_after_keep"):
             lines.append("")
             lines.append("### KEEP_AS_IS but state flipped")
             for d in drift["no_op_after_keep"]:
-                lines.append(
-                    f"- `{d['skill']}` ({d['before_state']} → {d['after_state']})"
-                )
+                lines.append(f"- `{d['skill']}` ({d['before_state']} → {d['after_state']})")
     return "\n".join(lines).rstrip() + "\n"

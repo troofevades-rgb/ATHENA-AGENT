@@ -7,6 +7,7 @@ untouched. When the same code path runs with
 ``auto_approve_in_background=True``, the mutation succeeds and
 produces a snapshot + audit record tagged ``write_origin="background_review"``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -54,10 +55,9 @@ async def _simulate_fork_mutation(
     grants_token = scope_fresh_approvals()
     origin_token = set_current_write_origin(BACKGROUND_REVIEW)
     try:
+
         async def _should_never_be_called(_: str) -> bool:  # pragma: no cover
-            raise AssertionError(
-                "prompt callback must not run in a background fork"
-            )
+            raise AssertionError("prompt callback must not run in a background fork")
 
         approved = await request_approval(
             f"skill:{skill_dir.name}",
@@ -69,10 +69,12 @@ async def _simulate_fork_mutation(
 
         # Only reached when auto_approve_in_background=True.
         with snapshot_and_record(
-            [skill_dir], tool_name="background_mutation",
+            [skill_dir],
+            tool_name="background_mutation",
         ) as ctx:
             (skill_dir / "SKILL.md").write_text(
-                "rewritten by background fork\n", encoding="utf-8",
+                "rewritten by background fork\n",
+                encoding="utf-8",
             )
             ctx.record(skill_dir / "SKILL.md")
         return True
@@ -130,9 +132,7 @@ def test_background_mutation_with_auto_approve_proceeds(
     assert result is True
 
     # Skill rewritten.
-    assert (
-        skill_dir / "SKILL.md"
-    ).read_text(encoding="utf-8") == "rewritten by background fork\n"
+    assert (skill_dir / "SKILL.md").read_text(encoding="utf-8") == "rewritten by background fork\n"
 
     # Snapshot recorded with write_origin=background_review.
     store = safety_context.get_snapshot_store()
@@ -145,9 +145,7 @@ def test_background_mutation_with_auto_approve_proceeds(
     audit_path = safety_context.get_audit_log()._current_path()
     assert audit_path.exists()
     lines = [
-        json.loads(line) for line in audit_path.read_text(
-            encoding="utf-8"
-        ).splitlines() if line
+        json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines() if line
     ]
     assert any(r["write_origin"] == "background_review" for r in lines)
     assert any(r["tool_name"] == "background_mutation" for r in lines)
@@ -164,10 +162,12 @@ def test_foreground_mutation_still_creates_snapshot(
     token = set_current_write_origin(FOREGROUND)
     try:
         with snapshot_and_record(
-            [skill_dir], tool_name="foreground_mutation",
+            [skill_dir],
+            tool_name="foreground_mutation",
         ) as ctx:
             (skill_dir / "SKILL.md").write_text(
-                "foreground edit\n", encoding="utf-8",
+                "foreground edit\n",
+                encoding="utf-8",
             )
             ctx.record(skill_dir / "SKILL.md")
     finally:

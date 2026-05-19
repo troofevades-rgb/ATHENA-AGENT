@@ -10,24 +10,21 @@ The optional ``ATHENA_SESSIONS_FSYNC=1`` env flag flushes after each write
 sensitive and the loss window on crash is at most one turn. The legacy
 ``OCODE_SESSIONS_FSYNC`` is honored for one release.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import os
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
-
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 def _fsync_enabled() -> bool:
-    raw = (
-        os.environ.get("ATHENA_SESSIONS_FSYNC")
-        or os.environ.get("OCODE_SESSIONS_FSYNC")
-        or ""
-    )
+    raw = os.environ.get("ATHENA_SESSIONS_FSYNC") or os.environ.get("OCODE_SESSIONS_FSYNC") or ""
     return raw.strip() in ("1", "true", "yes")
 
 
@@ -50,7 +47,7 @@ def append_jsonl(path: Path, message: dict[str, Any]) -> None:
 def read_jsonl(path: Path) -> Iterator[dict[str, Any]]:
     """Yield each parsed JSON object. Malformed lines log a warning and skip."""
     try:
-        fh = open(path, "r", encoding="utf-8")
+        fh = open(path, encoding="utf-8")
     except FileNotFoundError:
         return
     with fh:
@@ -63,7 +60,9 @@ def read_jsonl(path: Path) -> Iterator[dict[str, Any]]:
             except json.JSONDecodeError as e:
                 logger.warning(
                     "skipping malformed JSONL line: %s:%d (%s)",
-                    path, lineno, e,
+                    path,
+                    lineno,
+                    e,
                 )
 
 

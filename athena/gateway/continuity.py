@@ -22,6 +22,7 @@ Keeping these façades out of the router keeps that class focused on
 the hot path (resolve) and lets the CLI handle bulk operations without
 re-implementing them.
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 class ContinuityManager:
     """Bulk operations on the cross-platform user-link table."""
 
-    def __init__(self, router: "SessionRouter") -> None:
+    def __init__(self, router: SessionRouter) -> None:
         self._router = router
 
     # ---- bulk binding -------------------------------------------------
@@ -64,6 +65,7 @@ class ContinuityManager:
             return
 
         from datetime import datetime, timezone
+
         now_iso = datetime.now(timezone.utc).isoformat()
 
         db = self._router._db
@@ -112,16 +114,13 @@ class ContinuityManager:
         ).fetchall()
         return [(row[0], row[1]) for row in rows]
 
-    def canonical_for(
-        self, platform: str, platform_user_id: str
-    ) -> str | None:
+    def canonical_for(self, platform: str, platform_user_id: str) -> str | None:
         """Reverse lookup: which canonical user owns this platform id?"""
         return self._router._canonical_user(platform, platform_user_id)
 
     def list_canonical_users(self) -> list[str]:
         """Every distinct canonical user across the table."""
         rows = self._router._db.execute(
-            "SELECT DISTINCT canonical_user_id FROM gateway_user_links "
-            "ORDER BY canonical_user_id"
+            "SELECT DISTINCT canonical_user_id FROM gateway_user_links ORDER BY canonical_user_id"
         ).fetchall()
         return [row[0] for row in rows]

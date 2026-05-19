@@ -14,13 +14,13 @@ The only extras beyond :class:`OpenAICompatibleProvider`:
   tier. Defaults point at the athena project page; callers can
   override via constructor args.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 from . import register_provider
 from .openai import OpenAICompatibleProvider
-
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 _DEFAULT_REFERER = "https://github.com/troofevades/athena"

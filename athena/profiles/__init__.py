@@ -31,6 +31,7 @@ profile-level files at the top of ``~/.athena/`` (legacy single-
 profile layout from earlier phases) move into
 ``profiles/default/``. Idempotent — runs once.
 """
+
 from .manager import (
     create_profile,
     delete_profile,
@@ -47,7 +48,6 @@ from .resolution import (
     profile_exists,
     resolve_active_profile,
 )
-
 
 __all__ = [
     "ACTIVE_PROFILE_FILE",

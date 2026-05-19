@@ -1,4 +1,5 @@
 """Tests for toolset scoping and check_fn gating in the tool registry."""
+
 from typing import Any
 
 import pytest

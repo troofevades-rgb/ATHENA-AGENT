@@ -20,6 +20,7 @@ Items that stay at ``~/.athena/`` (user-global, not profile-scope):
 ``plugins_state.json``, plus the new profile machinery
 (``profiles/``, ``active_profile``).
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,7 +28,7 @@ import shutil
 from pathlib import Path
 
 from ..config import CONFIG_DIR
-from .resolution import DEFAULT_PROFILE, PROFILES_DIR, ensure_profile
+from .resolution import DEFAULT_PROFILE, ensure_profile
 
 logger = logging.getLogger(__name__)
 
@@ -57,16 +58,18 @@ _PROFILE_ITEMS: tuple[str, ...] = (
 # Items that explicitly stay at ``~/.athena/``. Used to verify the
 # inverse condition in tests; not consulted by the migration itself
 # (the migration only acts on _PROFILE_ITEMS).
-_GLOBAL_ITEMS: frozenset[str] = frozenset({
-    "credentials.json",
-    "mcp_tokens",
-    "plugins",
-    "plugins_state.json",
-    "logs",
-    "profiles",
-    "active_profile",
-    "memory",  # the providers dir lives under profile/memory/
-})
+_GLOBAL_ITEMS: frozenset[str] = frozenset(
+    {
+        "credentials.json",
+        "mcp_tokens",
+        "plugins",
+        "plugins_state.json",
+        "logs",
+        "profiles",
+        "active_profile",
+        "memory",  # the providers dir lives under profile/memory/
+    }
+)
 
 
 def migration_needed(home: Path | None = None) -> bool:
@@ -110,7 +113,8 @@ def run_migration(home: Path | None = None) -> dict[str, list[str]]:
             # log so the user can resolve manually.
             logger.warning(
                 "migration: %s already exists at %s; skipping",
-                item, dst,
+                item,
+                dst,
             )
             failed.append(item)
             continue
@@ -127,9 +131,10 @@ def run_migration(home: Path | None = None) -> dict[str, list[str]]:
 
     if moved or failed:
         logger.info(
-            "profile migration: moved %d item(s), %d failure(s) "
-            "to ~/.athena/profiles/%s/",
-            len(moved), len(failed), DEFAULT_PROFILE,
+            "profile migration: moved %d item(s), %d failure(s) to ~/.athena/profiles/%s/",
+            len(moved),
+            len(failed),
+            DEFAULT_PROFILE,
         )
     return {"moved": moved, "failed": failed}
 

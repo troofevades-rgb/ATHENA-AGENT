@@ -1,4 +1,5 @@
 """``athena mcp`` CLI subcommands."""
+
 from __future__ import annotations
 
 import json
@@ -34,8 +35,10 @@ def monkey_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
     # Also make sure user-level mcp.json doesn't pollute.
     from athena import config as cfg_mod
+
     monkeypatch.setattr(
-        cfg_mod, "USER_MCP_PATH",
+        cfg_mod,
+        "USER_MCP_PATH",
         tmp_path / "nonexistent" / "mcp.json",
     )
     return tmp_path
@@ -51,21 +54,26 @@ def test_list_empty(monkey_cwd: Path, capsys: pytest.CaptureFixture) -> None:
 
 
 def test_list_shows_stdio_and_sse(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    _write_mcp_json(monkey_cwd, {
-        "mcpServers": {
-            "local-fs": {"command": "npx", "args": ["fs-server"]},
-            "linear": {
-                "transport": "sse",
-                "url": "https://mcp.linear.app/sse",
-                "oauth": {
-                    "authorization_endpoint": "x", "token_endpoint": "y",
-                    "client_id": "c",
+    _write_mcp_json(
+        monkey_cwd,
+        {
+            "mcpServers": {
+                "local-fs": {"command": "npx", "args": ["fs-server"]},
+                "linear": {
+                    "transport": "sse",
+                    "url": "https://mcp.linear.app/sse",
+                    "oauth": {
+                        "authorization_endpoint": "x",
+                        "token_endpoint": "y",
+                        "client_id": "c",
+                    },
                 },
-            },
-        }
-    })
+            }
+        },
+    )
     rc = cli.main(["list"])
     out = capsys.readouterr().out
     assert rc == 0
@@ -75,14 +83,18 @@ def test_list_shows_stdio_and_sse(
 
 
 def test_list_json_output(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    _write_mcp_json(monkey_cwd, {
-        "mcpServers": {
-            "s1": {"command": "x"},
-            "s2": {"transport": "sse", "url": "https://x", "disabled": True},
-        }
-    })
+    _write_mcp_json(
+        monkey_cwd,
+        {
+            "mcpServers": {
+                "s1": {"command": "x"},
+                "s2": {"transport": "sse", "url": "https://x", "disabled": True},
+            }
+        },
+    )
     cli.main(["list", "--json"])
     payload = json.loads(capsys.readouterr().out)
     by_name = {e["name"]: e for e in payload}
@@ -96,7 +108,8 @@ def test_list_json_output(
 
 
 def test_auth_server_not_found(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     _write_mcp_json(monkey_cwd, {"mcpServers": {}})
     rc = cli.main(["auth", "missing"])
@@ -105,37 +118,47 @@ def test_auth_server_not_found(
 
 
 def test_auth_server_without_oauth_block(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    _write_mcp_json(monkey_cwd, {
-        "mcpServers": {
-            "local": {"command": "x"},
-        }
-    })
+    _write_mcp_json(
+        monkey_cwd,
+        {
+            "mcpServers": {
+                "local": {"command": "x"},
+            }
+        },
+    )
     rc = cli.main(["auth", "local"])
     assert rc == 2
     assert "no [oauth] config" in capsys.readouterr().err
 
 
 def test_auth_runs_flow_and_saves_token(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
     isolated_tokens: Path,
 ) -> None:
-    _write_mcp_json(monkey_cwd, {
-        "mcpServers": {
-            "linear": {
-                "transport": "sse", "url": "https://x",
-                "oauth": {
-                    "authorization_endpoint": "https://x/auth",
-                    "token_endpoint": "https://x/token",
-                    "client_id": "c",
-                    "scopes": ["read"],
-                },
+    _write_mcp_json(
+        monkey_cwd,
+        {
+            "mcpServers": {
+                "linear": {
+                    "transport": "sse",
+                    "url": "https://x",
+                    "oauth": {
+                        "authorization_endpoint": "https://x/auth",
+                        "token_endpoint": "https://x/token",
+                        "client_id": "c",
+                        "scopes": ["read"],
+                    },
+                }
             }
-        }
-    })
+        },
+    )
     fake_token = oauth.StoredToken(
-        access_token="AT-NEW", refresh_token="RT",
+        access_token="AT-NEW",
+        refresh_token="RT",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
     )
     with patch(
@@ -151,19 +174,25 @@ def test_auth_runs_flow_and_saves_token(
 
 
 def test_auth_failure_returns_1(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    _write_mcp_json(monkey_cwd, {
-        "mcpServers": {
-            "x": {
-                "transport": "sse", "url": "https://x",
-                "oauth": {
-                    "authorization_endpoint": "a",
-                    "token_endpoint": "t", "client_id": "c",
-                },
+    _write_mcp_json(
+        monkey_cwd,
+        {
+            "mcpServers": {
+                "x": {
+                    "transport": "sse",
+                    "url": "https://x",
+                    "oauth": {
+                        "authorization_endpoint": "a",
+                        "token_endpoint": "t",
+                        "client_id": "c",
+                    },
+                }
             }
-        }
-    })
+        },
+    )
     with patch(
         "athena.mcp.oauth.run_authorization_flow",
         side_effect=oauth.OAuthError("user denied"),
@@ -174,23 +203,30 @@ def test_auth_failure_returns_1(
 
 
 def test_auth_no_browser_flag_passes_through(monkey_cwd: Path) -> None:
-    _write_mcp_json(monkey_cwd, {
-        "mcpServers": {
-            "x": {
-                "transport": "sse", "url": "https://x",
-                "oauth": {
-                    "authorization_endpoint": "a",
-                    "token_endpoint": "t", "client_id": "c",
-                },
+    _write_mcp_json(
+        monkey_cwd,
+        {
+            "mcpServers": {
+                "x": {
+                    "transport": "sse",
+                    "url": "https://x",
+                    "oauth": {
+                        "authorization_endpoint": "a",
+                        "token_endpoint": "t",
+                        "client_id": "c",
+                    },
+                }
             }
-        }
-    })
+        },
+    )
     token = oauth.StoredToken(
-        access_token="AT", refresh_token=None,
+        access_token="AT",
+        refresh_token=None,
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
     )
     with patch(
-        "athena.mcp.oauth.run_authorization_flow", return_value=token,
+        "athena.mcp.oauth.run_authorization_flow",
+        return_value=token,
     ) as run_flow:
         cli.main(["auth", "x", "--no-browser"])
     assert run_flow.call_args.kwargs["open_browser"] is False
@@ -200,7 +236,8 @@ def test_auth_no_browser_flag_passes_through(monkey_cwd: Path) -> None:
 
 
 def test_token_status_empty(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["token-status"])
     assert rc == 0
@@ -210,16 +247,24 @@ def test_token_status_empty(
 def test_token_status_lists_each_server(
     capsys: pytest.CaptureFixture,
 ) -> None:
-    oauth.save_token("linear", oauth.StoredToken(
-        access_token="x", refresh_token="r",
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
-        scope="read",
-    ))
-    oauth.save_token("sentry", oauth.StoredToken(
-        access_token="y", refresh_token=None,
-        expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
-        scope="",
-    ))
+    oauth.save_token(
+        "linear",
+        oauth.StoredToken(
+            access_token="x",
+            refresh_token="r",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
+            scope="read",
+        ),
+    )
+    oauth.save_token(
+        "sentry",
+        oauth.StoredToken(
+            access_token="y",
+            refresh_token=None,
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+            scope="",
+        ),
+    )
     rc = cli.main(["token-status"])
     out = capsys.readouterr().out
     assert "linear" in out
@@ -228,10 +273,14 @@ def test_token_status_lists_each_server(
 
 
 def test_token_status_json(capsys: pytest.CaptureFixture) -> None:
-    oauth.save_token("x", oauth.StoredToken(
-        access_token="a", refresh_token="r",
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-    ))
+    oauth.save_token(
+        "x",
+        oauth.StoredToken(
+            access_token="a",
+            refresh_token="r",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        ),
+    )
     cli.main(["token-status", "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert "x" in payload
@@ -243,10 +292,14 @@ def test_token_status_json(capsys: pytest.CaptureFixture) -> None:
 def test_revoke_removes_token(
     capsys: pytest.CaptureFixture,
 ) -> None:
-    oauth.save_token("zap", oauth.StoredToken(
-        access_token="a", refresh_token=None,
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-    ))
+    oauth.save_token(
+        "zap",
+        oauth.StoredToken(
+            access_token="a",
+            refresh_token=None,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        ),
+    )
     rc = cli.main(["revoke", "zap"])
     assert rc == 0
     assert oauth.load_token("zap") is None
@@ -265,7 +318,8 @@ def test_revoke_missing_token_reports_clean(
 
 
 def test_test_subcommand_unknown_server(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     _write_mcp_json(monkey_cwd, {"mcpServers": {}})
     rc = cli.main(["test", "ghost"])
@@ -273,13 +327,17 @@ def test_test_subcommand_unknown_server(
 
 
 def test_test_subcommand_initializes_and_prints_tools(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    _write_mcp_json(monkey_cwd, {
-        "mcpServers": {
-            "local": {"command": "fake", "args": []},
-        }
-    })
+    _write_mcp_json(
+        monkey_cwd,
+        {
+            "mcpServers": {
+                "local": {"command": "fake", "args": []},
+            }
+        },
+    )
     fake = MagicMock()
     fake.initialize.return_value = {}
     fake.list_tools.return_value = [
@@ -297,11 +355,10 @@ def test_test_subcommand_initializes_and_prints_tools(
 
 
 def test_test_subcommand_initialize_failure_returns_1(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    _write_mcp_json(monkey_cwd, {
-        "mcpServers": {"x": {"command": "fake"}}
-    })
+    _write_mcp_json(monkey_cwd, {"mcpServers": {"x": {"command": "fake"}}})
     fake = MagicMock()
     fake.initialize.side_effect = RuntimeError("server down")
     with patch(
@@ -314,16 +371,16 @@ def test_test_subcommand_initialize_failure_returns_1(
 
 
 def test_test_subcommand_json_output(
-    monkey_cwd: Path, capsys: pytest.CaptureFixture,
+    monkey_cwd: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    _write_mcp_json(monkey_cwd, {
-        "mcpServers": {"x": {"command": "fake"}}
-    })
+    _write_mcp_json(monkey_cwd, {"mcpServers": {"x": {"command": "fake"}}})
     fake = MagicMock()
     fake.initialize.return_value = {}
     fake.list_tools.return_value = [{"name": "t1"}]
     with patch(
-        "athena.cli.mcp.open_transport", return_value=fake,
+        "athena.cli.mcp.open_transport",
+        return_value=fake,
     ):
         cli.main(["test", "x", "--json"])
     payload = json.loads(capsys.readouterr().out)

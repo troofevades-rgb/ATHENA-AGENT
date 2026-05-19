@@ -5,6 +5,7 @@ last_activity_at bookkeeping, and loader cache invalidation happen in one
 place. ``skill_manage`` (the model-facing tool) is a thin dispatcher over
 these functions.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,14 +25,12 @@ from ..safety.mutation import snapshot_and_record
 from . import archive as archive_mod
 from . import loader, pin
 from .archive import SkillNotFoundError
-from .discovery import discover_skills, search_paths
+from .discovery import discover_skills
 from .frontmatter import (
-    FrontmatterError,
     SkillFrontmatter,
     parse_frontmatter,
     serialize_frontmatter,
 )
-
 
 _ALLOWED_FILE_SUBDIRS = ("references", "templates", "scripts")
 
@@ -125,7 +124,8 @@ def skill_create(
     # pre-state is an empty dir. The audit record links the new
     # SKILL.md to the snapshot that captured the (empty) directory.
     with snapshot_and_record(
-        [skill_dir], tool_name="skill_create",
+        [skill_dir],
+        tool_name="skill_create",
     ) as ctx:
         (skill_dir / "SKILL.md").write_text(serialized, encoding="utf-8")
         ctx.record(skill_dir / "SKILL.md")
@@ -175,7 +175,8 @@ def skill_patch(
     _validate_skill_md(serialized)
 
     with snapshot_and_record(
-        [skill_dir], tool_name="skill_patch",
+        [skill_dir],
+        tool_name="skill_patch",
     ) as ctx:
         skill_md.write_text(serialized, encoding="utf-8")
         ctx.record(skill_md)
@@ -216,7 +217,8 @@ def skill_delete(
     src = _existing(name, workspace)
     snapshot_paths = [src] if src is not None else []
     with snapshot_and_record(
-        snapshot_paths, tool_name="skill_delete",
+        snapshot_paths,
+        tool_name="skill_delete",
     ) as ctx:
         new_path = archive_mod.archive_skill(name, workspace)
         if absorbed_into is not None:
@@ -270,9 +272,7 @@ def skill_write_file(
     if ".." in parts:
         raise ValueError(f"file_path may not contain '..': {file_path!r}")
     if not parts or parts[0] not in _ALLOWED_FILE_SUBDIRS:
-        raise ValueError(
-            f"file_path must start with one of {_ALLOWED_FILE_SUBDIRS}: {file_path!r}"
-        )
+        raise ValueError(f"file_path must start with one of {_ALLOWED_FILE_SUBDIRS}: {file_path!r}")
 
     skill_dir = _existing(skill_name, workspace)
     if skill_dir is None:
@@ -289,13 +289,15 @@ def skill_write_file(
 
     target = skill_dir / Path(*parts)
     from ..tools.delta_lint import lint_after_write
+
     lint_err = lint_after_write(target, content)
     if lint_err:
         raise ValueError(f"content failed validation: {lint_err}")
 
     target.parent.mkdir(parents=True, exist_ok=True)
     with snapshot_and_record(
-        [skill_dir], tool_name="skill_write_file",
+        [skill_dir],
+        tool_name="skill_write_file",
     ) as ctx:
         target.write_text(content, encoding="utf-8")
         ctx.record(target)
@@ -330,6 +332,7 @@ def _validate_skill_md(serialized: str) -> None:
         raise ValueError("SKILL.md frontmatter block is not closed")
     fm_block = body[:end]
     from ..tools.delta_lint import lint_after_write
+
     lint_err = lint_after_write(Path("frontmatter.yaml"), fm_block)
     if lint_err:
         raise ValueError(f"SKILL.md frontmatter failed validation: {lint_err}")
@@ -359,7 +362,8 @@ def _build_frontmatter(data: dict[str, Any]) -> SkillFrontmatter:
     """Construct a SkillFrontmatter from a plain dict, dropping None entries
     so dataclass defaults take effect for unset fields."""
     cleaned = {
-        k: v for k, v in data.items()
+        k: v
+        for k, v in data.items()
         if v is not None and k in SkillFrontmatter.__dataclass_fields__
     }
     # description has no default — supply empty string if dropped.

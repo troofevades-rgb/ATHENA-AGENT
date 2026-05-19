@@ -1,4 +1,5 @@
 """NousProvider — Nous Portal hosted models."""
+
 from __future__ import annotations
 
 import json
@@ -6,14 +7,15 @@ import json
 import httpx
 import respx
 
-from athena.providers import StreamChunk, get_provider_class
+from athena.providers import get_provider_class
 from athena.providers.nous import NousProvider
 
 
 def _sse(*events: dict) -> bytes:
-    return b"".join(
-        b"data: " + json.dumps(e).encode("utf-8") + b"\n\n" for e in events
-    ) + b"data: [DONE]\n\n"
+    return (
+        b"".join(b"data: " + json.dumps(e).encode("utf-8") + b"\n\n" for e in events)
+        + b"data: [DONE]\n\n"
+    )
 
 
 def test_registered_under_name_nous():
@@ -29,13 +31,15 @@ def test_stream_chat_basic():
             {"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 3}},
         )
         with respx.mock() as m:
-            m.post(
-                "https://inference-api.nousresearch.com/v1/chat/completions"
-            ).mock(return_value=httpx.Response(200, content=sample))
-            chunks = list(p.stream_chat(
-                model="Hermes-3-Llama-3.1-405B",
-                messages=[{"role": "user", "content": "hi"}],
-            ))
+            m.post("https://inference-api.nousresearch.com/v1/chat/completions").mock(
+                return_value=httpx.Response(200, content=sample)
+            )
+            chunks = list(
+                p.stream_chat(
+                    model="Hermes-3-Llama-3.1-405B",
+                    messages=[{"role": "user", "content": "hi"}],
+                )
+            )
     finally:
         p.close()
     contents = [c.payload for c in chunks if c.kind == "content"]

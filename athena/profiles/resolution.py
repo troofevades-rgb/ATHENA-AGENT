@@ -13,6 +13,7 @@ now". Five-level precedence, highest first:
 (4) is handled at the :mod:`athena.config` layer; (1)-(3) and (5)
 live here because they're orthogonal to the typed ``Config``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -58,8 +59,7 @@ def profile_dir(name: str) -> Path:
     """
     if not is_valid_profile_name(name):
         raise ValueError(
-            f"invalid profile name: {name!r} "
-            "(lowercase alphanumerics + _ - only, max 64 chars)"
+            f"invalid profile name: {name!r} (lowercase alphanumerics + _ - only, max 64 chars)"
         )
     return PROFILES_DIR / name
 
@@ -115,7 +115,9 @@ def resolve_active_profile(
             continue
         if not is_valid_profile_name(value):
             logger.warning(
-                "profile from %s is invalid (%r); falling through", source, value,
+                "profile from %s is invalid (%r); falling through",
+                source,
+                value,
             )
             continue
         return value
@@ -155,5 +157,6 @@ def clear_active_profile_file() -> None:
             ACTIVE_PROFILE_FILE.unlink()
         except OSError:
             logger.warning(
-                "failed to remove active_profile file", exc_info=True,
+                "failed to remove active_profile file",
+                exc_info=True,
             )

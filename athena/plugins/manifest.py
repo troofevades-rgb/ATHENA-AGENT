@@ -14,6 +14,7 @@ Example::
     enabled_by_default = false
     depends_on = ["other_plugin"]
 """
+
 from __future__ import annotations
 
 import sys
@@ -38,6 +39,7 @@ class PluginManifest:
     ``path`` is the directory the manifest was read from — i.e. the plugin
     root. The loader joins it with ``plugin.py`` to locate the module.
     """
+
     name: str
     version: str
     description: str = ""
@@ -62,9 +64,7 @@ def parse_manifest(manifest_path: Path) -> PluginManifest:
 
     plugin_data = data.get("plugin")
     if not isinstance(plugin_data, dict):
-        raise ManifestError(
-            f"{manifest_path}: missing [plugin] section"
-        )
+        raise ManifestError(f"{manifest_path}: missing [plugin] section")
 
     name = plugin_data.get("name")
     version = plugin_data.get("version")
@@ -74,12 +74,8 @@ def parse_manifest(manifest_path: Path) -> PluginManifest:
         raise ManifestError(f"{manifest_path}: [plugin] missing 'version'")
 
     depends_on = plugin_data.get("depends_on", [])
-    if not isinstance(depends_on, list) or not all(
-        isinstance(d, str) for d in depends_on
-    ):
-        raise ManifestError(
-            f"{manifest_path}: 'depends_on' must be a list of strings"
-        )
+    if not isinstance(depends_on, list) or not all(isinstance(d, str) for d in depends_on):
+        raise ManifestError(f"{manifest_path}: 'depends_on' must be a list of strings")
 
     return PluginManifest(
         name=str(name),

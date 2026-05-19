@@ -15,23 +15,21 @@ For now ``builtin_file`` is the only registered provider; this stays a name
 keyed look-up so plugins (Phase 5+) can register alternates with
 :func:`register_provider`.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .providers.base import MemoryEntry, MemoryProvider
 from .providers.builtin_file import BuiltinFileProvider
-
 
 _FACTORIES: dict[str, Callable[[], MemoryProvider]] = {
     "builtin_file": BuiltinFileProvider,
 }
 
 
-def register_provider(
-    name: str, factory: Callable[[], MemoryProvider]
-) -> None:
+def register_provider(name: str, factory: Callable[[], MemoryProvider]) -> None:
     """Register an alternate MemoryProvider factory. Plugins call this on
     load to expose their provider under a stable name."""
     _FACTORIES[name] = factory
@@ -45,13 +43,12 @@ def get_provider(name: str = "builtin_file") -> MemoryProvider:
     """
     if name not in _FACTORIES:
         available = ", ".join(sorted(_FACTORIES)) or "(none)"
-        raise KeyError(
-            f"unknown memory provider {name!r}. Available: {available}"
-        )
+        raise KeyError(f"unknown memory provider {name!r}. Available: {available}")
     return _FACTORIES[name]()
 
 
 # ---- Profile-keyed convenience API --------------------------------------
+
 
 def load_index(profile: str, *, provider_name: str = "builtin_file") -> str | None:
     return get_provider(provider_name).load_index(profile)
@@ -79,9 +76,7 @@ def write_entry(
     )
 
 
-def list_entries(
-    profile: str, *, provider_name: str = "builtin_file"
-) -> list[MemoryEntry]:
+def list_entries(profile: str, *, provider_name: str = "builtin_file") -> list[MemoryEntry]:
     return get_provider(provider_name).list_entries(profile)
 
 
@@ -91,9 +86,7 @@ def read_entry(
     return get_provider(provider_name).read_entry(profile, name)
 
 
-def delete_entry(
-    profile: str, name: str, *, provider_name: str = "builtin_file"
-) -> bool:
+def delete_entry(profile: str, name: str, *, provider_name: str = "builtin_file") -> bool:
     return get_provider(provider_name).delete_entry(profile, name)
 
 

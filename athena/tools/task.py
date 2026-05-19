@@ -4,14 +4,15 @@ Tasks live for the lifetime of the agent process. They aren't persisted —
 they're a conversation-scoped scratchpad for breaking work into steps. Use
 the memory system for cross-session state.
 """
+
 from __future__ import annotations
+
 import time
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .registry import tool
 from .. import ui
-
+from .registry import tool
 
 Status = Literal["pending", "in_progress", "completed", "deleted"]
 
@@ -52,7 +53,10 @@ def _next_id() -> str:
         "properties": {
             "subject": {"type": "string", "description": "Brief actionable title."},
             "description": {"type": "string", "description": "What needs to be done."},
-            "activeForm": {"type": "string", "description": "Optional present-continuous form for the spinner."},
+            "activeForm": {
+                "type": "string",
+                "description": "Optional present-continuous form for the spinner.",
+            },
         },
         "required": ["subject", "description"],
     },
@@ -78,7 +82,10 @@ def TaskCreate(subject: str, description: str, activeForm: str = "") -> str:
         "type": "object",
         "properties": {
             "taskId": {"type": "string"},
-            "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "deleted"]},
+            "status": {
+                "type": "string",
+                "enum": ["pending", "in_progress", "completed", "deleted"],
+            },
             "subject": {"type": "string"},
             "description": {"type": "string"},
             "activeForm": {"type": "string"},

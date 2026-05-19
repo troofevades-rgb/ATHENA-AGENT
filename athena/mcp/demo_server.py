@@ -15,12 +15,13 @@ Run standalone:
     python -m athena.mcp.demo_server
 (speaks JSON-RPC on stdin/stdout)
 """
+
 from __future__ import annotations
+
 import datetime
 import json
 import sys
 from typing import Any
-
 
 PROTOCOL_VERSION = "2024-11-05"
 
@@ -81,11 +82,14 @@ def _handle(msg: dict[str, Any]) -> None:
         return
 
     if method == "initialize":
-        _result(req_id, {
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {"tools": {"listChanged": False}},
-            "serverInfo": {"name": "athena-demo", "version": "0.1.0"},
-        })
+        _result(
+            req_id,
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {"name": "athena-demo", "version": "0.1.0"},
+            },
+        )
     elif method == "tools/list":
         _result(req_id, {"tools": TOOLS})
     elif method == "tools/call":
@@ -98,7 +102,9 @@ def _handle(msg: dict[str, Any]) -> None:
                 s = float(args["a"]) + float(args["b"])
                 _result(req_id, _text_content(str(s)))
             elif name == "current_time":
-                _result(req_id, _text_content(datetime.datetime.now().isoformat(timespec="seconds")))
+                _result(
+                    req_id, _text_content(datetime.datetime.now().isoformat(timespec="seconds"))
+                )
             else:
                 _result(req_id, _text_content(f"unknown tool: {name}", is_error=True))
         except (KeyError, TypeError, ValueError) as e:

@@ -4,10 +4,10 @@ aioimaplib / aiosmtplib are mocked; the testable surface is the
 adapter's parsing + send-side behavior, which doesn't need a real
 mail server.
 """
+
 from __future__ import annotations
 
 import email
-from email.message import EmailMessage
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from athena.gateway.events import ApprovalRequest, MessageEvent, MessageType
+from athena.gateway.events import ApprovalRequest, MessageEvent
 from athena.gateway.platforms.email import (
     EmailAdapter,
     _canonical_address,
@@ -70,9 +70,11 @@ def _adapter(
 ) -> EmailAdapter:
     return EmailAdapter(
         _FakeDaemon(tmp_path),
-        imap_host="imap.example.com", imap_user="bot@example.com",
+        imap_host="imap.example.com",
+        imap_user="bot@example.com",
         imap_password="pw",
-        smtp_host="smtp.example.com", smtp_user="bot@example.com",
+        smtp_host="smtp.example.com",
+        smtp_user="bot@example.com",
         smtp_password="pw",
         from_address="bot@example.com",
         allowed_senders=allowed_senders,
@@ -86,8 +88,12 @@ def test_construct_requires_imap_credentials(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         EmailAdapter(
             _FakeDaemon(tmp_path),
-            imap_host="", imap_user="x", imap_password="x",
-            smtp_host="s", smtp_user="s", smtp_password="s",
+            imap_host="",
+            imap_user="x",
+            imap_password="x",
+            smtp_host="s",
+            smtp_user="s",
+            smtp_password="s",
             from_address="from@x",
         )
 
@@ -96,8 +102,12 @@ def test_construct_requires_smtp_credentials(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         EmailAdapter(
             _FakeDaemon(tmp_path),
-            imap_host="i", imap_user="i", imap_password="i",
-            smtp_host="", smtp_user="s", smtp_password="s",
+            imap_host="i",
+            imap_user="i",
+            imap_password="i",
+            smtp_host="",
+            smtp_user="s",
+            smtp_password="s",
             from_address="from@x",
         )
 
@@ -106,8 +116,12 @@ def test_construct_requires_from_address(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         EmailAdapter(
             _FakeDaemon(tmp_path),
-            imap_host="i", imap_user="i", imap_password="i",
-            smtp_host="s", smtp_user="s", smtp_password="s",
+            imap_host="i",
+            imap_user="i",
+            imap_password="i",
+            smtp_host="s",
+            smtp_user="s",
+            smtp_password="s",
             from_address="",
         )
 
@@ -117,10 +131,13 @@ def test_name_is_email(tmp_path: Path) -> None:
 
 
 def test_allowed_senders_canonicalized(tmp_path: Path) -> None:
-    a = _adapter(tmp_path, allowed_senders=[
-        "Alice <ALICE@example.com>",
-        "bob@example.com",
-    ])
+    a = _adapter(
+        tmp_path,
+        allowed_senders=[
+            "Alice <ALICE@example.com>",
+            "bob@example.com",
+        ],
+    )
     assert a.allowed_senders == {"alice@example.com", "bob@example.com"}
 
 
@@ -162,9 +179,7 @@ def test_strip_subject_prefix_handles_combined() -> None:
 
 
 def test_extract_body_plain_text() -> None:
-    msg = email.message_from_string(
-        "Subject: t\nContent-Type: text/plain\n\nhello there\n"
-    )
+    msg = email.message_from_string("Subject: t\nContent-Type: text/plain\n\nhello there\n")
     assert _extract_body(msg) == "hello there"
 
 
@@ -261,19 +276,13 @@ def test_event_from_plain_email(tmp_path: Path) -> None:
 
 def test_event_dropped_for_unallowed_sender(tmp_path: Path) -> None:
     a = _adapter(tmp_path, allowed_senders=["alice@example.com"])
-    raw = (
-        "From: Mallory <mallory@example.com>\n"
-        "Subject: hi\n\nhello\n"
-    )
+    raw = "From: Mallory <mallory@example.com>\nSubject: hi\n\nhello\n"
     assert a._event_from_email(raw.encode()) is None
 
 
 def test_event_allowed_when_in_allowlist(tmp_path: Path) -> None:
     a = _adapter(tmp_path, allowed_senders=["alice@example.com"])
-    raw = (
-        "From: ALICE@example.com\n"
-        "Subject: hi\n\nhello\n"
-    )
+    raw = "From: ALICE@example.com\nSubject: hi\n\nhello\n"
     assert a._event_from_email(raw.encode()) is not None
 
 
@@ -297,11 +306,14 @@ async def test_dispatch_intercepts_approval_in_body(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a.handle_inbound = AsyncMock()  # type: ignore[method-assign]
     a.record_pending("alice@example.com", "rid-7")
-    await a._dispatch(MessageEvent(
-        platform="email", chat_id="alice@example.com",
-        user_id="alice@example.com",
-        text="Subject: Re: [athena] approval\n\n/allow",
-    ))
+    await a._dispatch(
+        MessageEvent(
+            platform="email",
+            chat_id="alice@example.com",
+            user_id="alice@example.com",
+            text="Subject: Re: [athena] approval\n\n/allow",
+        )
+    )
     a.handle_inbound.assert_not_awaited()
     assert a.daemon.approvals.resolves == [("rid-7", "allow")]
 
@@ -309,11 +321,14 @@ async def test_dispatch_intercepts_approval_in_body(tmp_path: Path) -> None:
 async def test_dispatch_falls_through_without_pending(tmp_path: Path) -> None:
     a = _adapter(tmp_path)
     a.handle_inbound = AsyncMock()  # type: ignore[method-assign]
-    await a._dispatch(MessageEvent(
-        platform="email", chat_id="alice@example.com",
-        user_id="alice@example.com",
-        text="Subject: hello\n\nlook at this please",
-    ))
+    await a._dispatch(
+        MessageEvent(
+            platform="email",
+            chat_id="alice@example.com",
+            user_id="alice@example.com",
+            text="Subject: hello\n\nlook at this please",
+        )
+    )
     a.handle_inbound.assert_awaited_once()
 
 
@@ -323,11 +338,14 @@ async def test_dispatch_ignores_multi_word_body_with_pending(
     a = _adapter(tmp_path)
     a.handle_inbound = AsyncMock()  # type: ignore[method-assign]
     a.record_pending("alice@example.com", "rid-9")
-    await a._dispatch(MessageEvent(
-        platform="email", chat_id="alice@example.com",
-        user_id="alice@example.com",
-        text="Subject: re\n\nyes please go ahead",
-    ))
+    await a._dispatch(
+        MessageEvent(
+            platform="email",
+            chat_id="alice@example.com",
+            user_id="alice@example.com",
+            text="Subject: re\n\nyes please go ahead",
+        )
+    )
     a.handle_inbound.assert_awaited_once()
     assert a.daemon.approvals.resolves == []
     assert "alice@example.com" in a._pending_text_approvals
@@ -426,14 +444,19 @@ async def test_render_approval_sends_email_and_records(tmp_path: Path) -> None:
 
     a.daemon.router.routes = [
         SimpleNamespace(
-            session_id="s1", chat_id="alice@example.com",
-            user_id="alice@example.com", platform="email",
+            session_id="s1",
+            chat_id="alice@example.com",
+            user_id="alice@example.com",
+            platform="email",
             last_seen_at=datetime.now(timezone.utc),
         )
     ]
     req = ApprovalRequest(
-        session_id="s1", tool_name="Bash", tool_args={"cmd": "ls"},
-        request_id="rid-Q", platform="email",
+        session_id="s1",
+        tool_name="Bash",
+        tool_args={"cmd": "ls"},
+        request_id="rid-Q",
+        platform="email",
     )
     with patch(
         "athena.gateway.platforms.email.aiosmtplib.SMTP",
@@ -455,8 +478,11 @@ async def test_render_approval_no_route_skips(tmp_path: Path) -> None:
         return_value=fake_smtp,
     ):
         req = ApprovalRequest(
-            session_id="missing", tool_name="X", tool_args={},
-            request_id="r", platform="email",
+            session_id="missing",
+            tool_name="X",
+            tool_args={},
+            request_id="r",
+            platform="email",
         )
         await a._render_approval(req)
     fake_smtp.send_message.assert_not_awaited()

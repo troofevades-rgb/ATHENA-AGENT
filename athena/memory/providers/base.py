@@ -12,6 +12,7 @@ serve every profile under ``~/.athena/profiles/<name>/``.
 Provider implementations should be stateless across sessions. Per-session
 state lives in :meth:`on_session_start` / :meth:`on_session_end`.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -24,6 +25,7 @@ from pathlib import Path
 class MemoryEntry:
     """One memory record. ``path`` is set by providers that back entries with
     a file on disk; non-file providers can leave it ``None``."""
+
     name: str
     description: str
     type: str
@@ -84,9 +86,7 @@ class MemoryProvider(ABC):
         """Remove an entry. Returns ``True`` if the entry existed."""
 
     @abstractmethod
-    def query(
-        self, profile: str, *, query: str, k: int = 5
-    ) -> list[MemoryEntry]:
+    def query(self, profile: str, *, query: str, k: int = 5) -> list[MemoryEntry]:
         """Return the top-``k`` entries matching ``query``. Ordering and
         match semantics are provider-specific; the default
         :class:`BuiltinFileProvider` uses substring match on body and

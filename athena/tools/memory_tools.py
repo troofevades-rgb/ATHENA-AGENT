@@ -1,14 +1,18 @@
 """Memory write/list/delete tools, exposing athena.memory to the model."""
+
 from __future__ import annotations
 
-from .registry import tool
-from .. import ui
-from . import file_ops  # for current workspace
 from ..memory import (
-    write_memory as _write,
     delete_memory as _delete,
+)
+from ..memory import (
     list_memories as _list,
 )
+from ..memory import (
+    write_memory as _write,
+)
+from . import file_ops  # for current workspace
+from .registry import tool
 
 
 @tool(
@@ -26,11 +30,20 @@ from ..memory import (
     parameters={
         "type": "object",
         "properties": {
-            "filename": {"type": "string", "description": "Short snake_case filename, e.g. 'user_role' or 'feedback_testing'."},
+            "filename": {
+                "type": "string",
+                "description": "Short snake_case filename, e.g. 'user_role' or 'feedback_testing'.",
+            },
             "name": {"type": "string", "description": "Short title for the memory."},
-            "description": {"type": "string", "description": "One-line description used to decide relevance."},
+            "description": {
+                "type": "string",
+                "description": "One-line description used to decide relevance.",
+            },
             "type": {"type": "string", "enum": ["user", "feedback", "project", "reference"]},
-            "body": {"type": "string", "description": "Memory content. For feedback/project, structure as: rule, **Why:**, **How to apply:**."},
+            "body": {
+                "type": "string",
+                "description": "Memory content. For feedback/project, structure as: rule, **Why:**, **How to apply:**.",
+            },
         },
         "required": ["filename", "name", "description", "type", "body"],
     },

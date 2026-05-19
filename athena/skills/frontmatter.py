@@ -13,6 +13,7 @@ serialized as ISO-8601 with a ``Z`` suffix (UTC). The serializer is
 deterministic — keys sort within their group (agentskills.io fields first,
 then athena v2 fields) so the output is diff-stable.
 """
+
 from __future__ import annotations
 
 import re
@@ -22,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
 
 _FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.S)
 
@@ -36,14 +36,25 @@ _MAX_DESCRIPTION_LEN = 1024
 # (agentskills.io standard fields up top, athena v2 lifecycle in the middle,
 # migration-only fields at the bottom).
 _AGENTSKILLS_FIELDS = (
-    "name", "description", "version", "license", "compatibility", "metadata",
+    "name",
+    "description",
+    "version",
+    "license",
+    "compatibility",
+    "metadata",
 )
 _ATHENA_FIELDS = (
-    "state", "pinned", "write_origin",
-    "created_at", "last_activity_at", "use_count", "parent_session_id",
+    "state",
+    "pinned",
+    "write_origin",
+    "created_at",
+    "last_activity_at",
+    "use_count",
+    "parent_session_id",
 )
 _MIGRATION_FIELDS = (
-    "source_hermes_path", "imported_at",
+    "source_hermes_path",
+    "imported_at",
 )
 
 
@@ -62,9 +73,11 @@ class SkillFrontmatter:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     # athena v2 lifecycle
-    state: str = "active"             # active | stale | archived
+    state: str = "active"  # active | stale | archived
     pinned: bool = False
-    write_origin: str = "foreground"  # foreground | background_review | curator | migration | system
+    write_origin: str = (
+        "foreground"  # foreground | background_review | curator | migration | system
+    )
     created_at: datetime | None = None
     last_activity_at: datetime | None = None
     use_count: int = 0
@@ -115,15 +128,12 @@ def _validate_name(name: str) -> None:
         hints: list[str] = []
         if "_" in name:
             suggested = name.replace("_", "-").lower()
-            hints.append(
-                f"use hyphens instead of underscores (try {suggested!r})"
-            )
+            hints.append(f"use hyphens instead of underscores (try {suggested!r})")
         elif any(c.isupper() for c in name):
             hints.append(f"use lowercase (try {name.lower()!r})")
         hint_str = f" — {hints[0]}" if hints else ""
         raise FrontmatterError(
-            f"name must be lowercase alphanumeric with internal hyphens: "
-            f"{name!r}{hint_str}"
+            f"name must be lowercase alphanumeric with internal hyphens: {name!r}{hint_str}"
         )
 
 
@@ -131,9 +141,7 @@ def _validate_description(description: str) -> None:
     if not isinstance(description, str) or not description:
         raise FrontmatterError("description must be a non-empty string")
     if len(description) > _MAX_DESCRIPTION_LEN:
-        raise FrontmatterError(
-            f"description longer than {_MAX_DESCRIPTION_LEN} chars"
-        )
+        raise FrontmatterError(f"description longer than {_MAX_DESCRIPTION_LEN} chars")
 
 
 def parse_frontmatter(path: Path) -> tuple[SkillFrontmatter, str] | None:

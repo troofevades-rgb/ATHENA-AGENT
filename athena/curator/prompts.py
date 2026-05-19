@@ -21,8 +21,8 @@ and reject the run on malformed output. The schema is wider than just
 ``decision`` enums so a downstream reference-migration cron (Phase 11+)
 can find umbrella absorption targets via ``absorbed_into``.
 """
-from __future__ import annotations
 
+from __future__ import annotations
 
 CURATOR_REVIEW_PROMPT = """\
 You are running as athena's background skill CURATOR. This is an

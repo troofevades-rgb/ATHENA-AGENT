@@ -12,6 +12,7 @@ Zed ``settings.json``. There's no automated install — Zed's config
 file lives outside athena's control and writing to it without
 explicit user action would be presumptuous.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +21,6 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger("athena.acp.cli")
 
@@ -44,6 +44,7 @@ async def _serve_async(profile: str | None) -> int:
         # in providers / skills / etc.) unless the IDE actually calls
         # session/new.
         from ..agent.core import Agent
+
         return Agent(cfg, workspace, model=cfg.model)
 
     server = ACPServer()
@@ -56,7 +57,9 @@ async def _serve_async(profile: str | None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     logger.info(
-        "athena acp serve up (profile=%s, workspace=%s)", cfg.profile, workspace,
+        "athena acp serve up (profile=%s, workspace=%s)",
+        cfg.profile,
+        workspace,
     )
     try:
         await server.serve()
@@ -106,9 +109,7 @@ def cmd_install_zed(args: argparse.Namespace) -> int:
         sys.stdout.write(json.dumps(snippet, indent=2) + "\n")
         return 0
 
-    sys.stdout.write(
-        "Add the following to your Zed settings.json:\n\n"
-    )
+    sys.stdout.write("Add the following to your Zed settings.json:\n\n")
     sys.stdout.write(json.dumps(snippet, indent=2) + "\n\n")
     sys.stdout.write(
         "Settings path:\n"
@@ -142,7 +143,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print the Zed settings.json snippet to enable athena as an agent server.",
     )
     p_zed.add_argument(
-        "--json", action="store_true",
+        "--json",
+        action="store_true",
         help="Emit just the JSON snippet (no instructions).",
     )
     p_zed.set_defaults(handler=cmd_install_zed)

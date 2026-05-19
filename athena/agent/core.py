@@ -1,5 +1,7 @@
 """Agent loop: ferry messages between user, Ollama, and tools until done."""
+
 from __future__ import annotations
+
 import contextvars
 import json
 import re
@@ -10,16 +12,15 @@ from pathlib import Path
 from typing import Any
 
 from .. import hooks, tools, ui
-from ..safety.approval_callback import get_approval_callback
-from ..config import Config, profile_dir as _profile_dir
+from ..config import Config
+from ..config import profile_dir as _profile_dir
 from ..plugins.hooks import HookDispatcher
 from ..prompts import build_system_prompt
 from ..providers import Provider
 from ..providers.credential_pool import global_pool as _global_pool
-from ..providers.ollama import OllamaProvider
 from ..providers.runtime_resolver import resolve_provider
+from ..safety.approval_callback import get_approval_callback
 from ..sessions.store import SessionMeta, SessionStore, new_session_id
-
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.S)
 _TOOL_CALL_TAG_RE = re.compile(r"<tool_call>\s*(.+?)\s*</tool_call>", re.S)
@@ -39,6 +40,7 @@ def _coerce_arg(v: str) -> Any:
     except json.JSONDecodeError:
         return s
 
+
 # Cap for ATHENA.md / MEMORY.md when injecting into the system prompt. Anything
 # larger gets truncated with a notice so a runaway document can't blow context.
 _MAX_DOCUMENT_BYTES = 32_000
@@ -47,12 +49,12 @@ _MAX_DOCUMENT_BYTES = 32_000
 # ContextVar so a fork running on its own thread can register itself as the
 # current parent for any grand-children it spawns, without clobbering the
 # foreground agent on the main thread.
-_current_agent: contextvars.ContextVar["Agent | None"] = contextvars.ContextVar(
+_current_agent: contextvars.ContextVar[Agent | None] = contextvars.ContextVar(
     "ocode_current_agent", default=None
 )
 
 
-def get_current_agent() -> "Agent | None":
+def get_current_agent() -> Agent | None:
     """Return the Agent whose run_turn is currently active on this context, or None."""
     return _current_agent.get()
 
@@ -173,19 +175,18 @@ def _extract_text_tool_calls(text: str) -> tuple[str, list[dict]]:
             elif ch == "}":
                 depth -= 1
                 if depth == 0:
-                    candidate = s[start:end + 1]
+                    candidate = s[start : end + 1]
                     try:
                         obj = json.loads(candidate)
                     except json.JSONDecodeError:
                         break
                     calls = _normalize_tool_call(obj)
                     if calls:
-                        residual = (s[:start] + s[end + 1:]).strip()
+                        residual = (s[:start] + s[end + 1 :]).strip()
                         return residual, calls
                     break
 
     return text, []
-
 
 
 # System prompt is assembled dynamically from athena.prompts.build_system_prompt().
@@ -205,6 +206,7 @@ class Stats:
     and an atomic snapshot writer so ``athena status`` (running in
     a separate process) can read live progress without IPC.
     """
+
     prompt_tokens: int = 0
     eval_tokens: int = 0
     tool_calls: int = 0
@@ -220,9 +222,7 @@ class Stats:
         """Increment both the top-level counter (legacy ``/cost``)
         and the per-tool histogram used by ``/status``."""
         self.tool_calls += 1
-        self.tool_call_counts[tool_name] = (
-            self.tool_call_counts.get(tool_name, 0) + 1
-        )
+        self.tool_call_counts[tool_name] = self.tool_call_counts.get(tool_name, 0) + 1
 
     def to_snapshot(
         self,
@@ -281,13 +281,16 @@ class Agent:
             # wire and the hosted API rejects it as unknown. Affects
             # forks built via build_auxiliary_client.
             from ..providers.runtime_resolver import _bare_model, _route
+
             self.model = _bare_model(_route(self.model, cfg), self.model)
         else:
             # Route through the resolver. It returns the matching Provider
             # AND the bare model name (with any routing prefix stripped),
             # so ``self.model`` carries the on-the-wire name from here on.
             self.provider, self.model = resolve_provider(
-                self.model, cfg, _global_pool(),
+                self.model,
+                cfg,
+                _global_pool(),
             )
         self.client = self.provider  # back-compat alias
         self._owns_client = passed is None
@@ -339,26 +342,30 @@ class Agent:
                 # JSONL stays untouched so history reload below sees it.
                 self.session_id = resume_session_id
                 try:
-                    self.session_store.open_session(SessionMeta(
-                        session_id=self.session_id,
-                        profile=cfg.profile or "default",
-                        model=self.model,
-                        workspace=str(self.workspace),
-                        parent_session_id=parent_session_id,
-                    ))
+                    self.session_store.open_session(
+                        SessionMeta(
+                            session_id=self.session_id,
+                            profile=cfg.profile or "default",
+                            model=self.model,
+                            workspace=str(self.workspace),
+                            parent_session_id=parent_session_id,
+                        )
+                    )
                 except Exception as e:
                     ui.warn(f"session store resume failed: {e}")
                     self.session_id = None
             else:
                 self.session_id = new_session_id()
                 try:
-                    self.session_store.open_session(SessionMeta(
-                        session_id=self.session_id,
-                        profile=cfg.profile or "default",
-                        model=self.model,
-                        workspace=str(self.workspace),
-                        parent_session_id=parent_session_id,
-                    ))
+                    self.session_store.open_session(
+                        SessionMeta(
+                            session_id=self.session_id,
+                            profile=cfg.profile or "default",
+                            model=self.model,
+                            workspace=str(self.workspace),
+                            parent_session_id=parent_session_id,
+                        )
+                    )
                 except Exception as e:
                     ui.warn(f"session store open failed: {e}")
                     self.session_id = None
@@ -367,13 +374,15 @@ class Agent:
                 self.session_store = SessionStore(_profile_dir(cfg.profile))
                 self._owns_session_store = True
                 self.session_id = new_session_id()
-                self.session_store.open_session(SessionMeta(
-                    session_id=self.session_id,
-                    profile=cfg.profile,
-                    model=self.model,
-                    workspace=str(self.workspace),
-                    parent_session_id=parent_session_id,
-                ))
+                self.session_store.open_session(
+                    SessionMeta(
+                        session_id=self.session_id,
+                        profile=cfg.profile,
+                        model=self.model,
+                        workspace=str(self.workspace),
+                        parent_session_id=parent_session_id,
+                    )
+                )
             except Exception as e:
                 ui.warn(f"session store unavailable: {e}")
                 self.session_store = None
@@ -395,9 +404,7 @@ class Agent:
             self.plugin_hooks = HookDispatcher(plugins=[])
         # Fire on_session_start once the session_id exists.
         if self.session_id is not None:
-            self.plugin_hooks.on_session_start(
-                self.session_id, cfg.profile or "default"
-            )
+            self.plugin_hooks.on_session_start(self.session_id, cfg.profile or "default")
         # Build initial system message
         self.messages.append({"role": "system", "content": self._build_system()})
 
@@ -409,6 +416,7 @@ class Agent:
         try:
             from ..plugins.discovery import discover
             from ..plugins.loader import load_plugins
+
             manifests = discover()
             cfg_dict = {
                 "plugins": getattr(self.cfg, "plugins", {}) or {},
@@ -416,8 +424,7 @@ class Agent:
             instances = load_plugins(manifests, config=cfg_dict)
             if instances:
                 ui.info(
-                    f"loaded {len(instances)} plugin(s): "
-                    f"{', '.join(p.name for p in instances)}"
+                    f"loaded {len(instances)} plugin(s): {', '.join(p.name for p in instances)}"
                 )
             return HookDispatcher(plugins=instances)
         except Exception as e:
@@ -432,13 +439,15 @@ class Agent:
         """
         try:
             from ..skills.state_machine_runner import run_lifecycle
+
             run_lifecycle(self.workspace)
         except Exception as e:
             ui.info(f"lifecycle pass skipped: {e}")
 
         try:
-            from ..curator.orchestrator import maybe_run_curator
             import threading
+
+            from ..curator.orchestrator import maybe_run_curator
 
             def _spawn():
                 try:
@@ -497,6 +506,7 @@ class Agent:
         memory_index: str | None = None
         try:
             from ..memory import load_memory_index
+
             memory_index = load_memory_index(self.workspace)
             if memory_index:
                 if len(memory_index) > _MAX_DOCUMENT_BYTES:
@@ -512,6 +522,7 @@ class Agent:
         skills_catalog: str | None = None
         try:
             from ..skills.progressive_disclosure import build_catalog
+
             skills_catalog = build_catalog(self.workspace) or None
             if skills_catalog:
                 ui.info(f"loaded skills catalog ({len(skills_catalog)} bytes)")
@@ -539,6 +550,7 @@ class Agent:
         """
         try:
             from ..goal.invariant import get_goal
+
             return get_goal(self._profile_dir())
         except Exception:
             return None
@@ -599,10 +611,12 @@ class Agent:
             # itself completes naturally, but no further rounds spawn.
             if self.cancel_pending:
                 ui.info("turn cancelled by external request")
-                self.messages.append({
-                    "role": "user",
-                    "content": "[turn cancelled by the user]",
-                })
+                self.messages.append(
+                    {
+                        "role": "user",
+                        "content": "[turn cancelled by the user]",
+                    }
+                )
                 self._fire_stop("cancelled")
                 return
             assistant_text, tool_calls, raw_done = self._stream_one()
@@ -616,14 +630,10 @@ class Agent:
             # accounting keeps working without per-provider branching here.
             if raw_done and not interrupted:
                 self.stats.prompt_tokens += (
-                    raw_done.get("prompt_eval_count")
-                    or raw_done.get("prompt_tokens")
-                    or 0
+                    raw_done.get("prompt_eval_count") or raw_done.get("prompt_tokens") or 0
                 )
                 self.stats.eval_tokens += (
-                    raw_done.get("eval_count")
-                    or raw_done.get("completion_tokens")
-                    or 0
+                    raw_done.get("eval_count") or raw_done.get("completion_tokens") or 0
                 )
 
             # Record the assistant message (with tool_calls if any) into history
@@ -639,11 +649,15 @@ class Agent:
                 # see dangling calls. Then leave a marker so the model knows.
                 for call in tool_calls or []:
                     fname = (call.get("function") or {}).get("name", "?")
-                    self._record_tool_result(call, fname, "DENIED: response interrupted by user (Ctrl+C)")
-                self.messages.append({
-                    "role": "user",
-                    "content": "[previous response was interrupted by the user]",
-                })
+                    self._record_tool_result(
+                        call, fname, "DENIED: response interrupted by user (Ctrl+C)"
+                    )
+                self.messages.append(
+                    {
+                        "role": "user",
+                        "content": "[previous response was interrupted by the user]",
+                    }
+                )
                 # No Stop hook — the turn didn't complete.
                 return
 
@@ -666,14 +680,18 @@ class Agent:
             except KeyboardInterrupt:
                 ui.warn("interrupted during tool execution")
                 # Count is robust to interrupts firing anywhere in the loop body.
-                recorded = sum(1 for m in self.messages[asst_idx + 1:] if m.get("role") == "tool")
+                recorded = sum(1 for m in self.messages[asst_idx + 1 :] if m.get("role") == "tool")
                 for missing in tool_calls[recorded:]:
                     fname = (missing.get("function") or {}).get("name", "?")
-                    self._record_tool_result(missing, fname, "DENIED: tool execution interrupted by user (Ctrl+C)")
-                self.messages.append({
-                    "role": "user",
-                    "content": "[previous tool execution was interrupted by the user]",
-                })
+                    self._record_tool_result(
+                        missing, fname, "DENIED: tool execution interrupted by user (Ctrl+C)"
+                    )
+                self.messages.append(
+                    {
+                        "role": "user",
+                        "content": "[previous tool execution was interrupted by the user]",
+                    }
+                )
                 return
 
         ui.warn(f"reached step limit ({max_steps}); stopping for safety.")
@@ -683,11 +701,13 @@ class Agent:
         """Hand off to the per-turn review orchestrator. Background reviews
         run on a daemon thread and never block this method."""
         from ..provenance import is_background
+
         # Don't recursively spawn reviews from inside background forks.
         if is_background():
             return
         try:
             from ..review.orchestrator import maybe_fire_review
+
             fired = maybe_fire_review(self)
             if fired is not None:
                 self.stats.review_fired_count += 1
@@ -696,15 +716,18 @@ class Agent:
             ui.info("background review failed to fire (logged)")
 
     def _fire_stop(self, reason: str) -> None:
-        hooks.fire("Stop", payload={
-            "reason": reason,
-            "stats": {
-                "turns": self.stats.turns,
-                "tool_calls": self.stats.tool_calls,
-                "prompt_tokens": self.stats.prompt_tokens,
-                "eval_tokens": self.stats.eval_tokens,
+        hooks.fire(
+            "Stop",
+            payload={
+                "reason": reason,
+                "stats": {
+                    "turns": self.stats.turns,
+                    "tool_calls": self.stats.tool_calls,
+                    "prompt_tokens": self.stats.prompt_tokens,
+                    "eval_tokens": self.stats.eval_tokens,
+                },
             },
-        })
+        )
         # Phase 16: refresh the on-disk status snapshot so
         # ``athena status`` (running in another terminal) sees the
         # post-turn counters.
@@ -739,6 +762,7 @@ class Agent:
         target = self.session_store.profile_dir / ".status.json"
         try:
             import os
+
             tmp = target.with_suffix(".tmp")
             tmp.write_text(
                 json.dumps(snapshot, indent=2, default=str),
@@ -795,13 +819,15 @@ class Agent:
                     # tool-call summary panel renders on a fresh line.
                     typewriter.finalize(markdown=False)
                     p = chunk.payload or {}
-                    tool_calls.append({
-                        "function": {
-                            "name": p.get("name", ""),
-                            "arguments": p.get("arguments", {}),
-                        },
-                        **({"id": p["id"]} if p.get("id") else {}),
-                    })
+                    tool_calls.append(
+                        {
+                            "function": {
+                                "name": p.get("name", ""),
+                                "arguments": p.get("arguments", {}),
+                            },
+                            **({"id": p["id"]} if p.get("id") else {}),
+                        }
+                    )
                 elif chunk.kind == "usage":
                     usage = dict(chunk.payload or {})
                 # "end" chunk is informational; loop falls through naturally.
@@ -843,18 +869,14 @@ class Agent:
                 ui.info(f"recovered {len(tool_calls)} tool call(s) from content")
         return text, tool_calls, usage
 
-    def _recover_tool_calls_from_text(
-        self, text: str
-    ) -> tuple[list[dict[str, Any]], str] | None:
+    def _recover_tool_calls_from_text(self, text: str) -> tuple[list[dict[str, Any]], str] | None:
         """Try the per-(provider, model) parser registry first; if it
         returns no tool calls, fall through to the in-agent generic
         recovery. Returns (canonical_tool_calls, residual_content) on hit,
         or None if no recovery was possible.
         """
         try:
-            cleaned, calls = self.provider.parse_tool_calls(
-                text, {"model": self.model}
-            )
+            cleaned, calls = self.provider.parse_tool_calls(text, {"model": self.model})
             if calls:
                 normalized = [
                     {
@@ -893,6 +915,7 @@ class Agent:
 
         # Plan-mode gate: only read-only tools are allowed
         from ..tools import plan as plan_mod
+
         if plan_mod.is_plan_mode() and name not in plan_mod.PLAN_MODE_ALLOWED:
             denied = (
                 f"BLOCKED: tool {name!r} is not allowed in plan mode. "
@@ -910,6 +933,7 @@ class Agent:
             allowed = False
             if name in ("Bash", "bash"):
                 from ..safety.shell_policy import DEFAULT_DENYLIST, ShellPolicy
+
                 cmd = (args.get("command") or "").strip()
                 # Word-boundary match via ShellPolicy: prefix "ls"
                 # must not allow "lsof"; "git" must not allow "gitleaks".
@@ -987,6 +1011,7 @@ class Agent:
         if self.session_id is None:
             return
         from ..steer.queue import GLOBAL_STEER_QUEUE
+
         steers = GLOBAL_STEER_QUEUE.drain(self.session_id)
         for steer in steers:
             steer_msg = {"role": "user", "content": f"[/steer] {steer}"}
@@ -1050,9 +1075,7 @@ class Agent:
             if m.get("role") == "assistant":
                 content = m.get("content")
                 if isinstance(content, list):
-                    return " ".join(
-                        c.get("text", "") for c in content if isinstance(c, dict)
-                    )
+                    return " ".join(c.get("text", "") for c in content if isinstance(c, dict))
                 return content or ""
         return ""
 
@@ -1085,9 +1108,7 @@ class Agent:
         # now close() always reports completed=True.
         if self.session_id is not None:
             try:
-                self.plugin_hooks.on_session_end(
-                    self.session_id, completed=True, interrupted=False
-                )
+                self.plugin_hooks.on_session_end(self.session_id, completed=True, interrupted=False)
             except Exception:
                 pass
         if self._owns_client:
@@ -1111,7 +1132,9 @@ class Agent:
 # works without circular-import gymnastics in callers.
 from .fork import fork as _fork_impl  # noqa: E402
 
+
 def _agent_fork(self, **kwargs):
     return _fork_impl(self, **kwargs)
+
 
 Agent.fork = _agent_fork

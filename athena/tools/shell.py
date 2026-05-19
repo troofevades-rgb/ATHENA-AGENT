@@ -1,20 +1,21 @@
 """Bash execution tool. Subject to the agent's confirmation gate
 (unless the command matches the bash_allowlist or auto_approve_tools is set).
 """
+
 from __future__ import annotations
+
 import os
 import shutil
 import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
 from typing import Any
 
-from .registry import tool
-from . import file_ops  # for workspace
 from ..safety.shell_policy import DEFAULT_DENYLIST, ShellPolicy
 from ..ui import console
+from . import file_ops  # for workspace
+from .registry import tool
 
 
 def _policy_for_config() -> ShellPolicy:
@@ -24,9 +25,11 @@ def _policy_for_config() -> ShellPolicy:
     call — useful in tests that rebuild Config between cases.
     """
     from ..config import load_config
+
     cfg = load_config()
     deny = tuple(DEFAULT_DENYLIST) + tuple(getattr(cfg, "bash_extra_denylist", ()))
     return ShellPolicy(allowlist=cfg.bash_allowlist, denylist=deny)
+
 
 _IS_WINDOWS = sys.platform == "win32"
 
@@ -62,6 +65,7 @@ def _resolve_bash_executable() -> str | None:
         if found and "system32" not in found.lower() and "windowsapps" not in found.lower():
             return found
     return None
+
 
 _MAX_OUTPUT = 64_000
 
@@ -100,10 +104,22 @@ def _truncate(out: str) -> str:
     parameters={
         "type": "object",
         "properties": {
-            "command": {"type": "string", "description": "Shell command to execute via /bin/bash -c"},
-            "description": {"type": "string", "description": "Optional 5-10 word description for the user."},
-            "timeout": {"type": "integer", "description": "Optional timeout in seconds (default 120, max 600)."},
-            "run_in_background": {"type": "boolean", "description": "Run asynchronously and return a bg id."},
+            "command": {
+                "type": "string",
+                "description": "Shell command to execute via /bin/bash -c",
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional 5-10 word description for the user.",
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "Optional timeout in seconds (default 120, max 600).",
+            },
+            "run_in_background": {
+                "type": "boolean",
+                "description": "Run asynchronously and return a bg id.",
+            },
         },
         "required": ["command"],
     },
@@ -152,16 +168,12 @@ def _spawn(command: str, **extra_kwargs: Any) -> subprocess.Popen:
     exec_path = _resolve_bash_executable()
     if _IS_WINDOWS:
         if exec_path is not None:
-            return subprocess.Popen(
-                [exec_path, "-c", command], shell=False, **base_kwargs
-            )
+            return subprocess.Popen([exec_path, "-c", command], shell=False, **base_kwargs)
         # No bash available — let cmd.exe handle it.
         return subprocess.Popen(command, shell=True, **base_kwargs)
     # POSIX
     if exec_path is not None:
-        return subprocess.Popen(
-            command, shell=True, executable=exec_path, **base_kwargs
-        )
+        return subprocess.Popen(command, shell=True, executable=exec_path, **base_kwargs)
     return subprocess.Popen(command, shell=True, **base_kwargs)
 
 
@@ -257,7 +269,10 @@ def _start_background(command: str) -> str:
     # ``input()`` / reads ``/dev/stdin`` blocks forever holding the
     # tty, freezing the operator's keyboard. (Matches Hermes' fix #17959.)
     proc = _spawn(
-        command, text=True, bufsize=1, errors="replace",
+        command,
+        text=True,
+        bufsize=1,
+        errors="replace",
         stdin=subprocess.DEVNULL,
     )
     # Re-open stdout in text mode for streaming readline iteration.

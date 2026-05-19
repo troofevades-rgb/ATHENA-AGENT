@@ -12,6 +12,7 @@ Importing :mod:`athena.providers` registers every built-in provider as a
 side effect so the registry is fully populated by the time the agent
 asks for one.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -33,9 +34,7 @@ def register_provider(cls: type[Provider]) -> type[Provider]:
     provider class in and out without monkey-patching the dict.
     """
     if not cls.name:
-        raise ValueError(
-            f"Provider {cls.__name__} must set a non-empty `name` attribute"
-        )
+        raise ValueError(f"Provider {cls.__name__} must set a non-empty `name` attribute")
     _REGISTRY[cls.name] = cls
     return cls
 
@@ -48,9 +47,7 @@ def get_provider_class(name: str) -> type[Provider]:
     """
     if name not in _REGISTRY:
         available = ", ".join(sorted(_REGISTRY)) or "(none)"
-        raise KeyError(
-            f"unknown provider {name!r}. Available providers: {available}"
-        )
+        raise KeyError(f"unknown provider {name!r}. Available providers: {available}")
     return _REGISTRY[name]
 
 
@@ -78,10 +75,10 @@ __all__ = [
 # at import time so the registry is fully populated by the time anyone
 # calls ``get_provider_class``. Order doesn't matter — registration is
 # idempotent and keyed by ``name``.
-from . import ollama as _ollama  # noqa: E402,F401
 from . import anthropic as _anthropic  # noqa: E402,F401
-from . import openai as _openai  # noqa: E402,F401
 from . import google as _google  # noqa: E402,F401
+from . import nous as _nous  # noqa: E402,F401
+from . import ollama as _ollama  # noqa: E402,F401
+from . import openai as _openai  # noqa: E402,F401
 from . import openai_compat as _openai_compat  # noqa: E402,F401
 from . import openrouter as _openrouter  # noqa: E402,F401
-from . import nous as _nous  # noqa: E402,F401

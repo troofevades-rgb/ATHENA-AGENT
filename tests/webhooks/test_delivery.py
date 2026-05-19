@@ -1,12 +1,11 @@
 """Webhook dispatch + delivery routing."""
+
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -29,7 +28,10 @@ class _StubAgent:
         self.closed = False
 
     def run_until_done(
-        self, prompt: str = "", *, max_iterations: int | None = None,
+        self,
+        prompt: str = "",
+        *,
+        max_iterations: int | None = None,
     ) -> None:
         self.run_calls.append(prompt)
 
@@ -84,7 +86,9 @@ def test_build_prompt_template_substitutes_headers() -> None:
         auth_secret="x",
     )
     prompt = _build_prompt(
-        sub, payload={"x": 1}, headers={"X-GitHub-Event": "push"},
+        sub,
+        payload={"x": 1},
+        headers={"X-GitHub-Event": "push"},
     )
     assert '"X-GitHub-Event"' in prompt
     assert '"x": 1' in prompt
@@ -94,7 +98,8 @@ def test_substitute_template_tolerates_whitespace_variants() -> None:
     """Both {{ payload }} and {{payload}} should work."""
     out = _substitute_template(
         "a {{payload}} b {{ payload }} c {{  payload  }} d",
-        payload={"v": 1}, headers={},
+        payload={"v": 1},
+        headers={},
     )
     # All three forms got replaced.
     assert "{{payload}}" not in out
@@ -126,9 +131,7 @@ def test_build_prompt_unknown_binding_raises() -> None:
 
 
 def test_parse_gateway_well_formed() -> None:
-    assert _parse_gateway_target(
-        "gateway://telegram/12345"
-    ) == ("telegram", "12345")
+    assert _parse_gateway_target("gateway://telegram/12345") == ("telegram", "12345")
 
 
 def test_parse_gateway_missing_chat_id() -> None:
@@ -202,7 +205,10 @@ async def test_dispatch_file_delivery_appends(tmp_path: Path) -> None:
     )
     agent = _StubAgent(response="first response")
     await dispatch_webhook(
-        daemon=None, sub=sub, payload={}, headers={},
+        daemon=None,
+        sub=sub,
+        payload={},
+        headers={},
         agent_factory=lambda: agent,
     )
     body = output.read_text(encoding="utf-8")
@@ -212,7 +218,10 @@ async def test_dispatch_file_delivery_appends(tmp_path: Path) -> None:
     # Second dispatch appends, doesn't truncate.
     agent2 = _StubAgent(response="second response")
     await dispatch_webhook(
-        daemon=None, sub=sub, payload={}, headers={},
+        daemon=None,
+        sub=sub,
+        payload={},
+        headers={},
         agent_factory=lambda: agent2,
     )
     body2 = output.read_text(encoding="utf-8")
@@ -231,27 +240,32 @@ async def test_dispatch_none_delivery_discards_response(
     agent = _StubAgent(response="nobody sees this")
     with caplog.at_level(logging.INFO, logger="athena.webhooks.delivery"):
         await dispatch_webhook(
-            daemon=None, sub=sub, payload={}, headers={},
+            daemon=None,
+            sub=sub,
+            payload={},
+            headers={},
             agent_factory=lambda: agent,
         )
     # Agent ran but nothing logged the response.
     assert agent.run_calls
-    assert not any(
-        "nobody sees this" in r.message for r in caplog.records
-    )
+    assert not any("nobody sees this" in r.message for r in caplog.records)
 
 
 async def test_dispatch_unknown_target_falls_back_to_log(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     sub = WebhookSubscription(
-        skill_name="echo", auth_secret="s",
+        skill_name="echo",
+        auth_secret="s",
         delivery_target="unknown://schema",
     )
     agent = _StubAgent(response="response text")
     with caplog.at_level(logging.WARNING, logger="athena.webhooks.delivery"):
         await dispatch_webhook(
-            daemon=None, sub=sub, payload={}, headers={},
+            daemon=None,
+            sub=sub,
+            payload={},
+            headers={},
             agent_factory=lambda: agent,
         )
     msgs = " ".join(r.message for r in caplog.records)
@@ -274,7 +288,10 @@ async def test_dispatch_gateway_delivery_routes_through_adapter() -> None:
     daemon = SimpleNamespace(adapter_for=lambda p: adapter)
 
     await dispatch_webhook(
-        daemon=daemon, sub=sub, payload={"x": 1}, headers={},
+        daemon=daemon,
+        sub=sub,
+        payload={"x": 1},
+        headers={},
         agent_factory=lambda: agent,
     )
 
@@ -285,13 +302,17 @@ async def test_dispatch_gateway_no_adapter_logs_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     sub = WebhookSubscription(
-        skill_name="echo", auth_secret="s",
+        skill_name="echo",
+        auth_secret="s",
         delivery_target="gateway://discord/1234567890",
     )
     daemon = SimpleNamespace(adapter_for=lambda p: None)
     with caplog.at_level(logging.WARNING, logger="athena.webhooks.delivery"):
         await dispatch_webhook(
-            daemon=daemon, sub=sub, payload={}, headers={},
+            daemon=daemon,
+            sub=sub,
+            payload={},
+            headers={},
             agent_factory=lambda: _StubAgent(),
         )
     msgs = " ".join(r.message for r in caplog.records)
@@ -304,12 +325,16 @@ async def test_dispatch_gateway_no_daemon_logs_warning(
     """Webhook configured with gateway:// but daemon missing — log
     a clear hint and don't crash."""
     sub = WebhookSubscription(
-        skill_name="echo", auth_secret="s",
+        skill_name="echo",
+        auth_secret="s",
         delivery_target="gateway://telegram/12345",
     )
     with caplog.at_level(logging.WARNING, logger="athena.webhooks.delivery"):
         await dispatch_webhook(
-            daemon=None, sub=sub, payload={}, headers={},
+            daemon=None,
+            sub=sub,
+            payload={},
+            headers={},
             agent_factory=lambda: _StubAgent(),
         )
     msgs = " ".join(r.message for r in caplog.records)
@@ -320,13 +345,17 @@ async def test_dispatch_gateway_malformed_target_warns(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     sub = WebhookSubscription(
-        skill_name="echo", auth_secret="s",
+        skill_name="echo",
+        auth_secret="s",
         delivery_target="gateway://busted",
     )
     daemon = SimpleNamespace(adapter_for=lambda p: None)
     with caplog.at_level(logging.WARNING, logger="athena.webhooks.delivery"):
         await dispatch_webhook(
-            daemon=daemon, sub=sub, payload={}, headers={},
+            daemon=daemon,
+            sub=sub,
+            payload={},
+            headers={},
             agent_factory=lambda: _StubAgent(),
         )
     msgs = " ".join(r.message for r in caplog.records)
@@ -338,7 +367,8 @@ async def test_dispatch_gateway_send_failure_logged_not_raised(
 ) -> None:
     """Adapter send_text exception must not propagate."""
     sub = WebhookSubscription(
-        skill_name="echo", auth_secret="s",
+        skill_name="echo",
+        auth_secret="s",
         delivery_target="gateway://telegram/1",
     )
     send_text = AsyncMock(side_effect=RuntimeError("API rate limit"))
@@ -348,7 +378,10 @@ async def test_dispatch_gateway_send_failure_logged_not_raised(
     with caplog.at_level(logging.ERROR, logger="athena.webhooks.delivery"):
         # Must not raise.
         await dispatch_webhook(
-            daemon=daemon, sub=sub, payload={}, headers={},
+            daemon=daemon,
+            sub=sub,
+            payload={},
+            headers={},
             agent_factory=lambda: _StubAgent(),
         )
     msgs = " ".join(r.message for r in caplog.records)
@@ -362,7 +395,8 @@ async def test_dispatch_agent_construction_failure_logged_not_raised(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     sub = WebhookSubscription(
-        skill_name="echo", auth_secret="s",
+        skill_name="echo",
+        auth_secret="s",
         delivery_target="log",
     )
 
@@ -371,7 +405,10 @@ async def test_dispatch_agent_construction_failure_logged_not_raised(
 
     with caplog.at_level(logging.ERROR, logger="athena.webhooks.delivery"):
         await dispatch_webhook(
-            daemon=None, sub=sub, payload={}, headers={},
+            daemon=None,
+            sub=sub,
+            payload={},
+            headers={},
             agent_factory=broken_factory,
         )
     msgs = " ".join(r.message for r in caplog.records)
@@ -386,12 +423,16 @@ async def test_dispatch_agent_run_exception_logged_not_raised(
             raise RuntimeError("simulated crash")
 
     sub = WebhookSubscription(
-        skill_name="echo", auth_secret="s",
+        skill_name="echo",
+        auth_secret="s",
         delivery_target="log",
     )
     with caplog.at_level(logging.ERROR, logger="athena.webhooks.delivery"):
         await dispatch_webhook(
-            daemon=None, sub=sub, payload={}, headers={},
+            daemon=None,
+            sub=sub,
+            payload={},
+            headers={},
             agent_factory=lambda: _CrashAgent(),
         )
     msgs = " ".join(r.message for r in caplog.records)
@@ -401,11 +442,16 @@ async def test_dispatch_agent_run_exception_logged_not_raised(
 async def test_dispatch_empty_response_still_logs() -> None:
     """Agent returns empty string → log path triggers with '(empty)'."""
     sub = WebhookSubscription(
-        skill_name="echo", auth_secret="s", delivery_target="log",
+        skill_name="echo",
+        auth_secret="s",
+        delivery_target="log",
     )
     agent = _StubAgent(response="")
     # Just verify no exception.
     await dispatch_webhook(
-        daemon=None, sub=sub, payload={}, headers={},
+        daemon=None,
+        sub=sub,
+        payload={},
+        headers={},
         agent_factory=lambda: agent,
     )

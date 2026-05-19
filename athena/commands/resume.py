@@ -1,11 +1,13 @@
 """/resume — load a saved session transcript into the current agent."""
+
 from __future__ import annotations
+
 import json
 from pathlib import Path
 
-from . import command
 from .. import ui
 from ..config import SESSIONS_DIR
+from . import command
 
 
 @command("resume")
@@ -13,7 +15,9 @@ def cmd_resume(agent, arg: str = "") -> str:
     arg = arg.strip()
     if not arg:
         # List the most recent sessions
-        sessions = sorted(SESSIONS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        sessions = sorted(
+            SESSIONS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+        )
         if not sessions:
             ui.info(f"no sessions in {SESSIONS_DIR}")
             return ""

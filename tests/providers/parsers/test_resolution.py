@@ -1,4 +1,5 @@
 """Parser registry resolution semantics."""
+
 from __future__ import annotations
 
 import pytest
@@ -29,8 +30,10 @@ def isolated_registry():
 def _named_parser(name: str) -> Parser:
     """A parser that returns its own name in ``cleaned_content`` so tests
     can detect which one fired."""
+
     def _p(content, raw):
         return name, []
+
     return _p
 
 

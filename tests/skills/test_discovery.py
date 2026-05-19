@@ -1,4 +1,5 @@
 """Tests for skill discovery."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -62,9 +63,7 @@ def test_discover_include_archived(isolated_home: Path, write_skill) -> None:
     assert found["old-one"][0].state == "archived"
 
 
-def test_discover_skips_malformed_skill_md(
-    isolated_home: Path, write_skill, caplog
-) -> None:
+def test_discover_skips_malformed_skill_md(isolated_home: Path, write_skill, caplog) -> None:
     user_skills = isolated_home / ".athena" / "skills"
     user_skills.mkdir(parents=True)
     write_skill(user_skills, "good")

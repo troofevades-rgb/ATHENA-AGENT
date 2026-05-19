@@ -19,6 +19,7 @@ Returns ``None`` on any failure so callers can reject the run without
 mutating state. We never raise to the caller — the curator is a background
 process and failures should produce a log warning, not a stack trace.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,7 +27,6 @@ import re
 from typing import Any
 
 import yaml
-
 
 logger = logging.getLogger(__name__)
 
@@ -39,36 +39,42 @@ _FENCE_RE = re.compile(
 # Wide enum (Retrofit #10). The narrower legacy set
 # {KEEP_AS_IS, CONSOLIDATE_INTO, CREATE_UMBRELLA, PRUNE} remains a
 # subset — old-shape reports parse cleanly.
-_ALLOWED_DECISIONS = frozenset({
-    "KEEP_AS_IS",
-    "CONSOLIDATE_INTO",
-    "CREATE_UMBRELLA",
-    "DEMOTE_TO_REFERENCES",
-    "DEMOTE_TO_TEMPLATES",
-    "DEMOTE_TO_SCRIPTS",
-    "PRUNE",
-})
+_ALLOWED_DECISIONS = frozenset(
+    {
+        "KEEP_AS_IS",
+        "CONSOLIDATE_INTO",
+        "CREATE_UMBRELLA",
+        "DEMOTE_TO_REFERENCES",
+        "DEMOTE_TO_TEMPLATES",
+        "DEMOTE_TO_SCRIPTS",
+        "PRUNE",
+    }
+)
 
 # Decisions that REQUIRE a non-empty target. CREATE_UMBRELLA's target is
 # the new umbrella's name; CONSOLIDATE_INTO's and the DEMOTE_TO_*'s are
 # the existing umbrella absorbing this skill's content.
-_TARGET_REQUIRED = frozenset({
-    "CONSOLIDATE_INTO",
-    "CREATE_UMBRELLA",
-    "DEMOTE_TO_REFERENCES",
-    "DEMOTE_TO_TEMPLATES",
-    "DEMOTE_TO_SCRIPTS",
-})
+_TARGET_REQUIRED = frozenset(
+    {
+        "CONSOLIDATE_INTO",
+        "CREATE_UMBRELLA",
+        "DEMOTE_TO_REFERENCES",
+        "DEMOTE_TO_TEMPLATES",
+        "DEMOTE_TO_SCRIPTS",
+    }
+)
 
 # Decisions that produce an ``absorbed_into`` umbrella for the
 # reference-migration cron. CREATE_UMBRELLA is excluded — that row IS
 # the umbrella, it is not being absorbed.
-_ABSORPTION_DECISIONS = frozenset({
-    "CONSOLIDATE_INTO",
-    "DEMOTE_TO_REFERENCES",
-    "DEMOTE_TO_TEMPLATES",
-    "DEMOTE_TO_SCRIPTS",
-})
+_ABSORPTION_DECISIONS = frozenset(
+    {
+        "CONSOLIDATE_INTO",
+        "DEMOTE_TO_REFERENCES",
+        "DEMOTE_TO_TEMPLATES",
+        "DEMOTE_TO_SCRIPTS",
+    }
+)
 
 _REQUIRED_KEYS = ("skill", "decision", "rationale")
 
@@ -113,12 +119,11 @@ def parse_curator_report(text: str) -> dict | None:
             logger.warning("curator run %d has unknown decision %r", i, decision)
             return None
         target = entry.get("target")
-        if decision in _TARGET_REQUIRED and not (
-            isinstance(target, str) and target
-        ):
+        if decision in _TARGET_REQUIRED and not (isinstance(target, str) and target):
             logger.warning(
                 "curator run %d has decision %s but missing/empty target",
-                i, decision,
+                i,
+                decision,
             )
             return None
 
@@ -135,13 +140,15 @@ def parse_curator_report(text: str) -> dict | None:
         else:
             absorbed_into = None
 
-        cleaned.append({
-            "skill": str(entry["skill"]),
-            "decision": decision,
-            "target": target if isinstance(target, str) and target else None,
-            "absorbed_into": absorbed_into,
-            "rationale": str(entry["rationale"]),
-        })
+        cleaned.append(
+            {
+                "skill": str(entry["skill"]),
+                "decision": decision,
+                "target": target if isinstance(target, str) and target else None,
+                "absorbed_into": absorbed_into,
+                "rationale": str(entry["rationale"]),
+            }
+        )
 
     return {"runs": cleaned}
 

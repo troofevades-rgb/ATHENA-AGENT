@@ -10,12 +10,12 @@ back-to-back fires for ~60 seconds, after which the limiter kicks
 back in. Persisting would mean SQLite + transaction overhead per
 check for marginal benefit.
 """
+
 from __future__ import annotations
 
 import threading
 import time
 from collections import deque
-
 
 _WINDOW_SECONDS = 60.0
 

@@ -6,6 +6,7 @@ goes through a single store rather than each tool constructing its
 own. The stores are keyed by profile root so two concurrent
 profiles in the same process see their own snapshot/audit directories.
 """
+
 from __future__ import annotations
 
 import threading
@@ -13,7 +14,6 @@ from pathlib import Path
 
 from .audit import MutationAuditLog
 from .snapshots import SnapshotStore
-
 
 _LOCK = threading.Lock()
 _SNAPSHOT_STORES: dict[str, SnapshotStore] = {}

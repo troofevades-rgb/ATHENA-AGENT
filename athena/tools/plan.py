@@ -8,10 +8,11 @@ Behavior:
   plan and asked whether to proceed. If yes, the agent exits plan mode and
   begins executing.
 """
+
 from __future__ import annotations
 
-from .registry import tool
 from .. import ui
+from .registry import tool
 
 # Module-level flag, read by agent.py at tool-dispatch time.
 _PLAN_MODE = False
@@ -33,13 +34,20 @@ def exit_plan_mode_silent() -> None:
 
 # Tools that are still allowed in plan mode (read-only).
 PLAN_MODE_ALLOWED = {
-    "Read", "read_file",
-    "Glob", "glob",
-    "Grep", "grep",
-    "WebFetch", "web_fetch",
-    "WebSearch", "web_search",
+    "Read",
+    "read_file",
+    "Glob",
+    "glob",
+    "Grep",
+    "grep",
+    "WebFetch",
+    "web_fetch",
+    "WebSearch",
+    "web_search",
     "list_dir",
-    "TaskCreate", "TaskUpdate", "TaskList",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskList",
     "AskUserQuestion",
     "ExitPlanMode",
     "EnterPlanMode",
@@ -61,7 +69,10 @@ PLAN_MODE_ALLOWED = {
     parameters={
         "type": "object",
         "properties": {
-            "plan": {"type": "string", "description": "Markdown-formatted plan to present to the user."},
+            "plan": {
+                "type": "string",
+                "description": "Markdown-formatted plan to present to the user.",
+            },
         },
         "required": ["plan"],
     },

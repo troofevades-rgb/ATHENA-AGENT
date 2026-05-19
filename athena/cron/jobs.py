@@ -14,16 +14,16 @@ Delivery routes the job's output to ``log``, ``file:<path>``, or
 ``gateway://<platform>/<chat_id>`` (the gateway path is a Phase 10 hook;
 for now it logs a warning).
 """
+
 from __future__ import annotations
 
 import json
 import sqlite3
 import uuid
 from contextlib import closing
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-
 
 _VALID_MODES = ("agent", "watchdog")
 
@@ -33,6 +33,7 @@ class CronJob:
     """One scheduled cron job. ``id`` is stable and used as the
     APScheduler job ID, so a CRUD round-trip survives daemon restarts.
     """
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     cron_expr: str = ""
     mode: str = "agent"
@@ -42,17 +43,13 @@ class CronJob:
     script: str | None = None
     delivery_target: str = "log"
     enabled: bool = True
-    created_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_run_at: datetime | None = None
     last_status: str | None = None
 
     def __post_init__(self) -> None:
         if self.mode not in _VALID_MODES:
-            raise ValueError(
-                f"invalid cron mode {self.mode!r}; must be one of {_VALID_MODES}"
-            )
+            raise ValueError(f"invalid cron mode {self.mode!r}; must be one of {_VALID_MODES}")
         if self.mode == "watchdog" and not self.script:
             raise ValueError("watchdog mode requires a script")
         if self.mode == "agent" and not (self.skill or self.prompt):
@@ -69,7 +66,7 @@ class CronJob:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> "CronJob":
+    def from_dict(cls, d: dict) -> CronJob:
         kwargs = dict(d)
         for key in ("created_at", "last_run_at"):
             v = kwargs.get(key)
@@ -86,7 +83,7 @@ class CronJob:
         return json.dumps(self.to_dict(), sort_keys=True)
 
     @classmethod
-    def from_json(cls, s: str) -> "CronJob":
+    def from_json(cls, s: str) -> CronJob:
         return cls.from_dict(json.loads(s))
 
 
@@ -164,33 +161,24 @@ class JobStore:
 
     def get(self, job_id: str) -> CronJob | None:
         with closing(self._connect()) as conn:
-            row = conn.execute(
-                "SELECT * FROM cron_jobs WHERE id = ?", (job_id,)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM cron_jobs WHERE id = ?", (job_id,)).fetchone()
         return self._row_to_job(row) if row else None
 
     def list_jobs(self) -> list[CronJob]:
         with closing(self._connect()) as conn:
-            rows = conn.execute(
-                "SELECT * FROM cron_jobs ORDER BY created_at"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM cron_jobs ORDER BY created_at").fetchall()
         return [self._row_to_job(r) for r in rows]
 
     def delete(self, job_id: str) -> bool:
         with closing(self._connect()) as conn, conn:
-            cur = conn.execute(
-                "DELETE FROM cron_jobs WHERE id = ?", (job_id,)
-            )
+            cur = conn.execute("DELETE FROM cron_jobs WHERE id = ?", (job_id,))
             return cur.rowcount > 0
 
-    def record_run(
-        self, job_id: str, *, status: str, when: datetime | None = None
-    ) -> None:
+    def record_run(self, job_id: str, *, status: str, when: datetime | None = None) -> None:
         when = when or datetime.now(timezone.utc)
         with closing(self._connect()) as conn, conn:
             conn.execute(
-                "UPDATE cron_jobs SET last_run_at = ?, last_status = ? "
-                "WHERE id = ?",
+                "UPDATE cron_jobs SET last_run_at = ?, last_status = ? WHERE id = ?",
                 (when.isoformat(), status, job_id),
             )
 

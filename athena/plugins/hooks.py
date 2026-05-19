@@ -18,6 +18,7 @@ which plugin denied the call.
 This module deliberately doesn't import :mod:`athena.hooks` — the
 settings-driven hook system there is a separate, additive layer.
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,26 +40,18 @@ class HookDispatcher:
             try:
                 p.on_session_start(session_id, profile)
             except Exception:
-                logger.exception(
-                    "plugin %s on_session_start raised; continuing", p.name
-                )
+                logger.exception("plugin %s on_session_start raised; continuing", p.name)
 
-    def on_session_end(
-        self, session_id: str, completed: bool, interrupted: bool
-    ) -> None:
+    def on_session_end(self, session_id: str, completed: bool, interrupted: bool) -> None:
         for p in self.plugins:
             try:
                 p.on_session_end(session_id, completed, interrupted)
             except Exception:
-                logger.exception(
-                    "plugin %s on_session_end raised; continuing", p.name
-                )
+                logger.exception("plugin %s on_session_end raised; continuing", p.name)
 
     # ---- Tool dispatch ----
 
-    def pre_tool_call(
-        self, tool_name: str, tool_args: dict[str, Any]
-    ) -> tuple[bool, str | None]:
+    def pre_tool_call(self, tool_name: str, tool_args: dict[str, Any]) -> tuple[bool, str | None]:
         """Return ``(allow, blocking_plugin_name_or_None)``.
 
         The first plugin to return ``False`` wins the veto; every subsequent
@@ -70,25 +63,19 @@ class HookDispatcher:
             try:
                 decision = p.pre_tool_call(tool_name, dict(tool_args))
             except Exception:
-                logger.exception(
-                    "plugin %s pre_tool_call raised; allowing", p.name
-                )
+                logger.exception("plugin %s pre_tool_call raised; allowing", p.name)
                 continue
             if decision is False and allow:
                 allow = False
                 blocker = p.name
         return allow, blocker
 
-    def post_tool_call(
-        self, tool_name: str, tool_args: dict[str, Any], result: str
-    ) -> None:
+    def post_tool_call(self, tool_name: str, tool_args: dict[str, Any], result: str) -> None:
         for p in self.plugins:
             try:
                 p.post_tool_call(tool_name, dict(tool_args), result)
             except Exception:
-                logger.exception(
-                    "plugin %s post_tool_call raised; continuing", p.name
-                )
+                logger.exception("plugin %s post_tool_call raised; continuing", p.name)
 
     # ---- Messages ----
 
@@ -99,9 +86,7 @@ class HookDispatcher:
             try:
                 modified = p.on_user_message(current)
             except Exception:
-                logger.exception(
-                    "plugin %s on_user_message raised; keeping prior prompt", p.name
-                )
+                logger.exception("plugin %s on_user_message raised; keeping prior prompt", p.name)
                 continue
             if modified is not None:
                 current = modified
@@ -112,6 +97,4 @@ class HookDispatcher:
             try:
                 p.on_assistant_message(content)
             except Exception:
-                logger.exception(
-                    "plugin %s on_assistant_message raised; continuing", p.name
-                )
+                logger.exception("plugin %s on_assistant_message raised; continuing", p.name)

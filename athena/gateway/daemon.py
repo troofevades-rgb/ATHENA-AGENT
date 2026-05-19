@@ -22,12 +22,14 @@ Slash-command dispatch (``/stop``, ``/new``, ``/approve``, …) lives in
 approval router, and Phase 10.7 routes the rest to the CLI command
 table.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from ..config import Config, profile_dir
 from ..sessions.store import SessionStore
@@ -39,7 +41,6 @@ from .events import MessageEvent
 from .router import SessionRouter
 
 if TYPE_CHECKING:
-    from ..agent.core import Agent
     from .base import GatewayAdapter
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,7 @@ logger = logging.getLogger(__name__)
 CommandDispatcher = Callable[[MessageEvent, str, str], Awaitable[str]]
 
 
-async def _stub_dispatch(
-    event: MessageEvent, session_id: str, cmd: str
-) -> str:
+async def _stub_dispatch(event: MessageEvent, session_id: str, cmd: str) -> str:
     return f"(command /{cmd} not yet implemented)"
 
 
@@ -92,6 +91,7 @@ class GatewayDaemon:
         # Tests can override via the agent_factory kwarg.
         if agent_factory is None:
             from .agent_factory import build_agent_factory
+
             agent_factory = build_agent_factory(self)
         self.pool = AgentPool(
             agent_factory,
@@ -100,7 +100,7 @@ class GatewayDaemon:
         self.approvals = ApprovalRouter()
         self.continuity = ContinuityManager(self.router)
         self._dispatch_command = command_dispatcher or _stub_dispatch
-        self.adapters: list["GatewayAdapter"] = []
+        self.adapters: list[GatewayAdapter] = []
         self._adapter_tasks: list[asyncio.Task] = []
         self._started = False
         # Webhook listener (Phase 15) — constructed lazily in start()
@@ -110,7 +110,7 @@ class GatewayDaemon:
 
     # ---- adapter lifecycle ----
 
-    def register(self, adapter: "GatewayAdapter") -> None:
+    def register(self, adapter: GatewayAdapter) -> None:
         """Add a platform adapter. Must be called before :meth:`start`.
 
         The daemon does NOT enforce uniqueness on adapter name — two
@@ -144,6 +144,7 @@ class GatewayDaemon:
                 adapter.start(),
                 name=f"gateway-adapter-{adapter.name}",
             )
+
             # Without a done-callback the adapter's start() exception
             # lives forever in the orphan task and the daemon sits at
             # await stop_event.wait() with the platform in offline
@@ -156,8 +157,11 @@ class GatewayDaemon:
                 if exc is not None:
                     logger.error(
                         "[%s] adapter start() crashed: %s",
-                        _name, exc, exc_info=exc,
+                        _name,
+                        exc,
+                        exc_info=exc,
                     )
+
             task.add_done_callback(_on_done)
             self._adapter_tasks.append(task)
 
@@ -169,7 +173,8 @@ class GatewayDaemon:
         if wh is not None and getattr(wh, "enabled", False):
             try:
                 self._webhook_server = await self._start_webhook_server(
-                    wh.host, wh.port,
+                    wh.host,
+                    wh.port,
                 )
             except Exception:
                 logger.exception(
@@ -195,7 +200,9 @@ class GatewayDaemon:
         for adapter, exc in zip(self.adapters, stop_results):
             if isinstance(exc, BaseException):
                 logger.warning(
-                    "adapter %s.stop() raised: %r", adapter.name, exc,
+                    "adapter %s.stop() raised: %r",
+                    adapter.name,
+                    exc,
                 )
 
         for task in self._adapter_tasks:
@@ -227,14 +234,14 @@ class GatewayDaemon:
                     pending.append(task)
         if pending:
             done, _ = await asyncio.wait(
-                pending, timeout=10.0,
+                pending,
+                timeout=10.0,
                 return_when=asyncio.ALL_COMPLETED,
             )
             still_running = [t for t in pending if not t.done()]
             if still_running:
                 logger.warning(
-                    "daemon.stop: %d session dispatch task(s) did not "
-                    "drain in 10s; cancelling",
+                    "daemon.stop: %d session dispatch task(s) did not drain in 10s; cancelling",
                     len(still_running),
                 )
                 for t in still_running:
@@ -263,7 +270,10 @@ class GatewayDaemon:
 
         async def _dispatch(sub, payload, headers):
             await dispatch_webhook(
-                daemon=self, sub=sub, payload=payload, headers=headers,
+                daemon=self,
+                sub=sub,
+                payload=payload,
+                headers=headers,
             )
 
         server = WebhookServer(
@@ -278,7 +288,7 @@ class GatewayDaemon:
 
     # ---- outbound shortcuts ----
 
-    def adapter_for(self, platform: str) -> "GatewayAdapter | None":
+    def adapter_for(self, platform: str) -> GatewayAdapter | None:
         """Return the registered adapter whose ``name`` matches
         ``platform``, or ``None``. Used by the cron delivery layer to
         route gateway:// targets to the right adapter."""
@@ -308,7 +318,8 @@ class GatewayDaemon:
         except Exception:
             logger.exception(
                 "dispatch_command failed for /%s on session %s",
-                cmd, session_id,
+                cmd,
+                session_id,
             )
             return f"(command /{cmd} failed; see logs)"
 
@@ -316,7 +327,7 @@ class GatewayDaemon:
 # ---- helpers ------------------------------------------------------------
 
 
-async def _bounded_stop(adapter: "GatewayAdapter") -> None:
+async def _bounded_stop(adapter: GatewayAdapter) -> None:
     try:
         await asyncio.wait_for(adapter.stop(), timeout=10.0)
     except asyncio.TimeoutError:

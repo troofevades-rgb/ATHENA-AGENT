@@ -29,6 +29,7 @@ Storage layout:
         <ts>-<sha[:12]>-<origin>.tar.gz
         <ts>-<sha[:12]>-<origin>.json     # sidecar
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -38,10 +39,9 @@ import hashlib
 import io
 import json
 import logging
-import shutil
 import tarfile
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import Callable, Iterable, Iterator
 
 from ..config import CONFIG_DIR
 from ..provenance import get_current_write_origin
@@ -200,7 +200,8 @@ class SnapshotStore:
             "pinned": False,
         }
         sidecar_path.write_text(
-            json.dumps(sidecar, indent=2, default=str), encoding="utf-8",
+            json.dumps(sidecar, indent=2, default=str),
+            encoding="utf-8",
         )
 
         return Snapshot(
@@ -231,9 +232,7 @@ class SnapshotStore:
             tarball_path = sidecar_path.with_suffix(".tar.gz")
             # Some legacy / corrupt rows may use the old name.
             if not tarball_path.exists():
-                tarball_path = sidecar_path.parent / (
-                    sidecar_path.stem + ".tar.gz"
-                )
+                tarball_path = sidecar_path.parent / (sidecar_path.stem + ".tar.gz")
             return Snapshot(
                 snapshot_id=payload["snapshot_id"],
                 paths=paths,
@@ -273,9 +272,7 @@ class SnapshotStore:
                 continue
             if path_filter is not None:
                 target = Path(path_filter).resolve()
-                if not any(
-                    _path_covers(p, target) for p in snap.paths
-                ):
+                if not any(_path_covers(p, target) for p in snap.paths):
                     continue
             all_snaps.append(snap)
         all_snaps.sort(key=lambda s: s.created_at, reverse=True)
@@ -337,8 +334,7 @@ class SnapshotStore:
         """
         if not snapshot.tarball_path.exists():
             raise SnapshotError(
-                f"tarball missing for snapshot {snapshot.snapshot_id}: "
-                f"{snapshot.tarball_path}"
+                f"tarball missing for snapshot {snapshot.snapshot_id}: {snapshot.tarball_path}"
             )
         target_root = (dest_root or self.relative_to).resolve()
 
@@ -364,14 +360,8 @@ class SnapshotStore:
             return []
 
         if confirm is not None:
-            summary = "\n".join(
-                f"  {m.name}{'/' if m.isdir() else ''}"
-                for m in relevant
-            )
-            ok = confirm(
-                f"restore {len(relevant)} entry/entries to {target_root}:\n"
-                f"{summary}"
-            )
+            summary = "\n".join(f"  {m.name}{'/' if m.isdir() else ''}" for m in relevant)
+            ok = confirm(f"restore {len(relevant)} entry/entries to {target_root}:\n{summary}")
             if not ok:
                 return []
 
@@ -410,7 +400,7 @@ class SnapshotStore:
         # below retention_count.
         non_pinned = [s for s in snaps if not s.pinned]
         if len(non_pinned) > self.retention_count:
-            overflow = non_pinned[self.retention_count:]
+            overflow = non_pinned[self.retention_count :]
             for s in overflow:
                 if s not in removable:
                     removable.append(s)

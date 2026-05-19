@@ -1,9 +1,9 @@
 """Tests for athena.sessions.reindex.reindex()."""
+
 from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -38,10 +38,14 @@ def _seed_session(profile_dir: Path, session_id: str, messages: list[dict]) -> N
 
 def test_rebuild_from_empty_db(profile_dir: Path) -> None:
     sid = new_session_id()
-    _seed_session(profile_dir, sid, [
-        {"role": "user", "content": "alpha bravo charlie"},
-        {"role": "assistant", "content": "delta echo"},
-    ])
+    _seed_session(
+        profile_dir,
+        sid,
+        [
+            {"role": "user", "content": "alpha bravo charlie"},
+            {"role": "assistant", "content": "delta echo"},
+        ],
+    )
     db_path = profile_dir / "sessions.db"
     assert db_path.exists()
     db_path.unlink()
@@ -57,9 +61,7 @@ def test_rebuild_from_empty_db(profile_dir: Path) -> None:
         ).fetchall()
         assert rows == [(sid, 0), (sid, 1)]
         # FTS5 round-trips after the rebuild.
-        match = con.execute(
-            "SELECT rowid FROM turns_fts WHERE turns_fts MATCH 'bravo'"
-        ).fetchall()
+        match = con.execute("SELECT rowid FROM turns_fts WHERE turns_fts MATCH 'bravo'").fetchall()
         assert len(match) == 1
     finally:
         con.close()
@@ -85,10 +87,14 @@ def test_rebuild_preserves_meta_fields(profile_dir: Path) -> None:
 
 def test_rebuild_after_jsonl_corruption_skips_bad_lines(profile_dir: Path) -> None:
     sid = new_session_id()
-    _seed_session(profile_dir, sid, [
-        {"role": "user", "content": "good first"},
-        {"role": "user", "content": "good second"},
-    ])
+    _seed_session(
+        profile_dir,
+        sid,
+        [
+            {"role": "user", "content": "good first"},
+            {"role": "user", "content": "good second"},
+        ],
+    )
     # Corrupt the middle line.
     jsonl_path = profile_dir / "sessions" / f"{sid}.jsonl"
     text = jsonl_path.read_text(encoding="utf-8")

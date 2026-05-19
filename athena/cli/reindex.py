@@ -1,4 +1,5 @@
 """``athena reindex`` — rebuild the session FTS5 index from JSONL files."""
+
 from __future__ import annotations
 
 import argparse
@@ -14,8 +15,9 @@ def _parse(argv: list[str]) -> argparse.Namespace:
         description="Drop and rebuild the session SQLite FTS5 index from JSONL files.",
     )
     ap.add_argument("--profile", default="default", help="Profile to reindex (default: default).")
-    ap.add_argument("--home", type=Path, default=None,
-                    help="Override athena home (default: ~/.athena).")
+    ap.add_argument(
+        "--home", type=Path, default=None, help="Override athena home (default: ~/.athena)."
+    )
     return ap.parse_args(argv)
 
 

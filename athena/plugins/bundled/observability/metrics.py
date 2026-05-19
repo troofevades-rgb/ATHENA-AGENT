@@ -1,8 +1,8 @@
 """Stable metric instrument names — exported separately so
 dashboards can reference them without depending on the plugin's
 runtime state."""
-from __future__ import annotations
 
+from __future__ import annotations
 
 METRIC_TOOL_CALL_COUNT = "athena.tool_call.count"
 """Counter — tool calls per (tool_name, status)."""

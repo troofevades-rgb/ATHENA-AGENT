@@ -1,4 +1,5 @@
 """Tests for athena.provenance — the write-origin ContextVar."""
+
 import threading
 
 import pytest

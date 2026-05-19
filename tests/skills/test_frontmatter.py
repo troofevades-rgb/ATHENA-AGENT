@@ -1,4 +1,5 @@
 """Tests for SKILL.md YAML frontmatter parse/serialize."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -33,7 +34,9 @@ def test_parse_minimal_frontmatter(tmp_path: Path) -> None:
 
 
 def test_parse_full_frontmatter(tmp_path: Path) -> None:
-    p = _write(tmp_path, """---
+    p = _write(
+        tmp_path,
+        """---
 name: full-skill
 description: A full skill.
 version: "1.2.3"
@@ -52,7 +55,8 @@ source_hermes_path: /home/me/.hermes/skills/full-skill
 imported_at: 2026-05-01T00:00:00Z
 ---
 body
-""")
+""",
+    )
     fm, body = parse_frontmatter(p)
     assert fm.name == "full-skill"
     assert fm.version == "1.2.3"
@@ -109,14 +113,17 @@ def test_parse_rejects_no_frontmatter_block(tmp_path: Path) -> None:
 
 
 def test_unknown_fields_fold_into_metadata(tmp_path: Path) -> None:
-    p = _write(tmp_path, """---
+    p = _write(
+        tmp_path,
+        """---
 name: forward-compat
 description: x
 new_future_field: "future"
 metadata:
   existing: value
 ---
-""")
+""",
+    )
     fm, _ = parse_frontmatter(p)
     assert fm.metadata == {"existing": "value", "new_future_field": "future"}
 
@@ -182,13 +189,16 @@ def test_serialize_omits_none_values() -> None:
 
 def test_datetime_coercion(tmp_path: Path) -> None:
     """Both naive ISO strings and Z-suffixed strings parse to UTC-aware."""
-    p = _write(tmp_path, """---
+    p = _write(
+        tmp_path,
+        """---
 name: dt
 description: x
 created_at: 2026-01-01T00:00:00
 last_activity_at: 2026-02-02T03:04:05Z
 ---
-""")
+""",
+    )
     fm, _ = parse_frontmatter(p)
     assert fm.created_at == datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
     assert fm.last_activity_at == datetime(2026, 2, 2, 3, 4, 5, tzinfo=timezone.utc)

@@ -13,18 +13,19 @@ Workflow per session:
 ``search`` returns :class:`SearchHit` objects with surrounding turns
 included so the model has enough context to act on the match.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-import os
 import secrets
 import sqlite3
 import threading
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from . import jsonl, sqlite_index
 
@@ -40,8 +41,8 @@ def new_session_id() -> str:
     safe against concurrent generation in the same millisecond."""
     ts_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     ts_hex = f"{ts_ms:012x}"
-    rand_a = secrets.randbits(12)        # 12 bits after version nibble
-    rand_b = secrets.randbits(62)        # 62 bits after variant prefix
+    rand_a = secrets.randbits(12)  # 12 bits after version nibble
+    rand_b = secrets.randbits(62)  # 62 bits after variant prefix
     # version 7 nibble + 12-bit rand_a
     ver_and_a = (0x7 << 12) | rand_a
     # variant '10' in top two bits of the next 64
@@ -50,8 +51,8 @@ def new_session_id() -> str:
         f"{ts_hex[0:8]}-"
         f"{ts_hex[8:12]}-"
         f"{ver_and_a:04x}-"
-        f"{(var_and_b >> 48) & 0xffff:04x}-"
-        f"{var_and_b & 0xffffffffffff:012x}"
+        f"{(var_and_b >> 48) & 0xFFFF:04x}-"
+        f"{var_and_b & 0xFFFFFFFFFFFF:012x}"
     )
 
 
@@ -165,13 +166,21 @@ class SessionStore:
 
         try:
             sqlite_index.insert_turn(
-                self._conn(), session_id, turn_index, role, content, tool_name, timestamp,
+                self._conn(),
+                session_id,
+                turn_index,
+                role,
+                content,
+                tool_name,
+                timestamp,
             )
         except sqlite3.Error as e:
             logger.warning(
                 "sqlite append_turn failed for %s[%d]: %s — JSONL is intact, "
                 "run `athena reindex` to rebuild",
-                session_id, turn_index, e,
+                session_id,
+                turn_index,
+                e,
             )
         return turn_index
 
@@ -212,17 +221,19 @@ class SessionStore:
         rows = self._conn().execute(sql, params).fetchall()
         out: list[SessionMeta] = []
         for r in rows:
-            out.append(SessionMeta(
-                session_id=r[0],
-                profile=r[1],
-                model=r[2],
-                provider=r[3],
-                workspace=r[4],
-                parent_session_id=r[5],
-                started_at=_parse_iso(r[6]),
-                ended_at=_parse_iso(r[7]) if r[7] else None,
-                tags=json.loads(r[8] or "[]"),
-            ))
+            out.append(
+                SessionMeta(
+                    session_id=r[0],
+                    profile=r[1],
+                    model=r[2],
+                    provider=r[3],
+                    workspace=r[4],
+                    parent_session_id=r[5],
+                    started_at=_parse_iso(r[6]),
+                    ended_at=_parse_iso(r[7]) if r[7] else None,
+                    tags=json.loads(r[8] or "[]"),
+                )
+            )
         return out
 
     def load(self, session_id: str) -> Iterator[dict[str, Any]]:
@@ -260,12 +271,16 @@ class SessionStore:
     def children(self, session_id: str) -> list[SessionMeta]:
         """Return every session whose ``parent_session_id`` is ``session_id``,
         ordered by ``started_at`` ascending so the tree displays chronologically."""
-        rows = self._conn().execute(
-            "SELECT session_id, profile, model, provider, workspace, "
-            "parent_session_id, started_at, ended_at, tags FROM sessions "
-            "WHERE parent_session_id = ? ORDER BY started_at ASC",
-            (session_id,),
-        ).fetchall()
+        rows = (
+            self._conn()
+            .execute(
+                "SELECT session_id, profile, model, provider, workspace, "
+                "parent_session_id, started_at, ended_at, tags FROM sessions "
+                "WHERE parent_session_id = ? ORDER BY started_at ASC",
+                (session_id,),
+            )
+            .fetchall()
+        )
         return [
             SessionMeta(
                 session_id=r[0],
@@ -289,23 +304,32 @@ class SessionStore:
         workspace: str | None = None,
         since: datetime | None = None,
     ) -> list[SearchHit]:
-        rows = sqlite_index.fts5_search(
-            self._conn(), query, k=k, workspace=workspace, since=since
-        )
+        rows = sqlite_index.fts5_search(self._conn(), query, k=k, workspace=workspace, since=since)
         hits: list[SearchHit] = []
-        for (session_id, turn_index, role, content, tool_name,
-             _timestamp, started_at_str, ws, score) in rows:
+        for (
+            session_id,
+            turn_index,
+            role,
+            content,
+            tool_name,
+            _timestamp,
+            started_at_str,
+            ws,
+            score,
+        ) in rows:
             surrounding = self._surrounding(session_id, turn_index)
-            hits.append(SearchHit(
-                session_id=session_id,
-                turn_index=turn_index,
-                role=role,
-                snippet=_snippet(content),
-                surrounding=surrounding,
-                score=float(score) if score is not None else 0.0,
-                started_at=_parse_iso(started_at_str),
-                workspace=ws,
-            ))
+            hits.append(
+                SearchHit(
+                    session_id=session_id,
+                    turn_index=turn_index,
+                    role=role,
+                    snippet=_snippet(content),
+                    surrounding=surrounding,
+                    score=float(score) if score is not None else 0.0,
+                    started_at=_parse_iso(started_at_str),
+                    workspace=ws,
+                )
+            )
         return hits
 
     # -- internals ---------------------------------------------------
@@ -364,7 +388,7 @@ def _flatten_content(message: dict[str, Any]) -> str:
                 if isinstance(text, str):
                     parts.append(text)
     for call in message.get("tool_calls") or []:
-        fn = (call.get("function") or {})
+        fn = call.get("function") or {}
         name = fn.get("name", "")
         args = fn.get("arguments", "")
         if isinstance(args, (dict, list)):
@@ -375,8 +399,14 @@ def _flatten_content(message: dict[str, Any]) -> str:
 
 def _meta_to_dict(meta: SessionMeta) -> dict[str, Any]:
     d = asdict(meta)
-    d["started_at"] = meta.started_at.isoformat() if isinstance(meta.started_at, datetime) else meta.started_at
-    d["ended_at"] = meta.ended_at.isoformat() if isinstance(meta.ended_at, datetime) and meta.ended_at else meta.ended_at
+    d["started_at"] = (
+        meta.started_at.isoformat() if isinstance(meta.started_at, datetime) else meta.started_at
+    )
+    d["ended_at"] = (
+        meta.ended_at.isoformat()
+        if isinstance(meta.ended_at, datetime) and meta.ended_at
+        else meta.ended_at
+    )
     return d
 
 

@@ -1,4 +1,5 @@
 """Tests for the lifecycle runner that wires apply_transitions into Agent init."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -41,9 +42,7 @@ def test_writes_frontmatter_changes_atomically(isolated_home: Path, write_skill)
     assert fm_b.state == "active"
 
 
-def test_logs_action_counts(
-    isolated_home: Path, write_skill, caplog
-) -> None:
+def test_logs_action_counts(isolated_home: Path, write_skill, caplog) -> None:
     user_skills = isolated_home / ".athena" / "skills"
     user_skills.mkdir(parents=True)
     write_skill(
@@ -53,6 +52,7 @@ def test_logs_action_counts(
         last_activity_at=_ago(45),
     )
     import logging
+
     with caplog.at_level(logging.INFO, logger="athena.skills.state_machine_runner"):
         run_lifecycle()
     assert any("lifecycle" in rec.message for rec in caplog.records)

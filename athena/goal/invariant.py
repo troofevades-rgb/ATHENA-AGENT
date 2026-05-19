@@ -9,10 +9,10 @@ Goal changes do NOT affect history. Past assistant turns made under a
 prior goal are not re-evaluated; the goal only governs subsequent
 decisions.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-
 
 GOAL_FILENAME = "goal.txt"
 GOAL_HEADER = "## Current goal (invariant — keep in mind during every action)"

@@ -22,12 +22,13 @@ The denylist is the security floor — call
 without locking the user into an allowlist. The full strict mode
 (``evaluate``) is what Phase 17's CI / safety tests rely on.
 """
+
 from __future__ import annotations
 
 import dataclasses
 import re
 import shlex
-from typing import Iterable
+from collections.abc import Iterable
 
 
 @dataclasses.dataclass(frozen=True)
@@ -40,15 +41,15 @@ class PolicyDecision:
 # Each pattern is a regex applied to the raw command string before
 # tokenisation. Patterns are ordered roughly by severity.
 DEFAULT_DENYLIST: tuple[str, ...] = (
-    r"\brm\s+-rf\s+/(?!home/|tmp/|var/tmp/)",       # rm -rf of system roots
-    r"\bdd\s+.*\bof=/dev/(sd|nvme|hd)",             # dd to a block device
-    r"\bmkfs\.",                                     # filesystem creation
-    r":\(\)\s*\{\s*:\|:&\s*\}\s*;:",                # fork bomb
-    r">\s*/dev/(sda|nvme|hda)",                     # redirect to block device
-    r"\bchmod\s+.*\b777\b\s+/",                     # chmod 777 on system paths
-    r"\bsudo\s+rm\s+-rf",                            # any sudo rm -rf
-    r"\bcurl\b.*\|\s*(sudo\s+)?(sh|bash|zsh)",      # curl | sh
-    r"\bwget\b.*\|\s*(sudo\s+)?(sh|bash|zsh)",      # wget | sh
+    r"\brm\s+-rf\s+/(?!home/|tmp/|var/tmp/)",  # rm -rf of system roots
+    r"\bdd\s+.*\bof=/dev/(sd|nvme|hd)",  # dd to a block device
+    r"\bmkfs\.",  # filesystem creation
+    r":\(\)\s*\{\s*:\|:&\s*\}\s*;:",  # fork bomb
+    r">\s*/dev/(sda|nvme|hda)",  # redirect to block device
+    r"\bchmod\s+.*\b777\b\s+/",  # chmod 777 on system paths
+    r"\bsudo\s+rm\s+-rf",  # any sudo rm -rf
+    r"\bcurl\b.*\|\s*(sudo\s+)?(sh|bash|zsh)",  # curl | sh
+    r"\bwget\b.*\|\s*(sudo\s+)?(sh|bash|zsh)",  # wget | sh
 )
 
 
@@ -65,9 +66,7 @@ class ShellPolicy:
         self._allow_patterns: tuple[re.Pattern[str], ...] = tuple(
             re.compile(rf"^{re.escape(entry)}\b") for entry in allowlist
         )
-        self._deny_patterns: tuple[re.Pattern[str], ...] = tuple(
-            re.compile(p) for p in denylist
-        )
+        self._deny_patterns: tuple[re.Pattern[str], ...] = tuple(re.compile(p) for p in denylist)
 
     # ---- public API ------------------------------------------------
 
@@ -128,7 +127,9 @@ class ShellPolicy:
             if pat.match(binary):
                 return PolicyDecision(True, f"allowlist match: {raw}", raw)
         return PolicyDecision(
-            False, f"binary {binary!r} not in allowlist", None,
+            False,
+            f"binary {binary!r} not in allowlist",
+            None,
         )
 
     # ---- internals -------------------------------------------------
@@ -137,6 +138,8 @@ class ShellPolicy:
         for p in self._deny_patterns:
             if p.search(cmd):
                 return PolicyDecision(
-                    False, f"denylist match: {p.pattern}", p.pattern,
+                    False,
+                    f"denylist match: {p.pattern}",
+                    p.pattern,
                 )
         return None

@@ -1,4 +1,5 @@
 """Plugin loader: imports modules dynamically, topo-sorts, handles cycles."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -86,9 +87,7 @@ def test_self_dependency_is_a_cycle():
 def test_missing_dependency_is_tolerated():
     """A plugin depending on a missing plugin still loads — the dep just
     isn't enforced. (Real athena flow: that dep may be installed later.)"""
-    a = PluginManifest(
-        name="a", version="0.1.0", depends_on=["not-installed"], path=Path("/tmp/a")
-    )
+    a = PluginManifest(name="a", version="0.1.0", depends_on=["not-installed"], path=Path("/tmp/a"))
     ordered = _toposort([a])
     assert [m.name for m in ordered] == ["a"]
 

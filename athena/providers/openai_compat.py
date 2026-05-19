@@ -10,6 +10,7 @@ This provider takes both as constructor arguments and otherwise
 inherits all behavior from :class:`OpenAICompatibleProvider` (the
 SSE-parsing base in :mod:`athena.providers.openai`).
 """
+
 from __future__ import annotations
 
 from typing import Any

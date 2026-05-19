@@ -19,6 +19,7 @@ State file:
     {"runs": [{"timestamp", "base_model", "output_name", "output_dir",
                "sft_dataset", "dpo_dataset", "exit_codes": {...}}]}
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,7 +28,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..config import CONFIG_DIR, profile_dir as _profile_dir, load_config
+from ..config import CONFIG_DIR
+from ..config import profile_dir as _profile_dir
 from ..sessions.store import SessionStore
 from ..transform.classifier import auto_classify, extract_trajectories
 from ..transform.dataset import (
@@ -35,7 +37,6 @@ from ..transform.dataset import (
     build_sft_dataset,
     write_jsonl,
 )
-from ..transform.deploy import register_with_ollama, switch_model
 from ..transform.review import ReviewSession, default_prompt, load_labels
 from ..transform.runner import (
     TrainingRun,
@@ -45,7 +46,6 @@ from ..transform.runner import (
     run_dpo,
     run_lora,
 )
-
 
 TRAINING_STATE_PATH = CONFIG_DIR / "training_state.json"
 
@@ -77,8 +77,7 @@ def _next_output_name(base_model: str) -> str:
     state = _load_state()
     base_tag = base_model.split("/")[-1]  # strip HF org prefix
     used = {
-        r.get("output_name") for r in state.get("runs", [])
-        if isinstance(r.get("output_name"), str)
+        r.get("output_name") for r in state.get("runs", []) if isinstance(r.get("output_name"), str)
     }
     n = 1
     while f"{base_tag}-athena-{n}" in used:
@@ -104,11 +103,10 @@ def _cmd_review(args) -> int:
     return 0
 
 
-def _enumerate_trajectories(
-    profile_dir: Path, since_days: int, include_auto_labels: bool
-):
+def _enumerate_trajectories(profile_dir: Path, since_days: int, include_auto_labels: bool):
     """Yield Trajectories from every recent session, with user_label hydrated."""
     from datetime import timedelta
+
     store = SessionStore(profile_dir)
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
@@ -140,9 +138,13 @@ def _enumerate_trajectories(
 
 def _cmd_build_dataset(args) -> int:
     profile_dir = _profile_dir(args.profile)
-    trajectories = list(_enumerate_trajectories(
-        profile_dir, args.since_days, args.include_auto_labels,
-    ))
+    trajectories = list(
+        _enumerate_trajectories(
+            profile_dir,
+            args.since_days,
+            args.include_auto_labels,
+        )
+    )
     if not trajectories:
         print("(no trajectories in window)", file=sys.stderr)
         return 1
@@ -209,14 +211,15 @@ def _cmd_run(args) -> int:
 
     dpo_dataset = Path(args.dpo_dataset).expanduser().resolve() if args.dpo_dataset else None
     if dpo_dataset and not dpo_dataset.exists():
-        print(f"warning: DPO dataset not found: {dpo_dataset}; skipping DPO",
-              file=sys.stderr)
+        print(f"warning: DPO dataset not found: {dpo_dataset}; skipping DPO", file=sys.stderr)
         dpo_dataset = None
 
     output_name = args.output_name or _next_output_name(args.base_model)
-    output_dir = (Path(args.output_dir).expanduser().resolve()
-                  if args.output_dir else
-                  Path("transform") / "output" / output_name)
+    output_dir = (
+        Path(args.output_dir).expanduser().resolve()
+        if args.output_dir
+        else Path("transform") / "output" / output_name
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     run = TrainingRun(
@@ -233,24 +236,34 @@ def _cmd_run(args) -> int:
     rc_sft = run_lora(run)
     if rc_sft != 0:
         print(f"error: LoRA training failed (exit {rc_sft})", file=sys.stderr)
-        _record_run(args.base_model, output_name, output_dir, sft_dataset, None,
-                    sft=rc_sft, dpo=None, export=None, register=None)
+        _record_run(
+            args.base_model,
+            output_name,
+            output_dir,
+            sft_dataset,
+            None,
+            sft=rc_sft,
+            dpo=None,
+            export=None,
+            register=None,
+        )
         return rc_sft
 
     sft_lora = find_lora_adapter(output_dir)
     if sft_lora is None:
-        print(f"error: could not locate SFT LoRA adapter under {output_dir}",
-              file=sys.stderr)
+        print(f"error: could not locate SFT LoRA adapter under {output_dir}", file=sys.stderr)
         return 1
 
     rc_dpo: int | None = None
     final_lora = sft_lora
     if dpo_dataset is not None:
-        print(f"=== Phase 2: DPO on top of SFT LoRA")
+        print("=== Phase 2: DPO on top of SFT LoRA")
         rc_dpo = run_dpo(run, sft_lora)
         if rc_dpo != 0:
-            print(f"warning: DPO training failed (exit {rc_dpo}); "
-                  "proceeding with SFT-only adapter", file=sys.stderr)
+            print(
+                f"warning: DPO training failed (exit {rc_dpo}); proceeding with SFT-only adapter",
+                file=sys.stderr,
+            )
         else:
             dpo_out = output_dir.with_name(output_dir.name + "-dpo")
             maybe_dpo_lora = find_lora_adapter(dpo_out)
@@ -258,10 +271,22 @@ def _cmd_run(args) -> int:
                 final_lora = maybe_dpo_lora
 
     if not ensure_ollama_on_path():
-        print("warning: 'ollama' not on PATH — skipping GGUF export and "
-              "registration. Run export_to_ollama.py manually.", file=sys.stderr)
-        _record_run(args.base_model, output_name, output_dir, sft_dataset,
-                    dpo_dataset, sft=rc_sft, dpo=rc_dpo, export=None, register=None)
+        print(
+            "warning: 'ollama' not on PATH — skipping GGUF export and "
+            "registration. Run export_to_ollama.py manually.",
+            file=sys.stderr,
+        )
+        _record_run(
+            args.base_model,
+            output_name,
+            output_dir,
+            sft_dataset,
+            dpo_dataset,
+            sft=rc_sft,
+            dpo=rc_dpo,
+            export=None,
+            register=None,
+        )
         return 0
 
     print(f"=== Phase 3: GGUF export + ollama create {output_name}")
@@ -272,34 +297,55 @@ def _cmd_run(args) -> int:
     )
     if rc_export != 0:
         print(f"error: GGUF export failed (exit {rc_export})", file=sys.stderr)
-        _record_run(args.base_model, output_name, output_dir, sft_dataset,
-                    dpo_dataset, sft=rc_sft, dpo=rc_dpo, export=rc_export, register=None)
+        _record_run(
+            args.base_model,
+            output_name,
+            output_dir,
+            sft_dataset,
+            dpo_dataset,
+            sft=rc_sft,
+            dpo=rc_dpo,
+            export=rc_export,
+            register=None,
+        )
         return rc_export
 
-    _record_run(args.base_model, output_name, output_dir, sft_dataset,
-                dpo_dataset, sft=rc_sft, dpo=rc_dpo, export=rc_export, register=0)
+    _record_run(
+        args.base_model,
+        output_name,
+        output_dir,
+        sft_dataset,
+        dpo_dataset,
+        sft=rc_sft,
+        dpo=rc_dpo,
+        export=rc_export,
+        register=0,
+    )
     print(f"\n[ok] training complete. New Ollama model: {output_name}")
     print(f"  athena model switch {output_name}   # to make it the default")
     return 0
 
 
-def _record_run(base_model, output_name, output_dir, sft_dataset, dpo_dataset,
-                *, sft, dpo, export, register):
+def _record_run(
+    base_model, output_name, output_dir, sft_dataset, dpo_dataset, *, sft, dpo, export, register
+):
     state = _load_state()
-    state["runs"].append({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "base_model": base_model,
-        "output_name": output_name,
-        "output_dir": str(output_dir),
-        "sft_dataset": str(sft_dataset),
-        "dpo_dataset": str(dpo_dataset) if dpo_dataset else None,
-        "exit_codes": {
-            "sft": sft,
-            "dpo": dpo,
-            "export": export,
-            "register": register,
-        },
-    })
+    state["runs"].append(
+        {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "base_model": base_model,
+            "output_name": output_name,
+            "output_dir": str(output_dir),
+            "sft_dataset": str(sft_dataset),
+            "dpo_dataset": str(dpo_dataset) if dpo_dataset else None,
+            "exit_codes": {
+                "sft": sft,
+                "dpo": dpo,
+                "export": export,
+                "register": register,
+            },
+        }
+    )
     _save_state(state)
 
 
@@ -318,8 +364,10 @@ def _cmd_status(args) -> int:  # noqa: ARG001
     if last.get("dpo_dataset"):
         print(f"  DPO dataset:  {last.get('dpo_dataset')}")
     exits = last.get("exit_codes") or {}
-    print(f"  exit codes:   sft={exits.get('sft')}, dpo={exits.get('dpo')}, "
-          f"export={exits.get('export')}, register={exits.get('register')}")
+    print(
+        f"  exit codes:   sft={exits.get('sft')}, dpo={exits.get('dpo')}, "
+        f"export={exits.get('export')}, register={exits.get('register')}"
+    )
     return 0
 
 
@@ -338,7 +386,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_build.add_argument("--since-days", type=int, default=30)
     p_build.add_argument("--include-auto-labels", action="store_true")
     p_build.add_argument(
-        "--output-dir", default=str(Path("transform") / "datasets"),
+        "--output-dir",
+        default=str(Path("transform") / "datasets"),
     )
     p_build.add_argument("--chat-template", default="qwen-coder")
     p_build.add_argument("--profile", default="default")

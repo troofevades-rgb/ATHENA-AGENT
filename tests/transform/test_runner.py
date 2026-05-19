@@ -2,6 +2,7 @@
 
 Tests inject a fake ``runner=`` callable so no real subprocess fires.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -65,6 +66,7 @@ def test_run_lora_calls_train_script_with_args(trun: TrainingRun, tmp_path: Path
 def test_run_lora_returns_exit_code(trun: TrainingRun):
     def fake_call(cmd, cwd=None):
         return 7
+
     assert run_lora(trun, runner=fake_call) == 7
 
 

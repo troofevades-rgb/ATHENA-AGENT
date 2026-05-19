@@ -1,11 +1,10 @@
 """athena train CLI."""
+
 from __future__ import annotations
 
 import io
 import json
-import sys
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -70,7 +69,8 @@ def test_train_review_subcommand(
 
     # Replace the default prompt with a scripted one that labels everything good.
     monkeypatch.setattr(
-        train_cli, "default_prompt",
+        train_cli,
+        "default_prompt",
         lambda t, suggestion: "good",
     )
     rc, stdout, _ = _run(["review", "--since-days", "365"])
@@ -86,9 +86,7 @@ def test_train_review_subcommand(
 # ---- build-dataset subcommand ------------------------------------------
 
 
-def test_train_build_dataset_subcommand(
-    isolated_home: Path, tmp_path: Path
-):
+def test_train_build_dataset_subcommand(isolated_home: Path, tmp_path: Path):
     """build-dataset walks user-labeled sessions and writes SFT JSONL."""
     profile = isolated_home / ".athena" / "profiles" / "default"
     store = SessionStore(profile)
@@ -109,11 +107,15 @@ def test_train_build_dataset_subcommand(
     save_label(profile, "s1", "0-1", "good")
 
     out_dir = tmp_path / "datasets"
-    rc, stdout, _ = _run([
-        "build-dataset",
-        "--since-days", "365",
-        "--output-dir", str(out_dir),
-    ])
+    rc, stdout, _ = _run(
+        [
+            "build-dataset",
+            "--since-days",
+            "365",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
     assert rc == 0
     written = list(out_dir.glob("sft-*.jsonl"))
     assert len(written) == 1
@@ -123,15 +125,17 @@ def test_train_build_dataset_subcommand(
     assert parsed["messages"][0]["content"] == "do work"
 
 
-def test_train_build_dataset_no_labels_exits_nonzero(
-    isolated_home: Path, tmp_path: Path
-):
+def test_train_build_dataset_no_labels_exits_nonzero(isolated_home: Path, tmp_path: Path):
     out_dir = tmp_path / "datasets"
-    rc, _, err = _run([
-        "build-dataset",
-        "--since-days", "365",
-        "--output-dir", str(out_dir),
-    ])
+    rc, _, err = _run(
+        [
+            "build-dataset",
+            "--since-days",
+            "365",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
     # No sessions at all → reported as no trajectories.
     assert rc == 1
     assert "no trajectories" in err.lower()
@@ -171,14 +175,21 @@ def test_train_run_subcommand_invokes_lora_and_dpo(
     monkeypatch.setattr(train_cli, "ensure_ollama_on_path", lambda: True)
 
     out_dir = tmp_path / "run-out"
-    rc, stdout, _ = _run([
-        "run",
-        "--base-model", "Qwen/Qwen2.5-Coder-1.5B",
-        "--sft-dataset", str(sft),
-        "--dpo-dataset", str(dpo),
-        "--epochs", "1",
-        "--output-dir", str(out_dir),
-    ])
+    rc, stdout, _ = _run(
+        [
+            "run",
+            "--base-model",
+            "Qwen/Qwen2.5-Coder-1.5B",
+            "--sft-dataset",
+            str(sft),
+            "--dpo-dataset",
+            str(dpo),
+            "--epochs",
+            "1",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
     assert rc == 0
     assert calls == ["lora", "dpo", "export"]
     assert "training complete" in stdout.lower()
@@ -210,12 +221,17 @@ def test_train_run_with_no_dpo_pairs_skips_dpo(
     monkeypatch.setattr(train_cli, "export_to_gguf", fake_export)
     monkeypatch.setattr(train_cli, "ensure_ollama_on_path", lambda: True)
 
-    rc, _, _ = _run([
-        "run",
-        "--base-model", "Qwen/x",
-        "--sft-dataset", str(sft),
-        "--output-dir", str(tmp_path / "out"),
-    ])
+    rc, _, _ = _run(
+        [
+            "run",
+            "--base-model",
+            "Qwen/x",
+            "--sft-dataset",
+            str(sft),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
     assert rc == 0
     assert "dpo" not in calls  # skipped
 
@@ -226,22 +242,31 @@ def test_train_run_lora_failure_returns_exit_code(
     sft = tmp_path / "sft.jsonl"
     sft.write_text("{}\n", encoding="utf-8")
     monkeypatch.setattr(train_cli, "run_lora", lambda run, **k: 17)
-    rc, _, err = _run([
-        "run",
-        "--base-model", "x",
-        "--sft-dataset", str(sft),
-        "--output-dir", str(tmp_path / "out"),
-    ])
+    rc, _, err = _run(
+        [
+            "run",
+            "--base-model",
+            "x",
+            "--sft-dataset",
+            str(sft),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
     assert rc == 17
     assert "LoRA training failed" in err
 
 
 def test_train_run_missing_sft_dataset(isolated_home: Path):
-    rc, _, err = _run([
-        "run",
-        "--base-model", "x",
-        "--sft-dataset", "/nonexistent/path.jsonl",
-    ])
+    rc, _, err = _run(
+        [
+            "run",
+            "--base-model",
+            "x",
+            "--sft-dataset",
+            "/nonexistent/path.jsonl",
+        ]
+    )
     assert rc == 2
     assert "not found" in err
 
@@ -259,17 +284,24 @@ def test_status_shows_last_run(isolated_home: Path):
     # Seed the state file.
     state_path = train_cli.TRAINING_STATE_PATH
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps({
-        "runs": [{
-            "timestamp": "2026-05-16T12:00:00+00:00",
-            "base_model": "Qwen/x",
-            "output_name": "qwen-athena-1",
-            "output_dir": "/tmp/out",
-            "sft_dataset": "/tmp/sft.jsonl",
-            "dpo_dataset": None,
-            "exit_codes": {"sft": 0, "dpo": None, "export": 0, "register": 0},
-        }],
-    }), encoding="utf-8")
+    state_path.write_text(
+        json.dumps(
+            {
+                "runs": [
+                    {
+                        "timestamp": "2026-05-16T12:00:00+00:00",
+                        "base_model": "Qwen/x",
+                        "output_name": "qwen-athena-1",
+                        "output_dir": "/tmp/out",
+                        "sft_dataset": "/tmp/sft.jsonl",
+                        "dpo_dataset": None,
+                        "exit_codes": {"sft": 0, "dpo": None, "export": 0, "register": 0},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     rc, stdout, _ = _run(["status"])
     assert rc == 0
     assert "qwen-athena-1" in stdout
@@ -287,10 +319,15 @@ def test_next_output_name_strips_org_prefix(isolated_home: Path):
 def test_next_output_name_increments(isolated_home: Path):
     state_path = train_cli.TRAINING_STATE_PATH
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps({
-        "runs": [
-            {"output_name": "X-athena-1"},
-            {"output_name": "X-athena-2"},
-        ],
-    }), encoding="utf-8")
+    state_path.write_text(
+        json.dumps(
+            {
+                "runs": [
+                    {"output_name": "X-athena-1"},
+                    {"output_name": "X-athena-2"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     assert train_cli._next_output_name("X") == "X-athena-3"

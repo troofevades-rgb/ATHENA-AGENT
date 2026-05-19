@@ -1,8 +1,8 @@
 """On-disk token persistence — save / load / delete + permissions."""
+
 from __future__ import annotations
 
 import json
-import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,7 +24,8 @@ def _token(expires_in: int = 3600) -> oauth.StoredToken:
 
 @pytest.fixture(autouse=True)
 def isolated_tokens_dir(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
     """Point TOKENS_DIR at tmp_path so tests can't escape into the
     real ~/.athena/mcp_tokens/."""
@@ -46,9 +47,7 @@ def test_save_and_load_round_trip(isolated_tokens_dir: Path) -> None:
     assert loaded.token_type == "Bearer"
     assert loaded.scope == "read"
     # Datetime round-trips through ISO format.
-    assert abs(
-        (loaded.expires_at - token.expires_at).total_seconds()
-    ) < 1.0
+    assert abs((loaded.expires_at - token.expires_at).total_seconds()) < 1.0
 
 
 def test_load_returns_none_when_missing(isolated_tokens_dir: Path) -> None:
@@ -68,8 +67,7 @@ def test_save_is_atomic_no_tmp_file_left(isolated_tokens_dir: Path) -> None:
     assert tmps == []
 
 
-@pytest.mark.skipif(sys.platform == "win32",
-                    reason="Windows ACLs replace POSIX permission bits")
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows ACLs replace POSIX permission bits")
 def test_token_file_is_0600(isolated_tokens_dir: Path) -> None:
     oauth.save_token("s", _token())
     path = isolated_tokens_dir / "s.json"
@@ -80,7 +78,8 @@ def test_token_file_is_0600(isolated_tokens_dir: Path) -> None:
 def test_save_overwrites_existing(isolated_tokens_dir: Path) -> None:
     oauth.save_token("s", _token())
     new = oauth.StoredToken(
-        access_token="REPLACED", refresh_token="NEW",
+        access_token="REPLACED",
+        refresh_token="NEW",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
     )
     oauth.save_token("s", new)
@@ -124,7 +123,8 @@ def test_load_returns_none_for_missing_required_field(
 ) -> None:
     isolated_tokens_dir.mkdir(parents=True)
     (isolated_tokens_dir / "partial.json").write_text(
-        json.dumps({"refresh_token": "x"}), encoding="utf-8",
+        json.dumps({"refresh_token": "x"}),
+        encoding="utf-8",
     )
     assert oauth.load_token("partial") is None
 

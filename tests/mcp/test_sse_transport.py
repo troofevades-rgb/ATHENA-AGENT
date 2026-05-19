@@ -9,6 +9,7 @@ Using a real HTTP server instead of respx because we exercise the
 full bytes-on-the-wire path including SSE frame boundaries —
 mocking that with respx would re-implement the parser we're testing.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -17,14 +18,11 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
-import httpx
 import pytest
 
-from athena.mcp import oauth, sse_transport
+from athena.mcp import oauth
 from athena.mcp.sse_transport import SSEError, SSETransport
-
 
 # ---- stub SSE server -------------------------------------------------
 
@@ -50,7 +48,9 @@ class _StubSSEServer:
 
     async def start(self) -> None:
         self._server = await asyncio.start_server(
-            self._handle, "127.0.0.1", 0,
+            self._handle,
+            "127.0.0.1",
+            0,
         )
         socket = self._server.sockets[0]
         self._port = socket.getsockname()[1]
@@ -68,7 +68,9 @@ class _StubSSEServer:
                 pass
 
     async def _handle(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter,
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
     ) -> None:
         try:
             request_line = await reader.readline()
@@ -85,11 +87,7 @@ class _StubSSEServer:
                     break
                 if header.lower().startswith(b"content-length:"):
                     content_length = int(header.split(b":")[1].strip())
-            body = (
-                await reader.read(content_length)
-                if content_length > 0
-                else b""
-            )
+            body = await reader.read(content_length) if content_length > 0 else b""
 
             if method == "GET" and path.startswith("/sse"):
                 self.connections_accepted += 1
@@ -99,11 +97,7 @@ class _StubSSEServer:
                     self.posts.append(json.loads(body) if body else {})
                 except json.JSONDecodeError:
                     self.posts.append({"_raw": body.decode("latin-1")})
-                resp_body = (
-                    self.post_response_body.encode()
-                    if self.post_response_body
-                    else b"{}"
-                )
+                resp_body = self.post_response_body.encode() if self.post_response_body else b"{}"
                 writer.write(
                     f"HTTP/1.1 {self.post_status} OK\r\n"
                     f"Content-Type: application/json\r\n"
@@ -127,8 +121,7 @@ class _StubSSEServer:
     async def _serve_sse(self, writer: asyncio.StreamWriter) -> None:
         if self.sse_status != 200:
             writer.write(
-                f"HTTP/1.1 {self.sse_status} Unauthorized\r\n"
-                "Content-Length: 0\r\n\r\n".encode()
+                f"HTTP/1.1 {self.sse_status} Unauthorized\r\nContent-Length: 0\r\n\r\n".encode()
             )
             await writer.drain()
             return
@@ -241,7 +234,9 @@ async def test_open_waits_for_endpoint_event(stub_server: _StubSSEServer) -> Non
 
     transport = await asyncio.to_thread(
         lambda: SSETransport(
-            "test", stub_server.base_url, open_timeout=3.0,
+            "test",
+            stub_server.base_url,
+            open_timeout=3.0,
         )
     )
     try:
@@ -261,7 +256,9 @@ async def test_request_round_trip_via_sse_response(
 
     transport = await asyncio.to_thread(
         lambda: SSETransport(
-            "test", stub_server.base_url, open_timeout=3.0,
+            "test",
+            stub_server.base_url,
+            open_timeout=3.0,
         )
     )
     try:
@@ -273,7 +270,9 @@ async def test_request_round_trip_via_sse_response(
 
         def worker():
             result_holder["r"] = transport.request(
-                "echo", {"hello": "world"}, timeout=5.0,
+                "echo",
+                {"hello": "world"},
+                timeout=5.0,
             )
 
         t = threading.Thread(target=worker, daemon=True)
@@ -285,11 +284,13 @@ async def test_request_round_trip_via_sse_response(
             await asyncio.sleep(0.02)
         assert stub_server.posts, "POST was never received by stub"
         msg_id = stub_server.posts[0]["id"]
-        stub_server.push_jsonrpc({
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "result": {"echoed": True},
-        })
+        stub_server.push_jsonrpc(
+            {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {"echoed": True},
+            }
+        )
         await asyncio.to_thread(t.join, 5.0)
     finally:
         await asyncio.to_thread(transport.close)
@@ -316,10 +317,13 @@ async def test_list_tools_calls_request(stub_server: _StubSSEServer) -> None:
             await asyncio.sleep(0.02)
         msg_id = stub_server.posts[0]["id"]
         assert stub_server.posts[0]["method"] == "tools/list"
-        stub_server.push_jsonrpc({
-            "jsonrpc": "2.0", "id": msg_id,
-            "result": {"tools": [{"name": "a"}, {"name": "b"}]},
-        })
+        stub_server.push_jsonrpc(
+            {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {"tools": [{"name": "a"}, {"name": "b"}]},
+            }
+        )
         await asyncio.to_thread(t.join, 5.0)
     finally:
         await asyncio.to_thread(transport.close)
@@ -348,10 +352,13 @@ async def test_call_tool_envelope_shape(
         envelope = stub_server.posts[0]
         assert envelope["method"] == "tools/call"
         assert envelope["params"] == {"name": "Bash", "arguments": {"cmd": "ls"}}
-        stub_server.push_jsonrpc({
-            "jsonrpc": "2.0", "id": envelope["id"],
-            "result": {"content": "ok"},
-        })
+        stub_server.push_jsonrpc(
+            {
+                "jsonrpc": "2.0",
+                "id": envelope["id"],
+                "result": {"content": "ok"},
+            }
+        )
         await asyncio.sleep(0.2)
     finally:
         await asyncio.to_thread(transport.close)
@@ -377,10 +384,13 @@ async def test_error_response_raises(stub_server: _StubSSEServer) -> None:
             if stub_server.posts:
                 break
             await asyncio.sleep(0.02)
-        stub_server.push_jsonrpc({
-            "jsonrpc": "2.0", "id": stub_server.posts[0]["id"],
-            "error": {"code": -32000, "message": "bad"},
-        })
+        stub_server.push_jsonrpc(
+            {
+                "jsonrpc": "2.0",
+                "id": stub_server.posts[0]["id"],
+                "error": {"code": -32000, "message": "bad"},
+            }
+        )
         for _ in range(50):
             if "e" in err_holder:
                 break
@@ -435,7 +445,8 @@ def test_construct_requires_base_url(tmp_path: Path) -> None:
 def test_auth_headers_includes_bearer_when_token_present() -> None:
     t = SSETransport.__new__(SSETransport)
     t._token = oauth.StoredToken(
-        access_token="AT-1", refresh_token="RT",
+        access_token="AT-1",
+        refresh_token="RT",
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         token_type="Bearer",
     )

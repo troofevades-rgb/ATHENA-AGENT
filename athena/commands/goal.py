@@ -5,11 +5,12 @@ system prompt on every rebuild. After mutating, the command asks the agent
 to rebuild its system message in place so the change takes effect without
 ``/clear``-ing history.
 """
+
 from __future__ import annotations
 
-from . import command
 from .. import ui
 from ..goal.invariant import clear_goal, get_goal, set_goal
+from . import command
 
 
 @command("goal")

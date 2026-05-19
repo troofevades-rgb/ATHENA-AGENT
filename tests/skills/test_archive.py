@@ -1,13 +1,12 @@
 """Tests for archive_skill / unarchive_skill."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
 
-from athena.skills import archive
 from athena.skills.archive import SkillNotFoundError, archive_skill, unarchive_skill
-from athena.skills.discovery import discover_skills
 from athena.skills.frontmatter import parse_frontmatter
 
 

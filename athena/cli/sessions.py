@@ -1,22 +1,23 @@
 """``athena sessions {list,browse,search,purge}`` — non-REPL session tools."""
+
 from __future__ import annotations
 
 import argparse
-import json
-import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..config import CONFIG_DIR, profile_dir as _profile_dir
+from ..config import CONFIG_DIR
+from ..config import profile_dir as _profile_dir
 from ..sessions.store import SessionStore
 
 
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="athena sessions")
     ap.add_argument("--profile", default="default")
-    ap.add_argument("--home", type=Path, default=None,
-                    help="Override athena home (default: ~/.athena).")
+    ap.add_argument(
+        "--home", type=Path, default=None, help="Override athena home (default: ~/.athena)."
+    )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub_list = sub.add_parser("list", help="List recent sessions.")
@@ -34,8 +35,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub_purge = sub.add_parser("purge", help="Delete sessions older than a cutoff.")
     sub_purge.add_argument("--before", required=True, help="ISO date (YYYY-MM-DD).")
-    sub_purge.add_argument("--confirm", action="store_true",
-                           help="Required — purge is irreversible.")
+    sub_purge.add_argument(
+        "--confirm", action="store_true", help="Required — purge is irreversible."
+    )
 
     return ap
 
@@ -52,7 +54,11 @@ def _cmd_list(args, store: SessionStore) -> int:
         return 0
     for m in sessions:
         started = m.started_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
-        ended = "active" if m.ended_at is None else m.ended_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        ended = (
+            "active"
+            if m.ended_at is None
+            else m.ended_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        )
         ws = m.workspace or "-"
         print(f"{m.session_id}  {started} → {ended}  model={m.model}  ws={ws}")
     return 0

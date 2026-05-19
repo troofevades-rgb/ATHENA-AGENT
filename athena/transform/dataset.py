@@ -14,6 +14,7 @@ messages. ``chat_template`` is plumbed through and stored in the
 metadata for traceability, and so future templates that need
 preprocessing here have an obvious extension point.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,7 +22,6 @@ from pathlib import Path
 from typing import Any
 
 from .classifier import Trajectory
-
 
 SUPPORTED_CHAT_TEMPLATES = ("qwen-coder", "chatml", "openai")
 
@@ -64,17 +64,17 @@ def build_sft_dataset(
         if not _is_good(t, include_auto_labels=include_auto_labels):
             continue
         messages = _trajectory_to_messages(t, chat_template)
-        examples.append({
-            "messages": messages,
-            "metadata": {
-                "session_id": t.session_id,
-                "turn_range": [t.turn_start, t.turn_end],
-                "chat_template": chat_template,
-                "label_source": (
-                    "user" if t.user_label == "good" else "auto"
-                ),
-            },
-        })
+        examples.append(
+            {
+                "messages": messages,
+                "metadata": {
+                    "session_id": t.session_id,
+                    "turn_range": [t.turn_start, t.turn_end],
+                    "chat_template": chat_template,
+                    "label_source": ("user" if t.user_label == "good" else "auto"),
+                },
+            }
+        )
     return examples
 
 
@@ -107,16 +107,18 @@ def build_dpo_dataset(
         rejected_resp = _trajectory_response(rejected)
         if chosen_resp.strip() == rejected_resp.strip():
             continue
-        examples.append({
-            "prompt": prompt,
-            "chosen": chosen_resp,
-            "rejected": rejected_resp,
-            "metadata": {
-                "chosen_session_id": chosen.session_id,
-                "rejected_session_id": rejected.session_id,
-                "chat_template": chat_template,
-            },
-        })
+        examples.append(
+            {
+                "prompt": prompt,
+                "chosen": chosen_resp,
+                "rejected": rejected_resp,
+                "metadata": {
+                    "chosen_session_id": chosen.session_id,
+                    "rejected_session_id": rejected.session_id,
+                    "chat_template": chat_template,
+                },
+            }
+        )
     return examples
 
 
@@ -136,17 +138,14 @@ def write_jsonl(path: Path, examples: list[dict[str, Any]]) -> None:
 def _is_good(t: Trajectory, *, include_auto_labels: bool) -> bool:
     if t.user_label == "good":
         return True
-    if (
-        include_auto_labels
-        and t.user_label == "unreviewed"
-        and t.auto_label == "good"
-    ):
+    if include_auto_labels and t.user_label == "unreviewed" and t.auto_label == "good":
         return True
     return False
 
 
 def _trajectory_to_messages(
-    t: Trajectory, chat_template: str  # noqa: ARG001 — reserved for future templates
+    t: Trajectory,
+    chat_template: str,  # noqa: ARG001 — reserved for future templates
 ) -> list[dict[str, Any]]:
     """Normalize a trajectory's turns into a clean role-tagged message list."""
     out: list[dict[str, Any]] = []
@@ -164,9 +163,7 @@ def _trajectory_to_messages(
             tool_calls = m.get("tool_calls") or []
             normalized: dict[str, Any] = {"role": "assistant", "content": content}
             if tool_calls:
-                normalized["tool_calls"] = [
-                    _normalize_tool_call(tc) for tc in tool_calls
-                ]
+                normalized["tool_calls"] = [_normalize_tool_call(tc) for tc in tool_calls]
             out.append(normalized)
         elif role == "tool":
             entry: dict[str, Any] = {

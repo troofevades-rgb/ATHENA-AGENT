@@ -6,14 +6,15 @@ Both operations are idempotent in the soft sense — if the target name
 already exists at the destination, a numeric suffix (``-1``, ``-2``, …) is
 appended so no data is overwritten.
 """
+
 from __future__ import annotations
 
 import shutil
 from pathlib import Path
 
+from . import loader
 from .discovery import discover_skills
 from .frontmatter import parse_frontmatter, serialize_frontmatter
-from . import loader
 
 
 class SkillNotFoundError(LookupError):

@@ -1,4 +1,5 @@
 """Tests for athena.curator.state."""
+
 from __future__ import annotations
 
 import json
@@ -76,7 +77,8 @@ def test_legacy_state_file_missing_new_fields_still_loads(tmp_path: Path) -> Non
         "paused": True,
     }
     (skills_root / ".curator_state").write_text(
-        json.dumps(legacy_payload), encoding="utf-8",
+        json.dumps(legacy_payload),
+        encoding="utf-8",
     )
     loaded = read_state(skills_root)
     assert loaded.last_run_at == datetime(2026, 3, 15, 8, 0, tzinfo=timezone.utc)

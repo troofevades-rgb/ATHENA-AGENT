@@ -11,6 +11,7 @@ Three operations:
   next session uses ``new_model`` by default. Sessions already in
   flight aren't affected — they bind to the model they started with.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,7 +27,6 @@ else:
     import tomli as tomllib  # type: ignore
 
 import tomli_w
-
 
 logger = logging.getLogger(__name__)
 
@@ -93,12 +93,14 @@ def list_local_models(*, runner: Any | None = None) -> list[dict[str, str]]:
         ident = parts[1]
         size = parts[2]
         modified = " ".join(parts[3:]) if len(parts) > 3 else ""
-        models.append({
-            "name": name,
-            "id": ident,
-            "size": size,
-            "modified_at": modified,
-        })
+        models.append(
+            {
+                "name": name,
+                "id": ident,
+                "size": size,
+                "modified_at": modified,
+            }
+        )
     return models
 
 
@@ -139,7 +141,5 @@ def ensure_ollama() -> bool:
 
 def _run_capture(cmd: list[str]) -> tuple[int, str]:
     """Default capture runner. Returns (exit_code, stdout-text)."""
-    completed = subprocess.run(
-        cmd, capture_output=True, text=True, check=False
-    )
+    completed = subprocess.run(cmd, capture_output=True, text=True, check=False)
     return completed.returncode, completed.stdout or ""

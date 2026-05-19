@@ -1,4 +1,5 @@
 """Tests for the deterministic skill lifecycle state machine."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -48,9 +49,7 @@ def test_stale_to_archived_after_90_days(isolated_home: Path, write_skill) -> No
     assert fm.state == "archived"
 
 
-def test_stale_reactivates_on_recent_activity(
-    isolated_home: Path, write_skill
-) -> None:
+def test_stale_reactivates_on_recent_activity(isolated_home: Path, write_skill) -> None:
     user_skills = isolated_home / ".athena" / "skills"
     user_skills.mkdir(parents=True)
     write_skill(
@@ -85,9 +84,7 @@ def test_pinned_skips_all_transitions(isolated_home: Path, write_skill) -> None:
     assert "pinned-ancient" not in changes["marked_stale"]
 
 
-def test_foreground_origin_skills_not_touched(
-    isolated_home: Path, write_skill
-) -> None:
+def test_foreground_origin_skills_not_touched(isolated_home: Path, write_skill) -> None:
     """Skills written by the user (foreground) are off-limits to the machine."""
     user_skills = isolated_home / ".athena" / "skills"
     user_skills.mkdir(parents=True)

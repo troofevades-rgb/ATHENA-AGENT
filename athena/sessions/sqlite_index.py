@@ -14,13 +14,13 @@ The two triggers (``turns_ai``, ``turns_ad``) keep the FTS5 index in sync
 on insert and delete. FTS5's external-content mode means the body text
 lives once in ``turns`` and the index references it by rowid.
 """
+
 from __future__ import annotations
 
 import json
 import sqlite3
 from datetime import datetime
 from typing import Any
-
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -119,9 +119,7 @@ def insert_turn(
     db.commit()
 
 
-def update_session_ended(
-    db: sqlite3.Connection, session_id: str, ended_at: datetime | str
-) -> None:
+def update_session_ended(db: sqlite3.Connection, session_id: str, ended_at: datetime | str) -> None:
     db.execute(
         "UPDATE sessions SET ended_at = ? WHERE session_id = ?",
         (_iso(ended_at), session_id),

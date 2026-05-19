@@ -17,6 +17,7 @@ Hermes Agent's equivalent lives in ``agent/curator.py`` as
 goes into ``run.json`` so the next ``athena curator inspect-last``
 surfaces it.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -25,18 +26,19 @@ from typing import Any
 
 from ..skills.discovery import discover_skills
 
-
 # Decisions that should cause the skill to NOT be present as active
 # anymore. Curator may either archive (CONSOLIDATE_INTO, DEMOTE_TO_*,
 # PRUNE) or replace-with-umbrella (CREATE_UMBRELLA — the new umbrella
 # IS the row, others get absorbed in separate rows).
-_REMOVAL_DECISIONS = frozenset({
-    "CONSOLIDATE_INTO",
-    "DEMOTE_TO_REFERENCES",
-    "DEMOTE_TO_TEMPLATES",
-    "DEMOTE_TO_SCRIPTS",
-    "PRUNE",
-})
+_REMOVAL_DECISIONS = frozenset(
+    {
+        "CONSOLIDATE_INTO",
+        "DEMOTE_TO_REFERENCES",
+        "DEMOTE_TO_TEMPLATES",
+        "DEMOTE_TO_SCRIPTS",
+        "PRUNE",
+    }
+)
 
 # Decisions that should NOT change the skill's state.
 _NO_OP_DECISIONS = frozenset({"KEEP_AS_IS"})
@@ -47,9 +49,9 @@ class SkillSnapshot:
     """A point-in-time read of one skill's filesystem state."""
 
     name: str
-    state: str            # "active" | "stale" | "archived" — frontmatter
-    is_archived: bool     # True if the directory lives under .archive/
-    skill_dir: str        # absolute path string
+    state: str  # "active" | "stale" | "archived" — frontmatter
+    is_archived: bool  # True if the directory lives under .archive/
+    skill_dir: str  # absolute path string
 
 
 @dataclass
@@ -69,11 +71,7 @@ class DriftReport:
 
     @property
     def is_clean(self) -> bool:
-        return not (
-            self.missing_from_fs
-            or self.unexpected_archive
-            or self.no_op_after_keep
-        )
+        return not (self.missing_from_fs or self.unexpected_archive or self.no_op_after_keep)
 
 
 def snapshot_skills(workspace: Path | None = None) -> dict[str, SkillSnapshot]:
@@ -84,9 +82,7 @@ def snapshot_skills(workspace: Path | None = None) -> dict[str, SkillSnapshot]:
     by name.
     """
     snapshots: dict[str, SkillSnapshot] = {}
-    for name, (fm, skill_dir) in discover_skills(
-        workspace, include_archived=True
-    ).items():
+    for name, (fm, skill_dir) in discover_skills(workspace, include_archived=True).items():
         snapshots[name] = SkillSnapshot(
             name=name,
             state=fm.state or "active",
@@ -121,14 +117,10 @@ def reconcile(
     report = DriftReport()
 
     claimed_removals = {
-        r["skill"]: r["decision"]
-        for r in yaml_runs
-        if r.get("decision") in _REMOVAL_DECISIONS
+        r["skill"]: r["decision"] for r in yaml_runs if r.get("decision") in _REMOVAL_DECISIONS
     }
     claimed_keeps = {
-        r["skill"]: r["decision"]
-        for r in yaml_runs
-        if r.get("decision") in _NO_OP_DECISIONS
+        r["skill"]: r["decision"] for r in yaml_runs if r.get("decision") in _NO_OP_DECISIONS
     }
 
     # 1. Claimed removals that didn't actually happen.
@@ -140,11 +132,13 @@ def reconcile(
             # path doesn't do. Treat as clean for now (defensive).
             continue
         if not post.is_archived:
-            report.missing_from_fs.append({
-                "skill": skill,
-                "decision": decision,
-                "observed_state": post.state,
-            })
+            report.missing_from_fs.append(
+                {
+                    "skill": skill,
+                    "decision": decision,
+                    "observed_state": post.state,
+                }
+            )
 
     # 2. Disk archived skills the YAML did NOT name.
     yaml_named = {r["skill"] for r in yaml_runs}
@@ -155,11 +149,13 @@ def reconcile(
         if skill in yaml_named:
             # If the YAML named it, the claim above already covered it.
             continue
-        report.unexpected_archive.append({
-            "skill": skill,
-            "before_state": pre.state,
-            "after_state": post.state,
-        })
+        report.unexpected_archive.append(
+            {
+                "skill": skill,
+                "before_state": pre.state,
+                "after_state": post.state,
+            }
+        )
 
     # 3. KEEP_AS_IS that flipped state.
     for skill in claimed_keeps:
@@ -168,10 +164,12 @@ def reconcile(
         if pre is None or post is None:
             continue
         if pre.state != post.state or pre.is_archived != post.is_archived:
-            report.no_op_after_keep.append({
-                "skill": skill,
-                "before_state": pre.state,
-                "after_state": post.state,
-            })
+            report.no_op_after_keep.append(
+                {
+                    "skill": skill,
+                    "before_state": pre.state,
+                    "after_state": post.state,
+                }
+            )
 
     return report

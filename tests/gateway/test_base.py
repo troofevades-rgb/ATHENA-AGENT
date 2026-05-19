@@ -20,6 +20,7 @@ Covers the policy matrix ``handle_inbound`` implements:
 A minimal in-test ``_FakeDaemon`` stands in for the real
 :class:`GatewayDaemon`, which lands in Prompt 10.2.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,7 +37,6 @@ from athena.gateway.base import (
     merge_pending_message_event,
 )
 from athena.gateway.events import MessageEvent, MessageType
-
 
 # ---- test doubles -------------------------------------------------------
 
@@ -77,9 +77,7 @@ class _TestAdapter(GatewayAdapter):
         self.sent_text.append((chat_id, text))
         return "msg-id"
 
-    async def send_file(
-        self, chat_id: str, file_path: Path, caption: str | None = None
-    ) -> str:
+    async def send_file(self, chat_id: str, file_path: Path, caption: str | None = None) -> str:
         self.sent_files.append((chat_id, file_path, caption))
         return "msg-id"
 
@@ -205,8 +203,7 @@ async def test_busy_photo_followup_queues_without_interrupting():
 
     try:
         await adapter.handle_inbound(
-            _evt(text="caption", message_type=MessageType.PHOTO,
-                 attachments=[Path("/tmp/a.jpg")])
+            _evt(text="caption", message_type=MessageType.PHOTO, attachments=[Path("/tmp/a.jpg")])
         )
     finally:
         live.cancel()
@@ -226,17 +223,14 @@ async def test_photo_burst_merges_attachments_and_captions():
     adapter._active_sessions["sess-1"] = asyncio.Event()
 
     try:
-        await adapter.handle_inbound(_evt(
-            text="cap", message_type=MessageType.PHOTO,
-            attachments=[Path("/tmp/a.jpg")]),
+        await adapter.handle_inbound(
+            _evt(text="cap", message_type=MessageType.PHOTO, attachments=[Path("/tmp/a.jpg")]),
         )
-        await adapter.handle_inbound(_evt(
-            text="cap", message_type=MessageType.PHOTO,
-            attachments=[Path("/tmp/b.jpg")]),
+        await adapter.handle_inbound(
+            _evt(text="cap", message_type=MessageType.PHOTO, attachments=[Path("/tmp/b.jpg")]),
         )
-        await adapter.handle_inbound(_evt(
-            text="extra", message_type=MessageType.PHOTO,
-            attachments=[Path("/tmp/c.jpg")]),
+        await adapter.handle_inbound(
+            _evt(text="extra", message_type=MessageType.PHOTO, attachments=[Path("/tmp/c.jpg")]),
         )
     finally:
         live.cancel()
@@ -246,9 +240,7 @@ async def test_photo_burst_merges_attachments_and_captions():
             pass
 
     pending = adapter._pending_messages["sess-1"]
-    assert pending.attachments == [
-        Path("/tmp/a.jpg"), Path("/tmp/b.jpg"), Path("/tmp/c.jpg")
-    ]
+    assert pending.attachments == [Path("/tmp/a.jpg"), Path("/tmp/b.jpg"), Path("/tmp/c.jpg")]
     # Duplicate caption "cap" stays one line; "extra" appends.
     assert pending.text == "cap\nextra"
 
@@ -453,20 +445,22 @@ def test_merge_text_appends_with_newline_when_enabled():
 def test_merge_text_replaces_when_merge_text_disabled():
     pending: dict[str, MessageEvent] = {"s": _evt(text="first")}
     merge_pending_message_event(
-        pending, "s", _evt(text="second"), merge_text=False,
+        pending,
+        "s",
+        _evt(text="second"),
+        merge_text=False,
     )
     assert pending["s"].text == "second"
 
 
 def test_merge_two_photos_extends_attachments():
     pending: dict[str, MessageEvent] = {
-        "s": _evt(text="cap", message_type=MessageType.PHOTO,
-                  attachments=[Path("a.jpg")])
+        "s": _evt(text="cap", message_type=MessageType.PHOTO, attachments=[Path("a.jpg")])
     }
     merge_pending_message_event(
-        pending, "s",
-        _evt(text="cap", message_type=MessageType.PHOTO,
-             attachments=[Path("b.jpg")]),
+        pending,
+        "s",
+        _evt(text="cap", message_type=MessageType.PHOTO, attachments=[Path("b.jpg")]),
     )
     assert pending["s"].attachments == [Path("a.jpg"), Path("b.jpg")]
     # Duplicate caption deduplicates.
@@ -475,11 +469,12 @@ def test_merge_two_photos_extends_attachments():
 
 def test_merge_photo_then_text_keeps_photo_type():
     pending: dict[str, MessageEvent] = {
-        "s": _evt(text="img", message_type=MessageType.PHOTO,
-                  attachments=[Path("a.jpg")])
+        "s": _evt(text="img", message_type=MessageType.PHOTO, attachments=[Path("a.jpg")])
     }
     merge_pending_message_event(
-        pending, "s", _evt(text="describe this"),
+        pending,
+        "s",
+        _evt(text="describe this"),
     )
     assert pending["s"].message_type == MessageType.PHOTO
     assert pending["s"].text == "img\ndescribe this"
@@ -488,9 +483,9 @@ def test_merge_photo_then_text_keeps_photo_type():
 def test_merge_text_then_photo_promotes_to_photo():
     pending: dict[str, MessageEvent] = {"s": _evt(text="hi")}
     merge_pending_message_event(
-        pending, "s",
-        _evt(text="cap", message_type=MessageType.PHOTO,
-             attachments=[Path("a.jpg")]),
+        pending,
+        "s",
+        _evt(text="cap", message_type=MessageType.PHOTO, attachments=[Path("a.jpg")]),
     )
     assert pending["s"].message_type == MessageType.PHOTO
 

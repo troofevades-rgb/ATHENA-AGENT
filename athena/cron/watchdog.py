@@ -7,6 +7,7 @@ and the exit code are captured and routed through :mod:`athena.cron.delivery`.
 A watchdog job that needs to escalate to LLM analysis writes a file the
 next agent-mode job picks up — there is no in-process handoff.
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +17,6 @@ from pathlib import Path
 
 from .delivery import deliver
 from .jobs import JobStore
-
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ def run_watchdog_job_by_id(job_id: str, *, jobs_db_path: Path | None = None) -> 
     target stays picklable across daemon restarts.
     """
     from ..config import CONFIG_DIR, profile_dir
+
     store = JobStore(jobs_db_path or _default_jobs_db(profile_dir, CONFIG_DIR))
     job = store.get(job_id)
     if job is None:

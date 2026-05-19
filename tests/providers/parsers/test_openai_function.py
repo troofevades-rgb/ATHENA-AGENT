@@ -1,14 +1,19 @@
 """Legacy OpenAI function_call format (gpt-3.5*, gpt-4-0613)."""
+
 from __future__ import annotations
 
 from athena.providers.parsers.openai_function import parse
 
 
 def test_legacy_function_call_format():
-    raw = {"message": {"function_call": {
-        "name": "Read",
-        "arguments": '{"file_path": "/etc/hostname"}',
-    }}}
+    raw = {
+        "message": {
+            "function_call": {
+                "name": "Read",
+                "arguments": '{"file_path": "/etc/hostname"}',
+            }
+        }
+    }
     cleaned, calls = parse("I'll do that.", raw)
     assert cleaned == "I'll do that."  # content unchanged
     assert len(calls) == 1
@@ -19,10 +24,14 @@ def test_legacy_function_call_format():
 def test_arguments_string_parsed_to_dict():
     """OpenAI always sends arguments as a JSON string; the parser must
     deserialize it before returning."""
-    raw = {"message": {"function_call": {
-        "name": "Bash",
-        "arguments": '{"command": "ls -la"}',
-    }}}
+    raw = {
+        "message": {
+            "function_call": {
+                "name": "Bash",
+                "arguments": '{"command": "ls -la"}',
+            }
+        }
+    }
     _, calls = parse("", raw)
     assert calls[0]["arguments"] == {"command": "ls -la"}
     assert isinstance(calls[0]["arguments"], dict)
@@ -31,17 +40,27 @@ def test_arguments_string_parsed_to_dict():
 def test_arguments_dict_passed_through():
     """A compat server might already have parsed the JSON; dict in →
     dict out, unchanged."""
-    raw = {"message": {"function_call": {
-        "name": "X", "arguments": {"k": "v"},
-    }}}
+    raw = {
+        "message": {
+            "function_call": {
+                "name": "X",
+                "arguments": {"k": "v"},
+            }
+        }
+    }
     _, calls = parse("", raw)
     assert calls[0]["arguments"] == {"k": "v"}
 
 
 def test_malformed_arguments_string_wrapped():
-    raw = {"message": {"function_call": {
-        "name": "X", "arguments": "not-json",
-    }}}
+    raw = {
+        "message": {
+            "function_call": {
+                "name": "X",
+                "arguments": "not-json",
+            }
+        }
+    }
     _, calls = parse("", raw)
     assert calls[0]["arguments"] == {"_raw": "not-json"}
 

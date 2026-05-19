@@ -1,7 +1,7 @@
 """Tests for athena.migration.skills_mapper.import_skills."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 
 from athena.migration.skills_mapper import import_skills
@@ -67,7 +67,9 @@ def test_imports_with_references_subdir(
     (refs / "notes.md").write_text("ref content\n", encoding="utf-8")
 
     import_skills(hermes_source, ocode_dest, report=migration_report)
-    assert (ocode_dest / "skills" / "refsk" / "references" / "notes.md").read_text(encoding="utf-8") == "ref content\n"
+    assert (ocode_dest / "skills" / "refsk" / "references" / "notes.md").read_text(
+        encoding="utf-8"
+    ) == "ref content\n"
 
 
 def test_imports_with_templates_subdir(

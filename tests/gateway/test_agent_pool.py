@@ -3,11 +3,11 @@
 Uses a fake agent factory so the pool's LRU + concurrency contract can
 be exercised without spinning up a real Agent / Provider.
 """
+
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,9 +25,7 @@ class _FakeAgent:
         self.close_calls += 1
 
 
-def _factory(
-    *, delay: float = 0.0, agents: dict[str, _FakeAgent] | None = None
-):
+def _factory(*, delay: float = 0.0, agents: dict[str, _FakeAgent] | None = None):
     agents = agents if agents is not None else {}
     call_log: list[str] = []
 
@@ -40,7 +38,7 @@ def _factory(
         return agent
 
     make.call_log = call_log  # type: ignore[attr-defined]
-    make.agents = agents       # type: ignore[attr-defined]
+    make.agents = agents  # type: ignore[attr-defined]
     return make
 
 
@@ -163,9 +161,7 @@ async def test_concurrent_get_same_session_instantiates_once() -> None:
         pool.get("s1"),
     )
     assert agents[0] is agents[1] is agents[2]
-    assert factory.call_log == ["s1"], (
-        "factory must be called exactly once for racing get('s1')"
-    )
+    assert factory.call_log == ["s1"], "factory must be called exactly once for racing get('s1')"
 
 
 async def test_concurrent_get_different_sessions_runs_in_parallel() -> None:

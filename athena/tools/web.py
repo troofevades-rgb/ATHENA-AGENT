@@ -18,20 +18,18 @@ Configuration env vars (the legacy OCODE_* names are honored for one release):
   ATHENA_WEB_TIMEOUT       float seconds (default: 30)
   ATHENA_WEB_USER_AGENT    custom UA string
 """
+
 from __future__ import annotations
+
 import os
 import re
-from typing import Any
 
 import httpx
 
 from .registry import tool
 
-
 _TIMEOUT = float(
-    os.environ.get("ATHENA_WEB_TIMEOUT")
-    or os.environ.get("OCODE_WEB_TIMEOUT")
-    or "30"
+    os.environ.get("ATHENA_WEB_TIMEOUT") or os.environ.get("OCODE_WEB_TIMEOUT") or "30"
 )
 _USER_AGENT = (
     os.environ.get("ATHENA_WEB_USER_AGENT")
@@ -42,11 +40,13 @@ _USER_AGENT = (
 
 # ---- HTML -> text extraction (graceful degradation) -------------------
 
+
 def _extract_text(html: str) -> str:
     """Best-available HTML to text. Tries trafilatura, then BeautifulSoup,
     then a regex fallback. Always returns something."""
     try:
         import trafilatura  # type: ignore
+
         text = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
         if text.strip():
             return text
@@ -57,6 +57,7 @@ def _extract_text(html: str) -> str:
 
     try:
         from bs4 import BeautifulSoup  # type: ignore
+
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["script", "style", "nav", "footer", "aside", "noscript", "iframe"]):
             tag.decompose()
@@ -75,6 +76,7 @@ def _extract_text(html: str) -> str:
 
 
 # ---- web_fetch tool ---------------------------------------------------
+
 
 @tool(
     name="WebFetch",
@@ -130,6 +132,7 @@ def WebFetch(url: str, max_chars: int = 50000, raw: bool = False) -> str:
 
 # ---- search backends -------------------------------------------------
 
+
 def _search_duckduckgo(query: str, max_results: int) -> list[dict[str, str]]:
     headers = {"User-Agent": _USER_AGENT}
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as c:
@@ -137,7 +140,9 @@ def _search_duckduckgo(query: str, max_results: int) -> list[dict[str, str]]:
     try:
         from bs4 import BeautifulSoup  # type: ignore
     except ImportError:
-        return [{"error": "duckduckgo backend requires beautifulsoup4 — `pip install beautifulsoup4`"}]
+        return [
+            {"error": "duckduckgo backend requires beautifulsoup4 — `pip install beautifulsoup4`"}
+        ]
     soup = BeautifulSoup(r.text, "html.parser")
     out: list[dict[str, str]] = []
     for div in soup.select("div.result, div.web-result")[:max_results]:
@@ -147,16 +152,19 @@ def _search_duckduckgo(query: str, max_results: int) -> list[dict[str, str]]:
         href = a.get("href", "")
         # DDG wraps URLs in a redirector — extract the underlying url if present
         if href.startswith("//duckduckgo.com/l/?uddg="):
-            from urllib.parse import unquote, urlparse, parse_qs
+            from urllib.parse import parse_qs, unquote, urlparse
+
             qs = parse_qs(urlparse(href).query)
             if qs.get("uddg"):
                 href = unquote(qs["uddg"][0])
         snippet_el = div.select_one(".result__snippet") or div.select_one(".snippet")
-        out.append({
-            "title": a.get_text(strip=True),
-            "url": href,
-            "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
-        })
+        out.append(
+            {
+                "title": a.get_text(strip=True),
+                "url": href,
+                "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
+            }
+        )
     return out
 
 
@@ -189,9 +197,7 @@ def _search_brave(query: str, max_results: int) -> list[dict[str, str]]:
 
 def _search_searxng(query: str, max_results: int) -> list[dict[str, str]]:
     base = (
-        os.environ.get("ATHENA_SEARXNG_URL")
-        or os.environ.get("OCODE_SEARXNG_URL")
-        or ""
+        os.environ.get("ATHENA_SEARXNG_URL") or os.environ.get("OCODE_SEARXNG_URL") or ""
     ).rstrip("/")
     if not base:
         return [{"error": "ATHENA_SEARXNG_URL env var not set"}]
@@ -214,6 +220,7 @@ def _search_searxng(query: str, max_results: int) -> list[dict[str, str]]:
 
 
 # ---- web_search tool -------------------------------------------------
+
 
 @tool(
     name="WebSearch",
@@ -257,8 +264,8 @@ def WebSearch(query: str, max_results: int = 8) -> str:
         return f"ERROR: {results[0]['error']}"
     lines: list[str] = [f"backend={backend}  query={query!r}", ""]
     for i, res in enumerate(results, 1):
-        lines.append(f"{i}. {res.get('title','(no title)')}")
-        lines.append(f"   {res.get('url','')}")
+        lines.append(f"{i}. {res.get('title', '(no title)')}")
+        lines.append(f"   {res.get('url', '')}")
         if res.get("snippet"):
             lines.append(f"   {res['snippet']}")
         lines.append("")

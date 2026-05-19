@@ -1,11 +1,11 @@
 """Helpers for building a synthetic Hermes home tree under tmp_path."""
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import pytest
-
 import yaml
 
 
@@ -55,4 +55,5 @@ def ocode_dest(tmp_path: Path) -> Path:
 @pytest.fixture
 def migration_report(tmp_path: Path):
     from athena.migration.report import Report
+
     return Report(path=tmp_path / "report")

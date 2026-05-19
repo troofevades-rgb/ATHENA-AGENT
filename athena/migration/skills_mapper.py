@@ -17,6 +17,7 @@ extra frontmatter fields (author, platforms, etc.) that pass through to
    (prior migrations are idempotent). Other collisions are renamed
    ``<name>-from-hermes``.
 """
+
 from __future__ import annotations
 
 import re
@@ -28,13 +29,12 @@ from typing import Any
 import yaml
 
 from ..skills.frontmatter import (
+    FrontmatterError,
     SkillFrontmatter,
     parse_frontmatter,
     serialize_frontmatter,
-    FrontmatterError,
 )
 from .report import Report
-
 
 _FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.S)
 
@@ -116,13 +116,13 @@ def _coerce_dt(value: Any) -> datetime | None:
     return None
 
 
-def _copy_skill_dir(src: Path, dest: Path, *, new_fm: SkillFrontmatter, body: str, dry_run: bool) -> None:
+def _copy_skill_dir(
+    src: Path, dest: Path, *, new_fm: SkillFrontmatter, body: str, dry_run: bool
+) -> None:
     if dry_run:
         return
     shutil.copytree(src, dest)
-    (dest / "SKILL.md").write_text(
-        serialize_frontmatter(new_fm, body), encoding="utf-8"
-    )
+    (dest / "SKILL.md").write_text(serialize_frontmatter(new_fm, body), encoding="utf-8")
 
 
 def _existing_origin(skill_md: Path) -> str | None:
@@ -171,11 +171,14 @@ def _resolve_destination(
     if candidate.exists():
         origin = _existing_origin(candidate / "SKILL.md")
         if origin == "migration":
-            report.add("skipped_prior_migration", {
-                "name": name,
-                "destination": str(candidate),
-                "source": str(hermes_path),
-            })
+            report.add(
+                "skipped_prior_migration",
+                {
+                    "name": name,
+                    "destination": str(candidate),
+                    "source": str(hermes_path),
+                },
+            )
             return None
         # Real conflict — rename with -from-hermes suffix.
         renamed = target_root / f"{name}-from-hermes"
@@ -183,11 +186,14 @@ def _resolve_destination(
         while renamed.exists():
             n += 1
             renamed = target_root / f"{name}-from-hermes-{n}"
-        report.add("conflict_renamed", {
-            "original": name,
-            "imported_as": renamed.name,
-            "source": str(hermes_path),
-        })
+        report.add(
+            "conflict_renamed",
+            {
+                "original": name,
+                "imported_as": renamed.name,
+                "source": str(hermes_path),
+            },
+        )
         return renamed, "conflict_renamed"
     return candidate, "imported"
 
@@ -231,7 +237,8 @@ def import_skills(
             continue
 
         resolved = _resolve_destination(
-            base, new_fm.name,
+            base,
+            new_fm.name,
             is_archived=is_archived,
             report=report,
             hermes_path=hermes_path,
@@ -246,11 +253,14 @@ def import_skills(
             new_fm.name = dest_path.name
 
         _copy_skill_dir(hermes_path, dest_path, new_fm=new_fm, body=body, dry_run=dry_run)
-        report.add("imported_skill", {
-            "name": new_fm.name,
-            "source": str(hermes_path),
-            "destination": str(dest_path),
-            "state": new_fm.state,
-            "profile": profile,
-            "dry_run": dry_run,
-        })
+        report.add(
+            "imported_skill",
+            {
+                "name": new_fm.name,
+                "source": str(hermes_path),
+                "destination": str(dest_path),
+                "state": new_fm.state,
+                "profile": profile,
+                "dry_run": dry_run,
+            },
+        )

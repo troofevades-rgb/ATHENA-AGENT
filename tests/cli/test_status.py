@@ -1,4 +1,5 @@
 """``athena status`` — read the live snapshot for the active profile."""
+
 from __future__ import annotations
 
 import json
@@ -11,7 +12,8 @@ from athena.cli import status as cli
 
 @pytest.fixture(autouse=True)
 def isolated_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
     """Point profile_dir resolution at tmp_path so .status.json
     reads/writes can't escape into the real ~/.athena."""
@@ -27,12 +29,15 @@ def isolated_home(
     monkeypatch.setattr(cli, "profile_dir", fake_profile_dir)
     monkeypatch.setattr(resolution, "PROFILES_DIR", tmp_path / "profiles")
     monkeypatch.setattr(
-        resolution, "ACTIVE_PROFILE_FILE", tmp_path / "active_profile",
+        resolution,
+        "ACTIVE_PROFILE_FILE",
+        tmp_path / "active_profile",
     )
     monkeypatch.delenv("ATHENA_PROFILE", raising=False)
     monkeypatch.delenv("OCODE_PROFILE", raising=False)
     # Stable load_config — Config defaults are fine for these tests.
     from athena.config import Config
+
     monkeypatch.setattr(cli, "load_config", lambda: Config(profile="default"))
     return tmp_path
 
@@ -49,7 +54,8 @@ def _write_snapshot(profile_root: Path, profile: str, payload: dict) -> Path:
 
 
 def test_no_snapshot_human_message(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main([])
     out = capsys.readouterr().out
@@ -59,7 +65,8 @@ def test_no_snapshot_human_message(
 
 
 def test_no_snapshot_json_returns_inactive(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     rc = cli.main(["--json"])
     assert rc == 0
@@ -71,24 +78,29 @@ def test_no_snapshot_json_returns_inactive(
 
 
 def test_renders_snapshot(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    _write_snapshot(isolated_home, "default", {
-        "profile": "default",
-        "session_id": "abc-123",
-        "model": "qwen2.5-coder:14b",
-        "provider": "ollama",
-        "elapsed_seconds": 42.5,
-        "turns": 3,
-        "tool_calls": 7,
-        "tool_call_counts": {"Read": 4, "Bash": 3},
-        "prompt_tokens": 1500,
-        "completion_tokens": 2000,
-        "total_tokens": 3500,
-        "fork_count": 1,
-        "review_fired_count": 0,
-        "curator_run_count": 0,
-    })
+    _write_snapshot(
+        isolated_home,
+        "default",
+        {
+            "profile": "default",
+            "session_id": "abc-123",
+            "model": "qwen2.5-coder:14b",
+            "provider": "ollama",
+            "elapsed_seconds": 42.5,
+            "turns": 3,
+            "tool_calls": 7,
+            "tool_call_counts": {"Read": 4, "Bash": 3},
+            "prompt_tokens": 1500,
+            "completion_tokens": 2000,
+            "total_tokens": 3500,
+            "fork_count": 1,
+            "review_fired_count": 0,
+            "curator_run_count": 0,
+        },
+    )
     rc = cli.main([])
     out = capsys.readouterr().out
     assert rc == 0
@@ -102,11 +114,15 @@ def test_renders_snapshot(
 
 
 def test_json_output_is_raw_snapshot(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     payload = {
-        "profile": "default", "session_id": "s", "model": "m",
-        "provider": "p", "turns": 1,
+        "profile": "default",
+        "session_id": "s",
+        "model": "m",
+        "provider": "p",
+        "turns": 1,
     }
     _write_snapshot(isolated_home, "default", payload)
     rc = cli.main(["--json"])
@@ -119,12 +135,20 @@ def test_json_output_is_raw_snapshot(
 
 
 def test_explicit_profile_flag(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    _write_snapshot(isolated_home, "work", {
-        "profile": "work", "session_id": "w-1", "model": "m",
-        "provider": "p", "turns": 5,
-    })
+    _write_snapshot(
+        isolated_home,
+        "work",
+        {
+            "profile": "work",
+            "session_id": "w-1",
+            "model": "m",
+            "provider": "p",
+            "turns": 5,
+        },
+    )
     rc = cli.main(["--profile", "work"])
     out = capsys.readouterr().out
     assert "work" in out
@@ -136,10 +160,16 @@ def test_profile_from_env_var(
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _write_snapshot(isolated_home, "work", {
-        "profile": "work", "session_id": "envwins",
-        "model": "m", "provider": "p",
-    })
+    _write_snapshot(
+        isolated_home,
+        "work",
+        {
+            "profile": "work",
+            "session_id": "envwins",
+            "model": "m",
+            "provider": "p",
+        },
+    )
     monkeypatch.setenv("ATHENA_PROFILE", "work")
     rc = cli.main([])
     assert "envwins" in capsys.readouterr().out
@@ -149,11 +179,10 @@ def test_profile_from_env_var(
 
 
 def test_malformed_json_returns_1(
-    isolated_home: Path, capsys: pytest.CaptureFixture,
+    isolated_home: Path,
+    capsys: pytest.CaptureFixture,
 ) -> None:
-    snapshot = (
-        isolated_home / "athena_home" / "profiles" / "default" / ".status.json"
-    )
+    snapshot = isolated_home / "athena_home" / "profiles" / "default" / ".status.json"
     snapshot.parent.mkdir(parents=True, exist_ok=True)
     snapshot.write_text("not json", encoding="utf-8")
     rc = cli.main([])
@@ -165,43 +194,78 @@ def test_malformed_json_returns_1(
 
 
 def test_render_status_includes_every_field() -> None:
-    out = cli.render_status({
-        "profile": "p", "session_id": "s", "model": "m", "provider": "v",
-        "elapsed_seconds": 90.0,
-        "turns": 2, "tool_calls": 5,
-        "tool_call_counts": {"Bash": 3, "Read": 2},
-        "prompt_tokens": 100, "completion_tokens": 200, "total_tokens": 300,
-        "fork_count": 1, "review_fired_count": 1, "curator_run_count": 0,
-    })
+    out = cli.render_status(
+        {
+            "profile": "p",
+            "session_id": "s",
+            "model": "m",
+            "provider": "v",
+            "elapsed_seconds": 90.0,
+            "turns": 2,
+            "tool_calls": 5,
+            "tool_call_counts": {"Bash": 3, "Read": 2},
+            "prompt_tokens": 100,
+            "completion_tokens": 200,
+            "total_tokens": 300,
+            "fork_count": 1,
+            "review_fired_count": 1,
+            "curator_run_count": 0,
+        }
+    )
     for needle in (
-        "p", "s", "m", "v", "100", "200", "300",
-        "turns", "tool calls", "forks", "reviews",
-        "tool histogram", "Bash", "Read",
+        "p",
+        "s",
+        "m",
+        "v",
+        "100",
+        "200",
+        "300",
+        "turns",
+        "tool calls",
+        "forks",
+        "reviews",
+        "tool histogram",
+        "Bash",
+        "Read",
     ):
         assert needle in out
 
 
 def test_render_status_missing_session_shows_na() -> None:
-    out = cli.render_status({
-        "profile": "default", "session_id": None,
-        "model": "m", "provider": "p",
-    })
+    out = cli.render_status(
+        {
+            "profile": "default",
+            "session_id": None,
+            "model": "m",
+            "provider": "p",
+        }
+    )
     assert "n/a" in out
 
 
 def test_render_status_empty_histogram_section_omitted() -> None:
-    out = cli.render_status({
-        "profile": "p", "session_id": "s", "model": "m", "provider": "v",
-        "tool_call_counts": {},
-    })
+    out = cli.render_status(
+        {
+            "profile": "p",
+            "session_id": "s",
+            "model": "m",
+            "provider": "v",
+            "tool_call_counts": {},
+        }
+    )
     assert "tool histogram" not in out
 
 
 def test_render_status_histogram_sorted_by_count_desc() -> None:
-    out = cli.render_status({
-        "profile": "p", "session_id": "s", "model": "m", "provider": "v",
-        "tool_call_counts": {"Rare": 1, "Common": 50, "Mid": 10},
-    })
+    out = cli.render_status(
+        {
+            "profile": "p",
+            "session_id": "s",
+            "model": "m",
+            "provider": "v",
+            "tool_call_counts": {"Rare": 1, "Common": 50, "Mid": 10},
+        }
+    )
     # "Common" should appear before "Mid" before "Rare".
     common_pos = out.index("Common")
     mid_pos = out.index("Mid")
@@ -238,7 +302,10 @@ def test_status_snapshot_to_render_round_trip() -> None:
     stats.prompt_tokens = 100
     stats.eval_tokens = 200
     snapshot = stats.to_snapshot(
-        session_id="sess", model="qwen", provider="ollama", profile="work",
+        session_id="sess",
+        model="qwen",
+        provider="ollama",
+        profile="work",
     )
     rendered = cli.render_status(snapshot)
     assert "qwen" in rendered

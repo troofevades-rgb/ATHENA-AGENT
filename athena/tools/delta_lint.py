@@ -10,14 +10,15 @@ Coverage is intentionally narrow: only formats whose parsers are cheap and
 in-tree. Markdown, plain text, and source files in other languages pass
 through unchecked.
 """
+
 from __future__ import annotations
 
 import ast
 import json
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import yaml
 

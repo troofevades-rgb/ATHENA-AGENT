@@ -14,6 +14,7 @@ The Gemini shape is the most divergent of the three real-API providers:
 Auth is via an ``x-goog-api-key`` header (or the legacy ``?key=`` query
 string; we use the header).
 """
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,6 @@ import httpx
 
 from . import register_provider
 from .base import Provider, StreamChunk
-
 
 _DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -101,9 +101,7 @@ class GoogleProvider(Provider):
         # don't end up with .../models/models/<id>.
         clean_model = model.removeprefix("models/")
         path = f"/models/{clean_model}:streamGenerateContent"
-        with self._client.stream(
-            "POST", path, params={"alt": "sse"}, json=payload
-        ) as r:
+        with self._client.stream("POST", path, params={"alt": "sse"}, json=payload) as r:
             _raise_with_body(r)
             yield from self._parse_sse(r)
 
@@ -114,6 +112,7 @@ class GoogleProvider(Provider):
         extracts functionCall parts via the SSE loop; this path covers
         non-streaming responses and any future per-model leak recovery."""
         from .parsers import resolve_parser
+
         model = ""
         if isinstance(raw_response, dict):
             m = raw_response.get("model")
@@ -174,13 +173,19 @@ class GoogleProvider(Provider):
                 continue
             if role == "tool":
                 # Gemini expects functionResponse parts under user role.
-                contents.append({
-                    "role": "user",
-                    "parts": [{"functionResponse": {
-                        "name": m.get("name", ""),
-                        "response": {"result": str(content or "")},
-                    }}],
-                })
+                contents.append(
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "functionResponse": {
+                                    "name": m.get("name", ""),
+                                    "response": {"result": str(content or "")},
+                                }
+                            }
+                        ],
+                    }
+                )
                 continue
             gemini_role = "model" if role == "assistant" else "user"
             parts: list[dict[str, Any]] = []
@@ -195,10 +200,14 @@ class GoogleProvider(Provider):
                         args = json.loads(args) if args.strip() else {}
                     except json.JSONDecodeError:
                         args = {"_raw": args}
-                parts.append({"functionCall": {
-                    "name": fn.get("name", ""),
-                    "args": args,
-                }})
+                parts.append(
+                    {
+                        "functionCall": {
+                            "name": fn.get("name", ""),
+                            "args": args,
+                        }
+                    }
+                )
             if not parts:
                 parts.append({"text": ""})
             contents.append({"role": gemini_role, "parts": parts})
@@ -212,11 +221,13 @@ class GoogleProvider(Provider):
             fn = t.get("function") if "function" in t else t
             if not isinstance(fn, dict):
                 continue
-            out.append({
-                "name": fn.get("name", ""),
-                "description": fn.get("description", ""),
-                "parameters": fn.get("parameters", {}) or {},
-            })
+            out.append(
+                {
+                    "name": fn.get("name", ""),
+                    "description": fn.get("description", ""),
+                    "parameters": fn.get("parameters", {}) or {},
+                }
+            )
         return out
 
     def _parse_sse(self, response: httpx.Response) -> Iterator[StreamChunk]:
@@ -230,7 +241,7 @@ class GoogleProvider(Provider):
         for raw in response.iter_lines():
             if not raw or not raw.startswith("data: "):
                 continue
-            data = raw[len("data: "):].strip()
+            data = raw[len("data: ") :].strip()
             if data == "[DONE]":
                 break
             try:
@@ -245,11 +256,14 @@ class GoogleProvider(Provider):
                         yield StreamChunk("content", part["text"])
                     elif "functionCall" in part:
                         fc = part["functionCall"] or {}
-                        yield StreamChunk("tool_call", {
-                            "name": fc.get("name", ""),
-                            "arguments": fc.get("args", {}) or {},
-                            "id": "",
-                        })
+                        yield StreamChunk(
+                            "tool_call",
+                            {
+                                "name": fc.get("name", ""),
+                                "arguments": fc.get("args", {}) or {},
+                                "id": "",
+                            },
+                        )
                 if cand.get("finishReason"):
                     finish_reason = cand["finishReason"]
             # usageMetadata appears on the final event.

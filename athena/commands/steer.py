@@ -8,11 +8,12 @@ model, prepending each as a synthetic ``[/steer] <message>`` user message.
 
 ``/queue`` lists pending steers without removing them.
 """
+
 from __future__ import annotations
 
-from . import command
 from .. import ui
 from ..steer.queue import GLOBAL_STEER_QUEUE
+from . import command
 
 
 @command("steer")

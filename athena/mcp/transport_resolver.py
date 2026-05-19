@@ -18,10 +18,11 @@ both implement the same synchronous public API
 (``initialize / list_tools / call_tool / request / close``), so the
 loader and tool registry don't need to branch on transport.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Protocol, Union
+from typing import TYPE_CHECKING, Any, Union
 
 if TYPE_CHECKING:
     from .client import MCPStdioClient
@@ -42,7 +43,8 @@ _SSE_LIKE = frozenset({"sse", "http", "http+sse"})
 
 
 def open_transport(
-    server_id: str, config: dict[str, Any],
+    server_id: str,
+    config: dict[str, Any],
 ) -> MCPTransport:
     """Construct and return the transport for one mcp.json server entry.
 
@@ -62,18 +64,15 @@ def open_transport(
     if transport in _SSE_LIKE:
         return _open_sse(server_id, config)
     raise ValueError(
-        f"mcp server {server_id!r}: unknown transport {transport!r} "
-        f"(expected stdio, sse, or http)"
+        f"mcp server {server_id!r}: unknown transport {transport!r} (expected stdio, sse, or http)"
     )
 
 
-def _open_stdio(server_id: str, config: dict[str, Any]) -> "MCPStdioClient":
+def _open_stdio(server_id: str, config: dict[str, Any]) -> MCPStdioClient:
     from .client import MCPStdioClient
 
     if "command" not in config:
-        raise ValueError(
-            f"mcp server {server_id!r}: stdio transport requires 'command'"
-        )
+        raise ValueError(f"mcp server {server_id!r}: stdio transport requires 'command'")
     return MCPStdioClient(
         name=server_id,
         command=config["command"],
@@ -83,23 +82,19 @@ def _open_stdio(server_id: str, config: dict[str, Any]) -> "MCPStdioClient":
     )
 
 
-def _open_sse(server_id: str, config: dict[str, Any]) -> "SSETransport":
-    from .sse_transport import SSETransport
+def _open_sse(server_id: str, config: dict[str, Any]) -> SSETransport:
     from .oauth import OAuthConfig
+    from .sse_transport import SSETransport
 
     url = config.get("url")
     if not url:
-        raise ValueError(
-            f"mcp server {server_id!r}: sse/http transport requires 'url'"
-        )
+        raise ValueError(f"mcp server {server_id!r}: sse/http transport requires 'url'")
 
     oauth_cfg: OAuthConfig | None = None
     oauth_raw = config.get("oauth")
     if oauth_raw is not None:
         if not isinstance(oauth_raw, dict):
-            raise ValueError(
-                f"mcp server {server_id!r}: 'oauth' must be a table"
-            )
+            raise ValueError(f"mcp server {server_id!r}: 'oauth' must be a table")
         oauth_cfg = _parse_oauth(server_id, oauth_raw)
 
     return SSETransport(
@@ -109,7 +104,7 @@ def _open_sse(server_id: str, config: dict[str, Any]) -> "SSETransport":
     )
 
 
-def _parse_oauth(server_id: str, raw: dict[str, Any]) -> "Any":
+def _parse_oauth(server_id: str, raw: dict[str, Any]) -> Any:
     """Map the mcp.json oauth subtree onto an :class:`OAuthConfig`."""
     from .oauth import OAuthConfig
 
@@ -117,14 +112,11 @@ def _parse_oauth(server_id: str, raw: dict[str, Any]) -> "Any":
     missing = [k for k in required if not raw.get(k)]
     if missing:
         raise ValueError(
-            f"mcp server {server_id!r}: oauth missing required fields: "
-            f"{', '.join(missing)}"
+            f"mcp server {server_id!r}: oauth missing required fields: {', '.join(missing)}"
         )
     scopes_raw = raw.get("scopes") or []
     if not isinstance(scopes_raw, list):
-        raise ValueError(
-            f"mcp server {server_id!r}: oauth.scopes must be a list"
-        )
+        raise ValueError(f"mcp server {server_id!r}: oauth.scopes must be a list")
     return OAuthConfig(
         server_id=server_id,
         authorization_endpoint=str(raw["authorization_endpoint"]),

@@ -4,11 +4,11 @@ Useful when the context is filling up. Asks the model to produce a tight
 summary of work done so far, then replaces the message history (after the
 system prompt) with that summary as a single user message.
 """
+
 from __future__ import annotations
 
-from . import command
 from .. import ui
-
+from . import command
 
 _SUMMARY_PROMPT = """\
 Summarize this conversation so far for context-window compaction. Cover:

@@ -4,6 +4,7 @@ Replaces the Phase 0 stub tests in tests/test_fork.py. Uses a FakeClient so
 no Ollama backend is required; isolated_home keeps the parent agent's
 SessionStore from touching the real ~/.athena.
 """
+
 from __future__ import annotations
 
 import threading
@@ -16,19 +17,18 @@ import athena.agent.core as core_mod
 from athena.agent import Agent, ForkAction, ForkResult
 from athena.agent import auxiliary_client as aux_mod
 from athena.config import Config
-from athena.providers import StreamChunk
 from athena.provenance import (
     BACKGROUND_REVIEW,
     CURATOR,
     FOREGROUND,
     get_current_write_origin,
 )
+from athena.providers import StreamChunk
 from athena.safety.approval_callback import (
     AUTO_DENY,
     _interactive_approval,
     get_approval_callback,
 )
-
 
 # -- fakes ---------------------------------------------------------------
 
@@ -41,9 +41,12 @@ class FakeClient:
     ``(host=..., timeout=..., response=...)`` so the OllamaProvider call site
     keeps working.
     """
-    instances: list["FakeClient"] = []
 
-    def __init__(self, host: str = "", timeout: float = 600.0, response: str = "hello from fork") -> None:
+    instances: list[FakeClient] = []
+
+    def __init__(
+        self, host: str = "", timeout: float = 600.0, response: str = "hello from fork"
+    ) -> None:
         self.host = host
         self.response = response
         self.observations: list[dict[str, Any]] = []
@@ -68,19 +71,27 @@ class FakeClient:
         **kwargs: Any,
     ):
         self.tool_payloads.append(tools)
-        self.observations.append({
-            "model": model,
-            "write_origin": get_current_write_origin(),
-            "approval_callback": get_approval_callback(),
-            "messages": list(messages),
-            "tools": tools,
-        })
+        self.observations.append(
+            {
+                "model": model,
+                "write_origin": get_current_write_origin(),
+                "approval_callback": get_approval_callback(),
+                "messages": list(messages),
+                "tools": tools,
+            }
+        )
         if self.response:
             yield StreamChunk("content", self.response)
-        yield StreamChunk("usage", {
-            "prompt_tokens": 1, "completion_tokens": 2,
-            "prompt_eval_count": 1, "eval_count": 2, "eval_duration": 0,
-        })
+        yield StreamChunk(
+            "usage",
+            {
+                "prompt_tokens": 1,
+                "completion_tokens": 2,
+                "prompt_eval_count": 1,
+                "eval_count": 2,
+                "eval_duration": 0,
+            },
+        )
         yield StreamChunk("end", {"reason": "stop"})
 
     def close(self) -> None:
@@ -94,6 +105,7 @@ def fake_client(monkeypatch: pytest.MonkeyPatch):
     the agent (or a fork) constructs its provider."""
     FakeClient.instances = []
     from athena.providers import _REGISTRY
+
     saved = _REGISTRY.get("ollama")
     _REGISTRY["ollama"] = FakeClient
     # Also poison the module-level OllamaProvider symbols so any code
@@ -119,6 +131,7 @@ def parent_agent(isolated_home: Path, fake_client: type[FakeClient]) -> Agent:
 def test_auxiliary_client_creates_fresh_ollama_instance(parent_agent: Agent) -> None:
     """build_auxiliary_client returns a new client (not the parent's)."""
     from athena.agent.auxiliary_client import build_auxiliary_client
+
     aux = build_auxiliary_client(parent_agent)
     assert aux is not parent_agent.client
     # Host matches the parent's config.
@@ -283,6 +296,7 @@ def test_fork_stdout_captured_in_quiet_mode(
     def chat_with_print(self, *args, **kwargs):
         print("FORK_OUTPUT_LINE")
         import sys as _sys
+
         print("FORK_ERROR_LINE", file=_sys.stderr)
         yield from original_chat(self, *args, **kwargs)
 
@@ -307,6 +321,7 @@ def test_fork_stderr_captured_in_quiet_mode(parent_agent: Agent) -> None:
 
     def chat_with_stderr(self, *args, **kwargs):
         import sys
+
         print("FORK_STDERR_WARNING", file=sys.stderr)
         yield from original_chat(self, *args, **kwargs)
 
@@ -352,6 +367,7 @@ def test_fork_returns_result_with_final_response(parent_agent: Agent) -> None:
 
 def test_fork_exception_recorded_in_error_field(parent_agent: Agent) -> None:
     """If the fork's inner loop raises, the error is captured on ForkResult."""
+
     def bad_chat(self, *args, **kwargs):
         raise RuntimeError("simulated provider failure")
         yield  # pragma: no cover — required for generator function shape
@@ -383,14 +399,14 @@ def test_fork_actions_extracted_from_tool_results(parent_agent: Agent) -> None:
             "role": "tool",
             "name": "skill_manage",
             "content": '{"success": true, "target": "skill", "action": "create", '
-                       '"skill_name": "test-skill", "message": "skill created"}',
+            '"skill_name": "test-skill", "message": "skill created"}',
         },
         {"role": "tool", "name": "Bash", "content": "free-form output, not JSON"},
         {
             "role": "tool",
             "name": "skill_manage",
             "content": '{"success": false, "target": "skill", "action": "delete", '
-                       '"skill_name": "x", "message": "denied"}',
+            '"skill_name": "x", "message": "denied"}',
         },
     ]
     actions = _extract_actions(messages)
@@ -420,6 +436,7 @@ def test_fork_thread_is_daemon(parent_agent: Agent, monkeypatch: pytest.MonkeyPa
         return real_thread(*args, **kwargs)
 
     import athena.agent.fork as fork_mod
+
     monkeypatch.setattr(fork_mod.threading, "Thread", capturing_thread)
     parent_agent.fork(enabled_toolsets=["core"], system_addendum="")
     assert seen.get("daemon") is True
