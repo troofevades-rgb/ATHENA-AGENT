@@ -8,6 +8,11 @@
 
 A terminal-based agentic coding assistant.
 
+> **Status:** Beta. Tested on Linux + macOS. Default Ollama path is
+> production-ready for single-user development. Multi-user gateway is
+> functional but actively hardening (Tier 2). The closed training loop
+> (`athena train`) requires GPU.
+
 ## Features
 
 - Native Ollama tool calling (no prompt-engineered fake function calls)
@@ -131,7 +136,14 @@ Per-server config supports the standard fields (`command`, `args`, `env`, `cwd`,
 
 Tools land in the registry namespaced as `{server}__{tool}` (e.g. `git__git_status`). The model sees them indistinguishably from built-ins. Use `/mcp` to see what's connected, `/mcp logs <name>` to inspect a server's stderr if it's misbehaving.
 
-Only the **stdio** transport is supported. HTTP/SSE servers are skipped with a warning. For air-gapped use this is fine — every common MCP server (filesystem, git, sqlite, postgres, github offline, etc.) ships as a stdio subprocess.
+### Transports
+
+Both **stdio** and **HTTP/SSE** MCP transports are supported. Configure per-server in `mcp.json`:
+
+- **Stdio**: standard `command` + `args` + `env`.
+- **HTTP/SSE**: set `url` to the server's SSE endpoint. OAuth 2.1 with PKCE is handled automatically; tokens persist at `~/.athena/mcp_tokens/<server_id>.json` with mode `0600`. Use `athena mcp auth <server>` to run the auth flow, `athena mcp token-status` to inspect expiry, `athena mcp revoke <server>` to drop stored tokens.
+
+If you need to disable a transport for a specific server, set `"disabled": true` on its entry.
 
 ### Writing your own MCP server
 
@@ -139,7 +151,6 @@ Only the **stdio** transport is supported. HTTP/SSE servers are skipped with a w
 
 ### Limitations
 
-- No HTTP/SSE transport. (Hooks are in place in `mcp/client.py`; the loader checks for `url` and skips with a warning.)
 - No prompts or resources. Only `tools/list` + `tools/call` are wired through. Prompts/resources are valid follow-ons; the JSON-RPC plumbing already handles them.
 - No sampling. If a server requests model completions from us, we reply with method-not-found. Most servers don't need this.
 - Per-tool confirmation prompts only fire for built-in tools that opt in. MCP-bridged tools always run without confirmation; if you want a destructive MCP tool gated, add it to `disabled_tools` in your `mcp.json`.
@@ -147,7 +158,6 @@ Only the **stdio** transport is supported. HTTP/SSE servers are skipped with a w
 ## Other limitations
 
 - Local models are weaker at long-horizon planning than Claude. Keep tasks scoped.
-- No sub-agent / parallel tool execution.
 - Diff rendering is line-based, not semantic.
 
 ## Changelog
