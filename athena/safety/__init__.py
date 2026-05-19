@@ -23,6 +23,7 @@ from .secure_files import (
     secure_write_text,
 )
 from .snapshots import Snapshot, SnapshotError, SnapshotStore
+from .url_safety import URLSecurityDenied, allow_external_urls, validate_url
 
 __all__ = [
     "MutationAuditLog",
@@ -31,7 +32,9 @@ __all__ = [
     "Snapshot",
     "SnapshotError",
     "SnapshotStore",
+    "URLSecurityDenied",
     "allow_external",
+    "allow_external_urls",
     "ensure_secure_dir",
     "get_audit_log",
     "get_snapshot_store",
@@ -45,4 +48,5 @@ __all__ = [
     "set_workspace",
     "sha_of_file",
     "validate_path",
+    "validate_url",
 ]
