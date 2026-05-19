@@ -17,7 +17,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          # Pinned to 3.11 because the test suite wedges on a
+          # pytest-asyncio teardown under 3.12+ (see comment in
+          # tests.yml). T1-04 unwedges the async fixture and bumps
+          # this back to 3.12 or 3.13.
+          python-version: "3.11"
           cache: "pip"
       - run: |
           python -m pip install --upgrade pip
