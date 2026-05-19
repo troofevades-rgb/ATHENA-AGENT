@@ -1,6 +1,6 @@
-# athena — local Claude Code alternative on Ollama
+# ATHENA-AGENT
 
-A terminal-based agentic coding assistant that runs entirely against a local Ollama server. No cloud calls, no API keys, no telemetry. Designed for offline / air-gapped use.
+A terminal-based agentic coding assistant.
 
 ## Features
 
