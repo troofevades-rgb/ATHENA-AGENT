@@ -170,18 +170,33 @@ def _matches_glob_prefix(s: str, pattern: str) -> bool:
 
 
 def _is_always_allowed(p: Path) -> bool:
-    home = Path.home()
-    s = str(p)
+    home = Path.home().as_posix()
+    s = p.as_posix()
     for pattern in _ALWAYS_ALLOWED_PREFIXES:
-        expanded = _expanded_prefix(pattern, home)
+        expanded = pattern.replace("~", home)
         if _matches_glob_prefix(s, expanded):
             return True
     return False
 
 
 def _matches_absolute_deny(p: Path) -> bool:
-    s = str(p)
-    return any(pat.match(s) for pat in _ABSOLUTE_DENY_PATTERNS)
+    """Match against POSIX-shaped patterns and Windows raw-device strings.
+
+    POSIX patterns are matched on ``as_posix()`` of the resolved path so
+    Windows paths like ``C:/proc/1/mem`` don't accidentally pass through
+    just because they have a drive letter prefix.
+    """
+    posix = p.as_posix()
+    raw = str(p)
+    for pat in _ABSOLUTE_DENY_PATTERNS:
+        if pat.match(posix) or pat.match(raw):
+            return True
+        # POSIX-anchored patterns won't match if Windows prepended a
+        # drive letter; strip a leading "<X>:" and re-test.
+        if len(posix) >= 2 and posix[1] == ":":
+            if pat.match(posix[2:]):
+                return True
+    return False
 
 
 def audit_append(*, kind: str, payload: dict[str, Any]) -> None:
