@@ -251,7 +251,15 @@ def _stream_windows(proc: subprocess.Popen, timeout: int) -> str:
 
 def _start_background(command: str) -> str:
     global _NEXT_BG_ID
-    proc = _spawn(command, text=True, bufsize=1, errors="replace")
+    # stdin=DEVNULL so background children that read stdin get an
+    # immediate EOF instead of competing with the parent prompt_toolkit
+    # REPL for terminal ownership — without it, any child that calls
+    # ``input()`` / reads ``/dev/stdin`` blocks forever holding the
+    # tty, freezing the operator's keyboard. (Matches Hermes' fix #17959.)
+    proc = _spawn(
+        command, text=True, bufsize=1, errors="replace",
+        stdin=subprocess.DEVNULL,
+    )
     # Re-open stdout in text mode for streaming readline iteration.
     with _BG_LOCK:
         bg_id = f"bg{_NEXT_BG_ID}"
