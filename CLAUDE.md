@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-athena is a local Claude-Code-style agent that talks to Ollama instead of a hosted API. It is meta — the codebase is an agentic CLI with tool calling, sub-agent forks, background review, a 7-day curator pass, a session store, a file-based skill system, a plugin system, scheduled cron jobs, in-flight redirects (`/steer`) and a persistent goal invariant (`/goal`), and a closed training loop that turns reviewed sessions into a new Ollama model. Many changes touch several of those subsystems at once. Phase 8 (provider abstraction) is in progress — Ollama, Anthropic, OpenAI, and Google providers are wired through `athena/providers/` with `OllamaProvider` as the default; OpenAI-compat / OpenRouter / Nous and the credential pool land in remaining Phase 8 prompts.
+athena is a local Claude-Code-style agent that talks to Ollama instead of a hosted API. It is meta — the codebase is an agentic CLI with tool calling, sub-agent forks, background review, a 7-day curator pass, a session store, a file-based skill system, a plugin system, scheduled cron jobs, in-flight redirects (`/steer`) and a persistent goal invariant (`/goal`), and a closed training loop that turns reviewed sessions into a new Ollama model. Many changes touch several of those subsystems at once. The provider abstraction is in place: Ollama, Anthropic, OpenAI, Google, OpenAI-compat, OpenRouter, and Nous Portal are first-class providers. The credential pool at `athena/providers/credential_pool.py` rotates on 429. `OllamaProvider` is the default.
 
 ## Commands
 
