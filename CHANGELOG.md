@@ -180,7 +180,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - athena curator {run, status, pause, resume, inspect-last} CLI (Phase 4)
 
 ### Changed
-- _(planned; lands as T1-02.7 ships)_ README install instructions point at `pip install athena-coder` from PyPI (T1-02)
+- README install instructions point at `pip install athena-coder` from PyPI (T1-02.7); source-install path retained for development under a separate sub-section
 - Documentation reconciled with shipped code: MCP transport, sub-agent capability, phase-status markers, Modelfile system prompt (T1-05)
 
 ### Removed

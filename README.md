@@ -45,11 +45,23 @@ A terminal-based agentic coding assistant.
 
 ## Install
 
+From PyPI:
+
 ```bash
-cd athena
-pip install -e .
+pip install athena-coder
 ollama pull qwen2.5-coder:14b
 ```
+
+From source (for development):
+
+```bash
+git clone https://github.com/troofevades-rgb/ATHENA-AGENT.git
+cd ATHENA-AGENT
+pip install -e ".[dev]"
+ollama pull qwen2.5-coder:14b
+```
+
+The installed CLI is `athena`. Verify with `athena --version`.
 
 ## Run
 
