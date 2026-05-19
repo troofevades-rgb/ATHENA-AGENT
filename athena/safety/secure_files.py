@@ -32,8 +32,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-_WINDOWS_REPLACE_RETRIES = 8
-_WINDOWS_REPLACE_BACKOFF_S = 0.01
+_WINDOWS_REPLACE_RETRIES = 32
+_WINDOWS_REPLACE_BACKOFF_S = 0.005
 
 logger = logging.getLogger(__name__)
 

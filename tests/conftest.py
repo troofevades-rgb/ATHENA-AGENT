@@ -12,8 +12,22 @@ from pathlib import Path
 
 import pytest
 
+from athena.safety.path_security import set_workspace as _path_security_set_workspace
 from athena.skills import loader
 from athena.skills.frontmatter import SkillFrontmatter, serialize_frontmatter
+
+
+@pytest.fixture(autouse=True)
+def _path_security_workspace(tmp_path: Path) -> None:
+    """Point path_security at tmp_path for every test.
+
+    Without this, tests that exercise athena.tools.file_ops would block
+    on the interactive approval prompt because tmp_path is outside the
+    process cwd (the project root). Tests that legitimately need to
+    operate outside tmp_path wrap their call in
+    ``athena.safety.path_security.allow_external()``.
+    """
+    _path_security_set_workspace(tmp_path)
 
 
 @pytest.fixture
