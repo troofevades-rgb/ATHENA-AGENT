@@ -54,7 +54,7 @@ Another pitfall: `athena/plugins/` (Phase 5, the `Plugin` ABC + bundled plugins)
 - Don't share httpx clients across threads — use `auxiliary_client.py` factory pattern for forks.
 - Migration tools (`migration/`) always write under `write_origin="migration"` so the curator leaves imported content alone until it sees local activity. Preserve that invariant.
 - MCP tools come in namespaced as `{server}__{tool}` and bypass the built-in confirmation hook. If a destructive MCP tool needs gating, point the user at `disabled_tools` in `mcp.json`.
-- Only the stdio MCP transport is wired through. `mcp/client.py` checks for `url` and skips with a warning; don't half-implement HTTP/SSE unless adding the full transport.
+- Both stdio and HTTP/SSE MCP transports are wired through (Phase 12). HTTP/SSE servers authenticate via OAuth 2.1 PKCE with token storage at `~/.athena/mcp_tokens.json`. If extending transport behavior, keep both paths covered.
 
 ## Slash commands worth knowing about
 
@@ -62,7 +62,7 @@ The full list is in `athena/__main__.py:SLASH_HELP`. The ones likely to come up 
 
 ## Don't
 
-- Don't add an HTTP/SSE MCP transport without addressing the air-gapped-by-default posture in the README.
+- Don't loosen the air-gapped-by-default posture documented in the README — HTTP/SSE MCP servers are off unless the user adds them to `mcp.json`, and the OAuth token store is gitignored.
 - Don't add prompt-engineered "fake" function calls; everything goes through Ollama's native tool-call protocol.
 - Don't add new top-level subdirectories under `athena/` without updating both `ATHENA.md` and this file's architecture section.
 - Don't write directly to the SQLite session index — append to JSONL and let the mirror update.
