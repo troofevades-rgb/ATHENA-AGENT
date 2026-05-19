@@ -367,11 +367,28 @@ class DiscordAdapter(GatewayAdapter):
 
     # ---- outbound ----
 
+    # Discord rejects content >2000 chars with HTTP 400 / 50035. The
+    # gateway's _send_chunked is supposed to keep us under body_cap,
+    # but a missed code path (slash-command replies, error messages,
+    # future callers) shouldn't take down the whole reply. Defensive
+    # truncation inside send_text guarantees the API call is always
+    # well-formed: better a "(truncated)" tail than a 400.
+    _DISCORD_HARD_LIMIT = 2000
+    _DISCORD_TRUNC_SUFFIX = "\n…(truncated)"
+
     async def send_text(self, chat_id: str, text: str) -> str:
         channel = await self._fetch_channel(chat_id)
         if channel is None:
             raise RuntimeError(
                 f"DiscordAdapter.send_text: no channel for chat_id={chat_id}"
+            )
+        if len(text) > self._DISCORD_HARD_LIMIT:
+            keep = self._DISCORD_HARD_LIMIT - len(self._DISCORD_TRUNC_SUFFIX)
+            text = text[:keep] + self._DISCORD_TRUNC_SUFFIX
+            logger.warning(
+                "[%s] send_text truncated payload to %d chars for %s "
+                "(caller bypassed body_cap chunking)",
+                self.name, len(text), chat_id,
             )
         msg = await channel.send(text)
         return str(msg.id)
