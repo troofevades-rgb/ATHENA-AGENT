@@ -7,7 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- (Future work lands here.)
+- Anthropic prompt caching: 4-breakpoint `system_and_3` layout
+  (last system message + last 3 non-system messages), 5m default
+  TTL / 1h opt-in via `prompt_cache_ttl = "1h"`, ~60-75% input-token
+  cost reduction on multi-turn sessions against Anthropic-direct,
+  OpenRouter, or Nous Portal. Pure-function module
+  `athena.agent.prompt_caching` with `apply_cache_markers` and
+  `strip_cache_markers` (T2-01).
+- `cache_strategy` and `prompt_cache_ttl` config options. Defaults:
+  `"system_and_3"` and `"5m"`. Disable via `cache_strategy = "none"`
+  (T2-01).
+- `Stats.cache_read_tokens` and `Stats.cache_creation_tokens`
+  populated from each provider call's usage chunk; surfaced in
+  `/status` under the `tokens` block when non-zero (T2-01).
+- `docs/reference/prompt-caching.md` documents the layout, config,
+  provider coverage, persistence, and limitations (T2-01).
 
 ### TODO before tagging v0.2.0
 
