@@ -21,7 +21,9 @@ jobs:
           cache: "pip"
       - run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          # Match tests.yml — coverage collection imports the same
+          # gateway + observability deps the test suite does.
+          pip install -e ".[dev,gateway,observability]"
       - name: Run coverage
         run: |
           pytest --cov=athena --cov-report=term-missing --cov-report=xml \
