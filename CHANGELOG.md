@@ -196,7 +196,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Credential file writes use `os.open(O_EXCL, 0o600)` atomically via the new `athena.safety.secure_files` module (T1-06)
 - TOCTOU windows closed across `credential_pool.py`, `mcp/oauth.py`, and `migration/config_translator.py` (T1-06)
 - `~/.athena/` subdirectories holding secret material created at `0o700` via `ensure_secure_dir`; existing wider-mode directories emit a `WARNING` rather than being silently re-chmodded (T1-06)
-- _(planned; lands as T1-07 ships)_ `file_ops.py` reads and writes validate workspace boundary before opening the file (T1-07)
+- Path security module sandboxes `file_ops.py` to the workspace by default; outside-workspace reads and writes require explicit approval (`(tool_name, args) -> "allow"|"deny"` callback). Absolute-deny patterns refuse `/proc/*/mem`, `/proc/kcore`, `/dev/{mem,kmem,port}`, `/dev/sd[a-z]*`, `/dev/nvme*`, `/sys/firmware/efi/efivars/*`, and the Windows raw-device equivalents regardless of approval. (T1-07)
+- `athena.safety.allow_external()` context manager for legitimate outside-workspace use (test fixtures, foreground tool implementations operating on user-supplied absolute paths) (T1-07)
+- Forks re-pin `path_security` workspace inside their daemon thread; combined with `AUTO_DENY` they cannot escape the parent's workspace (T1-07)
 - _(planned; lands as T1-08 ships)_ `web.py` blocks SSRF-prone destination IPs by default (RFC1918, link-local, loopback, cloud-metadata) (T1-08)
 
 
