@@ -1,0 +1,9 @@
+// One Read tool call, then (scenario 1) a closing text response
+// after the tool result lands.
+{"scenario": 0, "kind": "tool_call", "payload": {"id": "call_1", "name": "Read", "arguments": {"file_path": "calculator.py"}}}
+{"scenario": 0, "kind": "usage", "payload": {"prompt_tokens": 50, "completion_tokens": 5}}
+{"scenario": 0, "kind": "end", "payload": null}
+{"scenario": 1, "kind": "content", "payload": "I see the file. "}
+{"scenario": 1, "kind": "content", "payload": "Looks good."}
+{"scenario": 1, "kind": "usage", "payload": {"prompt_tokens": 200, "completion_tokens": 8}}
+{"scenario": 1, "kind": "end", "payload": null}

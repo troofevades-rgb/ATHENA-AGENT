@@ -1,0 +1,10 @@
+// Three Read calls in a row, then closing text. Exercises the
+// run_until_done multi-turn path.
+{"scenario": 0, "kind": "tool_call", "payload": {"id": "c1", "name": "Read", "arguments": {"file_path": "a.py"}}}
+{"scenario": 0, "kind": "end", "payload": null}
+{"scenario": 1, "kind": "tool_call", "payload": {"id": "c2", "name": "Read", "arguments": {"file_path": "b.py"}}}
+{"scenario": 1, "kind": "end", "payload": null}
+{"scenario": 2, "kind": "tool_call", "payload": {"id": "c3", "name": "Read", "arguments": {"file_path": "c.py"}}}
+{"scenario": 2, "kind": "end", "payload": null}
+{"scenario": 3, "kind": "content", "payload": "All three read."}
+{"scenario": 3, "kind": "end", "payload": null}

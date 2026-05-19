@@ -1,0 +1,6 @@
+// Simple text-only assistant reply. No tools, no surprises.
+{"kind": "content", "payload": "Hello"}
+{"kind": "content", "payload": ", world"}
+{"kind": "content", "payload": "."}
+{"kind": "usage", "payload": {"prompt_tokens": 10, "completion_tokens": 3}}
+{"kind": "end", "payload": null}
