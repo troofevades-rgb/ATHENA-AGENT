@@ -24,13 +24,13 @@ callers reach for. Tests construct their own pool with a tmp path.
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from ..safety.secure_files import ensure_secure_dir, secure_write_json
 
 _DEFAULT_COOLDOWN = 60  # seconds
 
@@ -267,26 +267,10 @@ class CredentialPool:
         self._creds = creds
 
     def _save(self) -> None:
-        """Atomic write: tmp-then-rename so a crash mid-write can't
-        leave a half-written file."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        """Atomic O_EXCL 0o600 write via athena.safety.secure_files."""
+        ensure_secure_dir(self._path.parent)
         payload = {name: [c.to_dict() for c in bucket] for name, bucket in self._creds.items()}
-        # tempfile in the same directory so rename is atomic on POSIX
-        # and Windows alike.
-        fd, tmp = tempfile.mkstemp(
-            prefix=".credentials-", suffix=".json", dir=str(self._path.parent)
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(payload, f, indent=2, sort_keys=True)
-                f.write("\n")
-            os.replace(tmp, self._path)
-        except Exception:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        secure_write_json(self._path, payload)
 
 
 # Module-level singleton. Constructed lazily on first access so tests
