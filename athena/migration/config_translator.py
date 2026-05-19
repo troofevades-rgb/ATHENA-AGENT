@@ -29,13 +29,13 @@ appear in shareable config diffs.
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from ..safety.secure_files import ensure_secure_dir, secure_write_json
 from .report import Report
 
 _KEY_MAP = {
@@ -148,9 +148,8 @@ def translate_config(
         dest.mkdir(parents=True, exist_ok=True)
         (dest / "config.toml").write_text(_emit_toml(payload), encoding="utf-8")
         if credentials:
-            (dest / "credentials.json").write_text(
-                json.dumps(credentials, indent=2), encoding="utf-8"
-            )
+            ensure_secure_dir(dest)
+            secure_write_json(dest / "credentials.json", credentials)
 
     report.add(
         "imported_config",
