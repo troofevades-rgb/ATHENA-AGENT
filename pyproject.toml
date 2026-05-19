@@ -34,7 +34,7 @@ gateway = [
     # Phase 11 additional platforms
     "python-socketio[asyncio_client]>=5.10",  # BlueBubbles bridge speaks socket.io v4
     "matrix-nio[e2e]>=0.24",
-    "aioimaplib>=2.0",
+    "aioimaplib>=2.0.1",
     "aiosmtplib>=3.0",
     "beautifulsoup4>=4.12",
     # Phase 15 webhooks — aiohttp is also pulled by slack-sdk's
