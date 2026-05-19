@@ -144,6 +144,21 @@ class GatewayDaemon:
                 adapter.start(),
                 name=f"gateway-adapter-{adapter.name}",
             )
+            # Without a done-callback the adapter's start() exception
+            # lives forever in the orphan task and the daemon sits at
+            # await stop_event.wait() with the platform in offline
+            # limbo. Log the exception loudly so the operator sees
+            # it instead of guessing why the bot never appears.
+            def _on_done(t: asyncio.Task, _name: str = adapter.name) -> None:
+                if t.cancelled():
+                    return
+                exc = t.exception()
+                if exc is not None:
+                    logger.error(
+                        "[%s] adapter start() crashed: %s",
+                        _name, exc, exc_info=exc,
+                    )
+            task.add_done_callback(_on_done)
             self._adapter_tasks.append(task)
 
         # Webhook listener — only spin it up when the user
