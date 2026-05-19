@@ -26,6 +26,7 @@ import re
 
 import httpx
 
+from ..safety.url_safety import URLSecurityDenied, validate_url
 from .registry import tool
 
 _TIMEOUT = float(
@@ -109,14 +110,35 @@ def _extract_text(html: str) -> str:
 def WebFetch(url: str, max_chars: int = 50000, raw: bool = False) -> str:
     if not url.startswith(("http://", "https://")):
         return f"ERROR: url must start with http:// or https://, got {url!r}"
+    # SSRF guard. Lets URLSecurityDenied propagate to the caller so the
+    # agent surface raises rather than masking the refusal as a string.
+    validate_url(url)
     headers = {
         "User-Agent": _USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
     }
+
+    def _check_redirect(response: httpx.Response) -> None:
+        loc = response.headers.get("location")
+        if loc and response.status_code in (301, 302, 303, 307, 308):
+            # Re-validate every redirect target before httpx follows it.
+            # validate_url raises URLSecurityDenied on a blocked Location,
+            # which httpx surfaces as the call's outer exception.
+            from urllib.parse import urljoin
+
+            absolute = urljoin(str(response.url), loc)
+            validate_url(absolute)
+
     try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as c:
+        with httpx.Client(
+            timeout=_TIMEOUT,
+            follow_redirects=True,
+            event_hooks={"response": [_check_redirect]},
+        ) as c:
             r = c.get(url, headers=headers)
+    except URLSecurityDenied:
+        raise
     except httpx.HTTPError as e:
         return f"ERROR: HTTP failure for {url}: {e}"
     ct = r.headers.get("content-type", "")
@@ -134,6 +156,8 @@ def WebFetch(url: str, max_chars: int = 50000, raw: bool = False) -> str:
 
 
 def _search_duckduckgo(query: str, max_results: int) -> list[dict[str, str]]:
+    # URL is hardcoded to a public DuckDuckGo endpoint — not
+    # user-controlled, so validate_url is not required here.
     headers = {"User-Agent": _USER_AGENT}
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as c:
         r = c.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers)
@@ -169,6 +193,8 @@ def _search_duckduckgo(query: str, max_results: int) -> list[dict[str, str]]:
 
 
 def _search_brave(query: str, max_results: int) -> list[dict[str, str]]:
+    # URL is hardcoded to the public Brave search API — not
+    # user-controlled, so validate_url is not required here.
     api_key = os.environ.get("BRAVE_API_KEY")
     if not api_key:
         return [{"error": "BRAVE_API_KEY env var not set"}]
@@ -201,6 +227,10 @@ def _search_searxng(query: str, max_results: int) -> list[dict[str, str]]:
     ).rstrip("/")
     if not base:
         return [{"error": "ATHENA_SEARXNG_URL env var not set"}]
+    # SearxNG base URL comes from an env var the operator sets, which
+    # may legitimately be a private host. Validate so the SSRF block
+    # list applies (and so allow_external_urls can opt in if needed).
+    validate_url(f"{base}/search")
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as c:
         r = c.get(
             f"{base}/search",
