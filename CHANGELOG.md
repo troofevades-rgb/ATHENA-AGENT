@@ -187,8 +187,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 - _(planned; lands as T1-02.7 ships)_ README install instructions point at `pip install athena-coder` from PyPI (T1-02)
-- _(planned; lands as T1-05 ships)_ README MCP transport section reflects HTTP/SSE + OAuth shipped in Phase 12 (T1-05)
-- _(planned; lands as T1-05 ships)_ Modelfile.troof-coder system prompt: `ocode` → `athena` (T1-05)
+- Documentation reconciled with shipped code: MCP transport, sub-agent capability, phase-status markers, Modelfile system prompt (T1-05)
 
 ### Removed
 - Legacy `ocode` console-script alias from `pyproject.toml` `[project.scripts]`. Update any shell aliases or scripts that called `ocode` to call `athena` instead. (T1-02)
