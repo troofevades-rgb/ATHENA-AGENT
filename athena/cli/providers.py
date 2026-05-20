@@ -73,7 +73,67 @@ def _build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=0, help="Truncate the list to N entries (0 = unlimited)."
     )
 
+    p_caps = sub.add_parser(
+        "capabilities",
+        help="Show the capability matrix for every registered provider (T5-01R).",
+        aliases=["caps"],
+    )
+    p_caps.add_argument(
+        "--json",
+        dest="json_out",
+        action="store_true",
+        help="Machine-readable output.",
+    )
+
     return ap
+
+
+# ---- capabilities ------------------------------------------------------
+
+
+def _cmd_capabilities(args) -> int:
+    """``athena providers capabilities`` — render the capability matrix."""
+    import dataclasses as _dc
+    import json as _json
+
+    from ..providers import capability_matrix
+
+    matrix = capability_matrix()
+    if args.json_out:
+        payload = {name: _dc.asdict(caps) for name, caps in matrix.items()}
+        sys.stdout.write(_json.dumps(payload, indent=2, default=str) + "\n")
+        return 0
+
+    # Pick a stable column order. tool_calls / streaming first
+    # because they're the load-bearing existing surface.
+    columns = [
+        "tool_calls",
+        "streaming",
+        "vision",
+        "prompt_caching",
+        "kv_cache_reuse",
+        "structured_output",
+        "embeddings",
+        "is_local",
+    ]
+    header = ["provider"] + columns + ["native_format", "max_context_tokens"]
+    rows: list[list[str]] = []
+    for name in sorted(matrix):
+        caps = matrix[name]
+        row = [name]
+        for col in columns:
+            row.append("✓" if getattr(caps, col) else "·")
+        row.append(caps.native_format)
+        ctx = caps.max_context_tokens
+        row.append(f"{ctx:,}" if ctx else "·")
+        rows.append(row)
+
+    widths = [max(len(h), max(len(r[i]) for r in rows)) for i, h in enumerate(header)]
+    sys.stdout.write("  ".join(h.ljust(widths[i]) for i, h in enumerate(header)) + "\n")
+    sys.stdout.write("  ".join("-" * w for w in widths) + "\n")
+    for row in rows:
+        sys.stdout.write("  ".join(c.ljust(widths[i]) for i, c in enumerate(row)) + "\n")
+    return 0
 
 
 def _open_pool(args) -> CredentialPool:
@@ -304,6 +364,8 @@ def main(argv: list[str]) -> int:
         return _cmd_add_key(args)
     if args.cmd == "remove-key":
         return _cmd_remove_key(args)
+    if args.cmd in ("capabilities", "caps"):
+        return _cmd_capabilities(args)
     if args.cmd == "models":
         return _cmd_models(args)
     return 2
