@@ -332,6 +332,14 @@ class Config:
     verify_auto_retry: bool = False
     verify_max_retries: int = 2
     verify_run_timeout_s: float = 120.0
+    # T5-05: capability broker. media_backend_prefer ("local" or
+    # "any") picks how MediaRegistry breaks ties when multiple
+    # backends declare a media capability. mcp_expose is a
+    # whitelist of differentiated MCP tools to advertise — empty
+    # tuple means "all available". When non-empty, only listed
+    # tools are advertised even when other tools are available.
+    media_backend_prefer: str = "local"
+    mcp_expose: tuple[str, ...] = ()
 
 
 def load_config() -> Config:
