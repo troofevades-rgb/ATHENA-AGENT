@@ -15,6 +15,7 @@ Used as the base for OpenAI-compat / OpenRouter / Nous in Prompt 8.4.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import time
@@ -26,6 +27,7 @@ import httpx
 from . import register_provider
 from .base import Provider, StreamChunk
 from .rate_limit_tracker import RateLimitTracker
+from .retry_utils import with_retry
 
 _rl_logger = logging.getLogger(__name__)
 
@@ -82,6 +84,9 @@ class OpenAICompatibleProvider(Provider):
         # inherit this and share the same throttle behaviour.
         self._rate_limit_state: dict[str, RateLimitTracker] = {}
         self.rate_limit_throttle_threshold: float = 0.95
+        # T2-03: retry budget. Defaults match the Config defaults.
+        self._retry_max: int = 5
+        self._retry_backoff_s: float = 30.0
 
     def _default_base_url(self) -> str:
         return _DEFAULT_BASE_URL
@@ -110,15 +115,36 @@ class OpenAICompatibleProvider(Provider):
         if tools:
             payload["tools"] = tools
 
-        # T2-02: preemptive throttle based on the previous response's
-        # rate-limit headers.
-        self._maybe_throttle()
+        # T2-03: retry-wrap the POST + raise-for-status +
+        # rate-limit-capture step. Streaming body is outside the retry
+        # boundary (we can't replay yielded chunks).
+        outer_stack = contextlib.ExitStack()
+        try:
 
-        with self._client.stream("POST", "/chat/completions", json=payload) as r:
-            _raise_with_body(r)
-            # T2-02: capture rate-limit headers BEFORE consuming the body.
-            self._capture_rate_limit_headers(r.headers)
-            yield from self._parse_sse(r)
+            def _open_response() -> Any:
+                self._maybe_throttle()
+                tmp_stack = contextlib.ExitStack()
+                try:
+                    r = tmp_stack.enter_context(
+                        self._client.stream("POST", "/chat/completions", json=payload)
+                    )
+                    _raise_with_body(r)
+                    self._capture_rate_limit_headers(r.headers)
+                except BaseException:
+                    tmp_stack.close()
+                    raise
+                outer_stack.push(tmp_stack.pop_all())
+                return r
+
+            response = with_retry(
+                _open_response,
+                max_retries=self._retry_max,
+                max_backoff_s=self._retry_backoff_s,
+                provider_label=self.name,
+            )
+            yield from self._parse_sse(response)
+        finally:
+            outer_stack.close()
 
     # ---- T2-02: rate-limit hooks shared across every OpenAI-compat subclass ----
 

@@ -224,11 +224,16 @@ def test_list_models_propagates_error(provider):
 
 
 def test_429_propagates(provider):
+    """Since T2-03 the provider's stream_chat is wrapped in with_retry;
+    disabling retry keeps the original assertion (raw 429 propagates)."""
+    provider._retry_max = 0
+    from athena.providers.retry_utils import RetryBudgetExceeded
+
     with respx.mock() as m:
         m.post("https://api.openai.test/v1/chat/completions").mock(
             return_value=httpx.Response(429, json={"error": {"message": "rate"}})
         )
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises((httpx.HTTPStatusError, RetryBudgetExceeded)):
             list(
                 provider.stream_chat(
                     model="gpt-4o-mini",
