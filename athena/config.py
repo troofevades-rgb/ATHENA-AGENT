@@ -233,6 +233,14 @@ class Config:
     # `summary_budget_cap_tokens`. Defaults: 10% with a 4k cap.
     summary_budget_ratio: float = 0.10
     summary_budget_cap_tokens: int = 4000
+    # T2-05: when a provider hands back a tool call whose arguments
+    # string is malformed JSON (smart quotes, single quotes, trailing
+    # commas, unquoted keys), athena.providers.schema_sanitizer
+    # attempts a sequence of forgiving passes to recover the intended
+    # JSON before dispatch. Set to False to fall straight through to
+    # the raw json.loads error path (useful for debugging upstream
+    # model behaviour).
+    tool_call_sanitize: bool = True
 
 
 def load_config() -> Config:
