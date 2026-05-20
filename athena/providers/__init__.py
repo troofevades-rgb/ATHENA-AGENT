@@ -133,3 +133,4 @@ from . import ollama as _ollama  # noqa: E402,F401
 from . import openai as _openai  # noqa: E402,F401
 from . import openai_compat as _openai_compat  # noqa: E402,F401
 from . import openrouter as _openrouter  # noqa: E402,F401
+from . import social as _social  # noqa: E402,F401

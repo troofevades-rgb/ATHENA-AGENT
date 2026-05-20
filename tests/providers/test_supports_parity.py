@@ -29,7 +29,17 @@ _CTOR_FACTORIES: dict[str, callable] = {
     "openrouter": lambda cls: cls(api_key="key"),
     "nous": lambda cls: cls(api_key="key"),
     "openai_compat": lambda cls: cls(api_key=None, host="http://127.0.0.1:8000"),
+    # T6-02: the social provider is a capability-only adapter
+    # (declares social_search; not a chat backend). The
+    # baseline supports_tools / supports_streaming parity is
+    # checked separately below — exclude social from the
+    # chat-backend parametrize.
+    "social": lambda cls: cls(),
 }
+
+# Chat backends — the parity tests below skip non-chat providers
+# (T6-02's social adapter is the first capability-only provider).
+_NON_CHAT_PROVIDERS: frozenset[str] = frozenset({"social"})
 
 
 def _construct_for_test(name: str):
@@ -48,8 +58,12 @@ def _construct_for_test(name: str):
 
 @pytest.mark.parametrize("name", list_providers())
 def test_supports_tools_returns_true(name: str) -> None:
-    """Baseline expectation: every currently-registered provider
-    returns True from supports_tools regardless of the model."""
+    """Baseline expectation: every CHAT provider returns True
+    from supports_tools regardless of the model. Non-chat
+    providers (capability-only adapters like social) are
+    excluded — they honestly declare tool_calls=False."""
+    if name in _NON_CHAT_PROVIDERS:
+        pytest.skip(f"{name} is a capability-only provider, not a chat backend")
     p = _construct_for_test(name)
     try:
         assert p.supports_tools("any-model") is True
@@ -67,6 +81,8 @@ def test_supports_tools_returns_true(name: str) -> None:
 @pytest.mark.parametrize("name", list_providers())
 def test_supports_streaming_returns_true(name: str) -> None:
     """Same shape for supports_streaming."""
+    if name in _NON_CHAT_PROVIDERS:
+        pytest.skip(f"{name} is a capability-only provider, not a chat backend")
     p = _construct_for_test(name)
     try:
         assert p.supports_streaming("any-model") is True

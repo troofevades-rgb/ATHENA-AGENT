@@ -386,6 +386,32 @@ class Config:
     embedding_model_prefer: str = "local"
     embedding_model: str | None = None
     vector_store_path: str | None = None
+    # T6-02: social/X provider + capability routing. The provider
+    # declares social_search in its manifest; the broker routes
+    # `search_x` sub-tasks to it via best_provider_for({
+    # "social_search"}). The primary chat model stays selected.
+    #
+    # OAuth specifics are vendor-dependent and isolated to
+    # athena.social.oauth — set the URLs/scopes/client id at
+    # build time. The client secret is read from a file at
+    # social_oauth_client_secret_path (file mode should be 0o600).
+    #
+    # social_router_heuristic enables a phrase-detecting auto-
+    # router (T6-02.4); default off — the explicit search_x tool
+    # is the safe path.
+    social_provider_enabled: bool = False
+    social_search_max_results: int = 20
+    social_router_heuristic: bool = False
+    social_search_url: str | None = None
+    social_search_query_param: str = "query"
+    social_search_extra_params: dict[str, Any] = field(default_factory=dict)
+    social_post_url_template: str = ""
+    social_oauth_authorize_url: str | None = None
+    social_oauth_token_url: str | None = None
+    social_oauth_client_id: str | None = None
+    social_oauth_client_secret_path: str | None = None
+    social_oauth_scopes: list[str] = field(default_factory=list)
+    social_oauth_redirect_uri: str | None = None
 
 
 def load_config() -> Config:
