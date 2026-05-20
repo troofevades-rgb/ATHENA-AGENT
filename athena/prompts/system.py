@@ -23,6 +23,7 @@ import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 # ---- IDENTITY -----------------------------------------------------------
 
@@ -424,6 +425,7 @@ def build_system_prompt(
     skills_catalog: str | None = None,
     model_modelfile_system: str | None = None,
     goal: str | None = None,
+    goal_state: Any = None,  # T5-07 GoalState; Any to avoid circular import
     lean: bool = False,
     disabled_sections: list[str] | None = None,
 ) -> str:
@@ -471,6 +473,6 @@ def build_system_prompt(
     if goal:
         from ..goal.invariant import format_for_system_prompt
 
-        parts.append(format_for_system_prompt(goal))
+        parts.append(format_for_system_prompt(goal, state=goal_state))
 
     return "\n\n".join(parts)

@@ -54,6 +54,41 @@ def clear_goal(profile_dir: Path) -> bool:
     return True
 
 
-def format_for_system_prompt(goal: str) -> str:
-    """Return the block to append at the end of the system prompt."""
-    return f"{GOAL_HEADER}\n\n{goal.strip()}"
+def format_for_system_prompt(
+    goal: str,
+    *,
+    state: "GoalState | None" = None,
+) -> str:
+    """Return the block to append at the end of the system prompt.
+
+    When a :class:`athena.goal.state.GoalState` is provided
+    (T5-07), the block also lists subgoals (ordered, with ✓ on
+    done ones) and the sentinel contract that the continuation
+    loop reads — telling the model how to signal achievement or
+    blockage in its turn output.
+
+    The block always starts with the goal text. Subgoals and the
+    contract are appended only when they apply, so a goal set
+    without subgoals (or with the loop disabled) still gets a
+    clean, minimal block.
+    """
+    parts = [GOAL_HEADER, "", goal.strip()]
+
+    if state is not None and state.subgoals:
+        parts.append("")
+        parts.append("**Subgoals** (ordered breadcrumbs; advisory):")
+        for sg in state.subgoals:
+            marker = "✓" if sg.done else "•"
+            parts.append(f"  {marker} {sg.text}")
+
+    if state is not None:
+        parts.append("")
+        parts.append(
+            "**Loop contract**: when this goal is fully achieved, end "
+            "your turn with a line containing exactly: `GOAL ACHIEVED`. "
+            "If you are blocked and need the user, end with: "
+            "`GOAL BLOCKED: <reason>`. The continuation loop reads "
+            "these sentinels — they're how you tell the loop to stop."
+        )
+
+    return "\n".join(parts)
