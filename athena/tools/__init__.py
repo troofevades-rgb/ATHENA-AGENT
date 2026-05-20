@@ -11,6 +11,7 @@ from . import (
     file_ops,  # Read, Write, Edit, list_dir
     memory_tools,  # write_memory, list_memories, delete_memory
     plan,  # ExitPlanMode, EnterPlanMode
+    read_tool_result,  # read_tool_result (T2-06)
     recall_tools,  # search_sessions
     search,  # Glob, Grep
     shell,  # Bash, bash_output, kill_bash
