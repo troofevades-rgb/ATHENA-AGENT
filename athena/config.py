@@ -274,6 +274,16 @@ class Config:
     proxy_log_bodies: bool = False
     proxy_bodies_dir: str = "~/.athena/proxy_bodies"
     proxy_no_translate: bool = False
+    # T3-02: athena mcp serve — local MCP server exposing the curated
+    # read-only + snapshot-revert tool surface to peer MCP clients
+    # (Claude Desktop, Claude Code, Cursor). `mcp_default_transport`
+    # is "stdio" (the spec-canonical transport launched by clients as
+    # a subprocess); SSE is reserved. `mcp_allow_write` is reserved
+    # for a future opt-in to write-capable tools (none ship yet).
+    mcp_default_transport: str = "stdio"
+    mcp_sse_port: int = 8765
+    mcp_log_path: str = "~/.athena/mcp.jsonl"
+    mcp_allow_write: bool = False
 
 
 def load_config() -> Config:

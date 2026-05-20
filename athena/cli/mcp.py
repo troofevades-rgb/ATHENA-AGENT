@@ -153,6 +153,64 @@ def cmd_revoke(args: argparse.Namespace) -> int:
 # ---- subcommand: test ----------------------------------------------
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    """``athena mcp serve`` — run a stdio MCP server exposing
+    athena's curated tool surface (T3-02)."""
+    from ..config import CONFIG_DIR, load_config
+    from ..mcp.resources import AthenaMCPResources
+    from ..mcp.server import AthenaMCPServer
+    from ..mcp.tools import AthenaMCPTools
+    from ..mcp.transport_stdio import run_stdio
+    from ..safety.snapshots import SnapshotStore
+
+    cfg = load_config()
+    # Logs MUST go to stderr — stdout is the JSON-RPC wire.
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stderr,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    workspace = Path(args.workspace).resolve() if args.workspace else Path.cwd()
+    audit_dir = Path(args.audit_dir or (CONFIG_DIR / "audit")).expanduser()
+    profile = args.profile or cfg.profile
+
+    snapshot_store = SnapshotStore()
+    tools = AthenaMCPTools(
+        workspace=workspace,
+        memory_profile=profile,
+        audit_dir=audit_dir,
+        snapshot_store=snapshot_store,
+        allow_write=args.allow_write or cfg.mcp_allow_write,
+    )
+    resources = AthenaMCPResources(
+        workspace=workspace,
+        memory_profile=profile,
+        audit_dir=audit_dir,
+    )
+    server = AthenaMCPServer(tools=tools, resources=resources)
+
+    logging.getLogger("athena.mcp.cli").info(
+        "athena mcp serve: stdio, workspace=%s, profile=%s, audit_dir=%s",
+        workspace,
+        profile,
+        audit_dir,
+    )
+
+    transport = args.transport or cfg.mcp_default_transport
+    if transport == "stdio":
+        run_stdio(server)
+        return 0
+    if transport == "sse":
+        sys.stderr.write(
+            "athena mcp serve: SSE transport is reserved for a follow-up "
+            "release. Use --transport stdio (the default) for now.\n"
+        )
+        return 2
+    sys.stderr.write(f"athena mcp serve: unknown transport {transport!r}\n")
+    return 2
+
+
 def cmd_test(args: argparse.Namespace) -> int:
     """Connect to one server, run initialize + list_tools, print the
     tool catalog. Useful first-run validation."""
@@ -268,6 +326,35 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_revoke.add_argument("server", help="server_id whose token to delete")
     p_revoke.set_defaults(handler=cmd_revoke)
+
+    p_serve = sub.add_parser(
+        "serve",
+        help="Run athena AS an MCP server (stdio) exposing curated tools.",
+    )
+    p_serve.add_argument(
+        "--transport",
+        choices=["stdio", "sse"],
+        default=None,
+        help="Transport (default: cfg.mcp_default_transport, usually stdio).",
+    )
+    p_serve.add_argument(
+        "--workspace",
+        help="Workspace for skill discovery (default: cwd).",
+    )
+    p_serve.add_argument(
+        "--profile",
+        help="Memory profile (default: cfg.profile).",
+    )
+    p_serve.add_argument(
+        "--audit-dir",
+        help="Audit log dir (default: ~/.athena/audit).",
+    )
+    p_serve.add_argument(
+        "--allow-write",
+        action="store_true",
+        help="Enable write-capable tools (reserved; none ship yet).",
+    )
+    p_serve.set_defaults(handler=cmd_serve)
 
     p_test = sub.add_parser(
         "test",
