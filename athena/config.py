@@ -197,6 +197,13 @@ class Config:
     # across sessions that hit the cache within the hour (slightly
     # higher per-write cost, much better for repeat usage patterns).
     prompt_cache_ttl: str = "5m"
+    # Rate-limit throttle threshold (T2-02). When the provider's most
+    # recent response reports usage ratio >= this value (i.e. less than
+    # (1 - threshold) of the limit remains), the provider sleeps until
+    # the soonest reset (capped at 60s) before sending the next
+    # request. 0.95 means "throttle when within 5% of the limit"; set
+    # to 1.0 to disable proactive throttling and react only to 429.
+    rate_limit_throttle_threshold: float = 0.95
 
 
 def load_config() -> Config:
