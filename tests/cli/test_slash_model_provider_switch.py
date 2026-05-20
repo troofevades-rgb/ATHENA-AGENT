@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from athena.__main__ import _slash_model
+from athena.commands.model_cmd import cmd_model as _slash_model
 from athena.agent.core import Agent
 from athena.config import Config
 from athena.providers.base import StreamChunk
