@@ -413,6 +413,34 @@ class Agent:
         # know it (storage was eagerly created earlier with "pending"
         # before the session_id allocation flow ran).
         self.tool_result_storage.session_id = self.session_id or "no-session"
+        # T3-03: build a CheckpointManager for foreground sessions.
+        # Forks (session_store passed in) skip — checkpoints belong to
+        # the parent session, and the fork's writes don't survive past
+        # the fork's lifetime anyway. Best-effort: a build failure
+        # leaves checkpoint_manager=None and slash commands surface
+        # that clearly.
+        self.checkpoint_manager = None
+        if session_store is None and self.session_id is not None:
+            try:
+                from ..safety.snapshots import SnapshotStore
+                from .checkpoints import CheckpointAuditLog, CheckpointManager
+
+                profile = cfg.profile or "default"
+                pdir = _profile_dir(profile)
+                ckpt_dir = pdir / "checkpoints" / self.session_id
+                session_log = pdir / "sessions" / f"{self.session_id}.jsonl"
+                snapshot_store = SnapshotStore()
+                self.checkpoint_manager = CheckpointManager(
+                    session_id=self.session_id,
+                    session_log_path=session_log,
+                    checkpoint_dir=ckpt_dir,
+                    snapshot_store=snapshot_store,
+                    profile_dir=pdir,
+                    workspace=self.workspace,
+                    audit_log=CheckpointAuditLog(ckpt_dir / "audit.jsonl"),
+                )
+            except Exception as e:  # noqa: BLE001
+                ui.warn(f"checkpoint manager unavailable: {e}")
         # Run lifecycle transitions + (gated) curator at real session starts.
         # Forks skip both: session_store is inherited from parent, parent
         # already ran them, and a fork doing it again would race.
@@ -600,11 +628,19 @@ class Agent:
 
     def run_turn(self, user_input: str) -> None:
         """Run one user turn to completion (model may call tools several times)."""
+        from .checkpoints import set_active_checkpoint_manager
+
         with self._turn_lock:
             token = _current_agent.set(self)
+            # T3-03: scope the active CheckpointManager to this turn so
+            # file_ops tracks modifications back to *this* Agent's
+            # manager. Fork threads get their own ContextVar context
+            # and won't inherit this.
+            set_active_checkpoint_manager(self.checkpoint_manager)
             try:
                 self._run_turn_inner(user_input)
             finally:
+                set_active_checkpoint_manager(None)
                 _current_agent.reset(token)
 
     def _run_turn_inner(self, user_input: str) -> None:

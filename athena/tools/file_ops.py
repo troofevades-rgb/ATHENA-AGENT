@@ -134,6 +134,9 @@ def Write(file_path: str = "", content: str = "", **legacy) -> str:
     p.parent.mkdir(parents=True, exist_ok=True)
     existed = p.exists()
     p.write_text(content, encoding="utf-8")
+    from ..agent.checkpoints import track_modified_file as _track
+
+    _track(p)
     lint_err = lint_after_write(p, content)
     if lint_err:
         return (
@@ -235,6 +238,9 @@ def Edit(
         new_text = text[: match.start] + new_string + text[match.end :]
         replacements = 1
         p.write_text(new_text, encoding="utf-8")
+        from ..agent.checkpoints import track_modified_file as _track
+
+        _track(p)
         lint_err = lint_after_write(p, new_text)
         suffix = f" (fuzzy: score={match.score:.3f}, matched {match.end - match.start} chars)"
         if lint_err:
@@ -259,6 +265,9 @@ def Edit(
         new_text = text.replace(old_string, new_string, 1)
         replacements = 1
     p.write_text(new_text, encoding="utf-8")
+    from ..agent.checkpoints import track_modified_file as _track
+
+    _track(p)
     lint_err = lint_after_write(p, new_text)
     if lint_err:
         return (

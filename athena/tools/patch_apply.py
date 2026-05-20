@@ -90,6 +90,9 @@ def patch_apply(patch: str = "") -> str:
             original = target.read_text(encoding="utf-8")
             new_text = apply_patch_to_text(original, fp)
             target.write_text(new_text, encoding="utf-8")
+            from ..agent.checkpoints import track_modified_file as _track
+
+            _track(target)
             applied.append(target)
             logger.info("patch_apply: %s (%d hunks)", target, len(fp.hunks))
     except (PatchParseError, OSError) as e:
