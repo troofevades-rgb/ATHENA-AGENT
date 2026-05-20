@@ -60,6 +60,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/skills/pin.py",  # invoked by skill_pin (foreground-only)
         "athena/skills/state_machine.py",  # skill state transitions
         "athena/tools/file_ops.py",  # foreground Read/Edit/Write tools
+        "athena/tools/tool_result_storage.py",  # content-addressed blob writes + append-only JSONL index (T2-06)
         "athena/transform/dataset.py",  # training dataset exports
         "athena/transform/deploy.py",  # deployment artefacts
         "athena/transform/review.py",  # review artefacts

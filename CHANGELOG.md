@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- Out-of-band tool result storage. Tool outputs exceeding `tool_result_threshold_bytes` (default 1MB) are persisted as content-addressed blobs (SHA-256 first 16 hex chars) under `~/.athena/tool_results/` and replaced in conversation history with a short `[tool_result:<hash> — <size> output stored. Use read_tool_result to access.]` handle. `PostToolUse` hooks + plugins still see the raw result; only the version that lands in `agent.messages` / session JSONL is the handle (T2-06).
+- `read_tool_result` tool. Accepts the full handle, the bare 16-hex hash, or the prefixed `tool_result:<hash>` form. Pagination via `offset` + `max_bytes` lets the agent stream large blobs without re-inlining (T2-06).
+- `athena cleanup-blobs` CLI subcommand. Walks every `profiles/<name>/sessions/*.jsonl`, collects every handle/bare-hash reference, deletes unreferenced blobs older than `--older-than` (default 30) days. `--dry-run` counts but doesn't delete. Recent blobs always kept regardless of reference state (T2-06).
+- Config: `tool_result_threshold_bytes` (default 1_000_000) and `tool_result_storage_path` (default `~/.athena/tool_results`) (T2-06).
+- `docs/reference/tool-result-storage.md` documents how the storage works, the cleanup contract, configuration, and limitations (T2-06).
 - Tool-call argument sanitizer. `athena.providers.schema_sanitizer.sanitize_tool_call_args(raw, *, tool_name)` recovers malformed JSON in tool-call arguments via a 5-pass pipeline (smart quotes → ASCII; single-quoted → double-quoted only when safe; trailing commas removed; unquoted top-level keys quoted; optional `demjson3` fallback if installed). Pure function, never modifies tool names, returns `None` rather than speculate when recovery requires semantic guesses (T2-05).
 - `Agent._handle_tool_call` routes string-shaped tool arguments through the sanitizer before `json.loads`, gated by `cfg.tool_call_sanitize` (default True). When a fix applies, the REPL surfaces `sanitised tool-call args for <name>: <fixes>`; unrecoverable payloads fall through to the existing fallback (empty args dict) with a WARNING log line carrying the truncated payload (T2-05).
 - `tool_call_sanitize` config option (T2-05).
