@@ -138,10 +138,16 @@ def Bash(
         return f"BLOCKED by shell policy: {decision.reason}"
 
     if run_in_background:
-        return _start_background(command)
+        try:
+            return _start_background(command)
+        except SandboxUnavailableError as e:
+            return f"BLOCKED by sandbox: {e}"
 
     console.print(f"[dim]$ {command}[/dim]")
-    proc = _spawn(command)
+    try:
+        proc = _spawn(command)
+    except SandboxUnavailableError as e:
+        return f"BLOCKED by sandbox: {e}"
     if _IS_WINDOWS:
         return _stream_windows(proc, timeout)
     return _stream_posix(proc, timeout)
@@ -157,6 +163,13 @@ def _spawn(command: str, **extra_kwargs: Any) -> subprocess.Popen:
     So we invoke bash explicitly as ``[bash_path, "-c", command]`` with
     ``shell=False``. If no bash is found, fall back to the default
     ``shell=True`` resolution (cmd.exe).
+
+    T5-02R: when ``cfg.sandbox_enabled`` and the host can run bwrap
+    (Linux + bwrap on PATH), the command is rewritten into a bwrap
+    argv before Popen. Streaming + timeout above this function are
+    unchanged. The shell_policy denylist still runs in the caller
+    (:func:`Bash`) before this function — sandbox is
+    defense-in-depth on top of the policy floor, not a replacement.
     """
     base_kwargs: dict[str, Any] = {
         "cwd": str(file_ops._WORKSPACE),
@@ -166,6 +179,16 @@ def _spawn(command: str, **extra_kwargs: Any) -> subprocess.Popen:
     }
     base_kwargs.update(extra_kwargs)
     exec_path = _resolve_bash_executable()
+
+    # Sandbox path: only when explicitly enabled. Non-Linux + no-bwrap
+    # fallback is controlled by cfg.sandbox_fallback.
+    sandboxed = _maybe_sandbox(command, exec_path)
+    if sandboxed is not None:
+        # bwrap takes the rewritten argv with shell=False; the inner
+        # argv inside the wrap is `[bash, "-c", command]` so the
+        # caller's shell semantics still apply.
+        return subprocess.Popen(sandboxed, shell=False, **base_kwargs)
+
     if _IS_WINDOWS:
         if exec_path is not None:
             return subprocess.Popen([exec_path, "-c", command], shell=False, **base_kwargs)
@@ -175,6 +198,64 @@ def _spawn(command: str, **extra_kwargs: Any) -> subprocess.Popen:
     if exec_path is not None:
         return subprocess.Popen(command, shell=True, executable=exec_path, **base_kwargs)
     return subprocess.Popen(command, shell=True, **base_kwargs)
+
+
+class SandboxUnavailableError(RuntimeError):
+    """Raised when ``cfg.sandbox_enabled`` is True, the host can't
+    sandbox, AND ``cfg.sandbox_fallback`` is ``"error"``. The caller
+    (:func:`Bash`) catches this and surfaces a BLOCKED-style message
+    so the agent sees a clear reason instead of an opaque Popen
+    failure."""
+
+
+def _maybe_sandbox(command: str, exec_path: str | None) -> list[str] | None:
+    """Decide whether to rewrite ``command`` into a bwrap argv.
+
+    Returns the rewritten argv when the sandbox kicks in, ``None``
+    otherwise (caller takes the original code path). Raises
+    :class:`SandboxUnavailableError` when the sandbox is required by
+    config but can't run on this host.
+
+    Lazy-imports the config + sandbox modules so this module's
+    import graph stays clean for tests that don't touch shell
+    execution.
+    """
+    import logging
+
+    from ..config import load_config
+
+    log = logging.getLogger(__name__)
+    cfg = load_config()
+    if not getattr(cfg, "sandbox_enabled", False):
+        return None
+
+    from ..sandbox.bwrap import (
+        build_bwrap_command,
+        explain_unavailable,
+        is_bwrap_available,
+    )
+
+    if not is_bwrap_available():
+        fallback = getattr(cfg, "sandbox_fallback", "warn")
+        reason = explain_unavailable()
+        if fallback == "error":
+            raise SandboxUnavailableError(reason)
+        # fallback == "warn" (also covers any unexpected value):
+        # log a single line and let the un-sandboxed path run.
+        log.warning("sandbox_enabled but unavailable: %s", reason)
+        return None
+
+    # Build the inner argv the same way the un-sandboxed path
+    # would. We use bash explicitly so `command` is shell-string,
+    # not split-by-shlex; matches the existing semantics.
+    inner_exec = exec_path or "/bin/bash"
+    inner = [inner_exec, "-c", command]
+    return build_bwrap_command(
+        inner,
+        workspace=file_ops._WORKSPACE,
+        allow_network=bool(getattr(cfg, "sandbox_allow_network", False)),
+        writable_paths=list(getattr(cfg, "sandbox_writable_paths", []) or []),
+    )
 
 
 def _stream_posix(proc: subprocess.Popen, timeout: int) -> str:
