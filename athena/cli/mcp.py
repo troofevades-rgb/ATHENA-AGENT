@@ -157,6 +157,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     """``athena mcp serve`` — run a stdio MCP server exposing
     athena's curated tool surface (T3-02)."""
     from ..config import CONFIG_DIR, load_config
+    from ..mcp.request_log import McpRequestLog
     from ..mcp.resources import AthenaMCPResources
     from ..mcp.server import AthenaMCPServer
     from ..mcp.tools import AthenaMCPTools
@@ -188,7 +189,12 @@ def cmd_serve(args: argparse.Namespace) -> int:
         memory_profile=profile,
         audit_dir=audit_dir,
     )
-    server = AthenaMCPServer(tools=tools, resources=resources)
+    request_log = McpRequestLog(
+        log_path=Path(args.log_path).expanduser()
+        if args.log_path
+        else Path(cfg.mcp_log_path).expanduser()
+    )
+    server = AthenaMCPServer(tools=tools, resources=resources, request_log=request_log)
 
     logging.getLogger("athena.mcp.cli").info(
         "athena mcp serve: stdio, workspace=%s, profile=%s, audit_dir=%s",
@@ -353,6 +359,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--allow-write",
         action="store_true",
         help="Enable write-capable tools (reserved; none ship yet).",
+    )
+    p_serve.add_argument(
+        "--log-path",
+        help="Override cfg.mcp_log_path (per-request JSONL audit log).",
     )
     p_serve.set_defaults(handler=cmd_serve)
 
