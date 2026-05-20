@@ -68,9 +68,38 @@ def _slash_help(agent: Agent, arg: str) -> None:
 def _slash_model(agent: Agent, arg: str) -> None:
     if not arg:
         ui.info(f"current model: {agent.model}")
-    else:
-        agent.model = arg.strip()
-        ui.info(f"model set to {agent.model}")
+        return
+    new_name = arg.strip()
+    # If the new model routes to a different provider, swap the
+    # provider too — otherwise /model anthropic/... silently keeps
+    # the previous (e.g. ollama) provider and the next chat 404s.
+    from .providers.credential_pool import global_pool as _global_pool
+    from .providers.runtime_resolver import _route, resolve_provider
+
+    current_provider_name = getattr(agent.provider, "name", "")
+    new_provider_name = _route(new_name, agent.cfg)
+    if new_provider_name != current_provider_name:
+        try:
+            new_provider, bare_model = resolve_provider(new_name, agent.cfg, _global_pool())
+        except Exception as e:
+            ui.error(f"could not switch to {new_name}: {e}")
+            return
+        # Close the old provider if we own it.
+        if getattr(agent, "_owns_client", False):
+            try:
+                agent.provider.close()
+            except Exception:
+                pass
+        agent.provider = new_provider
+        agent.client = new_provider  # back-compat alias
+        agent._owns_client = True
+        agent.model = bare_model
+        ui.info(
+            f"model set to {new_name} (provider: {current_provider_name} -> {new_provider_name})"
+        )
+        return
+    agent.model = new_name
+    ui.info(f"model set to {agent.model}")
 
 
 def _slash_models(agent: Agent, arg: str) -> None:
