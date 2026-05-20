@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- Tool-call argument sanitizer. `athena.providers.schema_sanitizer.sanitize_tool_call_args(raw, *, tool_name)` recovers malformed JSON in tool-call arguments via a 5-pass pipeline (smart quotes → ASCII; single-quoted → double-quoted only when safe; trailing commas removed; unquoted top-level keys quoted; optional `demjson3` fallback if installed). Pure function, never modifies tool names, returns `None` rather than speculate when recovery requires semantic guesses (T2-05).
+- `Agent._handle_tool_call` routes string-shaped tool arguments through the sanitizer before `json.loads`, gated by `cfg.tool_call_sanitize` (default True). When a fix applies, the REPL surfaces `sanitised tool-call args for <name>: <fixes>`; unrecoverable payloads fall through to the existing fallback (empty args dict) with a WARNING log line carrying the truncated payload (T2-05).
+- `tool_call_sanitize` config option (T2-05).
+- `docs/reference/schema-sanitizer.md` documents the pass order, contract guards, configuration, and known limitations (T2-05).
 - Automatic context compression. `athena.agent.context_compressor` summarises the middle of a long conversation while preserving head (system prompt) and tail (most recent turns by token budget) verbatim. Triggered proactively when total tokens > `context_compress_watermark` × `context_window` (default 0.75) inside the agent's tool-round loop, or manually via `/compact` (T2-04).
 - Structured summary template: Resolved questions / Pending questions / Decisions made / Tool outputs of lasting value / Remaining work (NOT "Next steps" — hermes-learned model-behaviour gotcha). Synthetic summary lands as a `role="system"` message starting with the `[Compressed summary of turns N–M, ...]` marker (T2-04).
 - Iterative compression: earlier summaries are detected via the marker and carried forward as input to later compactions, so information survives multiple compressions at graceful fidelity decay (T2-04).
