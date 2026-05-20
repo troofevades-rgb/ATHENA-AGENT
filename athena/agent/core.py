@@ -441,6 +441,28 @@ class Agent:
                 )
             except Exception as e:  # noqa: BLE001
                 ui.warn(f"checkpoint manager unavailable: {e}")
+        # T3-06R: per-skill usage metrics. Foreground sessions get an
+        # active store rooted in the profile dir; forks share their
+        # parent's store via the ContextVar (the fork.py runner pins
+        # the context). Disabled by config → a no-op store so the
+        # hook callsites stay quiet.
+        self.skill_metrics_store = None
+        if session_store is None and self.session_id is not None:
+            try:
+                from ..skills.metrics import (
+                    SkillMetricsStore,
+                    _NoopStore,
+                    metrics_path,
+                )
+
+                profile = cfg.profile or "default"
+                pdir2 = _profile_dir(profile)
+                if getattr(cfg, "skill_metrics_enabled", True):
+                    self.skill_metrics_store = SkillMetricsStore(metrics_path(pdir2))
+                else:
+                    self.skill_metrics_store = _NoopStore()
+            except Exception as e:  # noqa: BLE001
+                ui.warn(f"skill metrics store unavailable: {e}")
         # Run lifecycle transitions + (gated) curator at real session starts.
         # Forks skip both: session_store is inherited from parent, parent
         # already ran them, and a fork doing it again would race.
@@ -628,6 +650,7 @@ class Agent:
 
     def run_turn(self, user_input: str) -> None:
         """Run one user turn to completion (model may call tools several times)."""
+        from ..skills.metrics import set_active_store as _set_metrics_store
         from .checkpoints import set_active_checkpoint_manager
 
         with self._turn_lock:
@@ -637,9 +660,16 @@ class Agent:
             # manager. Fork threads get their own ContextVar context
             # and won't inherit this.
             set_active_checkpoint_manager(self.checkpoint_manager)
+            # T3-06R: scope the active SkillMetricsStore so the
+            # disclosure hook in skills.manager / skills.loader
+            # increments views against *this* Agent's store. Forks
+            # have their own ContextVar context; the store is a
+            # foreground-only signal.
+            _set_metrics_store(self.skill_metrics_store)
             try:
                 self._run_turn_inner(user_input)
             finally:
+                _set_metrics_store(None)
                 set_active_checkpoint_manager(None)
                 _current_agent.reset(token)
 

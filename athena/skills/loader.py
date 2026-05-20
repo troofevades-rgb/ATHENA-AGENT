@@ -35,8 +35,13 @@ def load_body(name: str, workspace: Path | None = None) -> str | None:
     Cached per (workspace, name) until ``invalidate`` is called.
     """
     key = _key(name, workspace)
-    if key in _BODY_CACHE:
-        return _BODY_CACHE[key]
+    cached = _BODY_CACHE.get(key)
+    if cached is not None:
+        # Repeat reads count as fresh disclosures — the model still
+        # paid attention to the skill on this turn even if our cache
+        # spared the disk read.
+        _record_view(name)
+        return cached
     skill_dir = _resolve(name, workspace)
     if skill_dir is None:
         return None
@@ -45,7 +50,23 @@ def load_body(name: str, workspace: Path | None = None) -> str | None:
         return None
     _fm, body = parsed
     _BODY_CACHE[key] = body
+    _record_view(name)
     return body
+
+
+def _record_view(name: str) -> None:
+    """Notify the active T3-06R SkillMetricsStore (if any) that this
+    skill body was disclosed. Lazy import dodges a skills →
+    skills.metrics import cycle in test fixtures that build a stub
+    Agent before the metrics module is touched."""
+    try:
+        from .metrics import record_view_active
+
+        record_view_active(name)
+    except Exception:  # noqa: BLE001
+        # Metrics recording is best-effort. A bug there must never
+        # block a skill load.
+        pass
 
 
 def invalidate(name: str, workspace: Path | None = None) -> None:
