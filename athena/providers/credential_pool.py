@@ -228,6 +228,53 @@ class CredentialPool:
         with self._lock:
             return sorted(name for name, bucket in self._creds.items() if bucket)
 
+    def rotate_to_next(self, provider_name: str) -> Credential | None:
+        """Move the round-robin position past the current credential
+        and return the next non-cooldown credential (T2-03.8).
+
+        Used by ``retry_utils.with_retry`` as the
+        ``on_rotate_credential`` callback when the classifier returns
+        ``ROTATE_CREDENTIAL`` (e.g. repeated 429s on one key).
+
+        Returns the new active ``Credential`` if rotation found a
+        usable alternative, or ``None`` when:
+          - the provider has fewer than two credentials,
+          - or every other credential is in cooldown.
+
+        After a successful ``get()`` the pool's ``_next_idx`` already
+        points one slot past the just-returned credential, so calling
+        ``get()`` again naturally hands back a DIFFERENT credential
+        when one is available (and the same one back when only one
+        remains usable). This method layers a "must be different from
+        last-returned" guard on top of ``get()`` to avoid the
+        single-non-cooldown edge case.
+        """
+        with self._lock:
+            creds = self._creds.get(provider_name) or []
+            if len(creds) < 2:
+                return None
+            now = datetime.now(timezone.utc)
+            # Identify the just-returned credential: it's the one
+            # immediately before _next_idx.
+            n = len(creds)
+            next_idx = self._next_idx.get(provider_name, 0) % n
+            last_pos = (next_idx - 1) % n
+            last_cred = creds[last_pos]
+            # Walk forward looking for a non-cooldown credential whose
+            # key differs from last_cred.
+            for offset in range(n):
+                pos = (next_idx + offset) % n
+                cred = creds[pos]
+                if cred.key == last_cred.key:
+                    continue
+                if self._in_cooldown(cred, now):
+                    continue
+                cred.last_used_at = now
+                self._next_idx[provider_name] = (pos + 1) % n
+                self._save()
+                return cred
+            return None
+
     def get_credential_rate_state(self) -> dict[str, dict[str, dict[str, Any]]]:
         """Per-(provider, credential) cooldown + 429 state (T2-02.7).
 

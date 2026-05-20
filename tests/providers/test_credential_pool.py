@@ -403,3 +403,53 @@ def test_credential_pool_rate_state_empty_when_no_creds(tmp_path):
 
     pool = CredentialPool(tmp_path / "credentials.json")
     assert pool.get_credential_rate_state() == {}
+
+
+# ---------------------------------------------------------------------------
+# T2-03.8: rotate_to_next surface
+# ---------------------------------------------------------------------------
+
+
+def test_rotate_to_next_with_multiple_credentials(tmp_path):
+    """With ≥2 credentials, rotate_to_next returns one DIFFERENT from
+    the round-robin's current position."""
+    from athena.providers.credential_pool import Credential, CredentialPool
+
+    pool = CredentialPool(tmp_path / "credentials.json")
+    pool.add_credential("anthropic", Credential(key="sk-A"))
+    pool.add_credential("anthropic", Credential(key="sk-B"))
+
+    # Prime the position: pool.get() consumes the first credential.
+    first = pool.get("anthropic")
+    rotated = pool.rotate_to_next("anthropic")
+    assert rotated is not None
+    assert rotated.key != first.key
+
+
+def test_rotate_to_next_with_single_credential_returns_none(tmp_path):
+    """A single-credential bucket has nothing to rotate to."""
+    from athena.providers.credential_pool import Credential, CredentialPool
+
+    pool = CredentialPool(tmp_path / "credentials.json")
+    pool.add_credential("anthropic", Credential(key="sk-only"))
+    assert pool.rotate_to_next("anthropic") is None
+
+
+def test_rotate_to_next_with_empty_pool_returns_none(tmp_path):
+    from athena.providers.credential_pool import CredentialPool
+
+    pool = CredentialPool(tmp_path / "credentials.json")
+    assert pool.rotate_to_next("anthropic") is None
+
+
+def test_rotate_to_next_skips_cooldown_credentials(tmp_path):
+    """When the only alternative is in cooldown, rotate_to_next returns
+    None (the caller should escalate to abort)."""
+    from athena.providers.credential_pool import Credential, CredentialPool
+
+    pool = CredentialPool(tmp_path / "credentials.json")
+    pool.add_credential("anthropic", Credential(key="sk-A"))
+    pool.add_credential("anthropic", Credential(key="sk-cooldown"))
+    pool.get("anthropic")  # advance position past A
+    pool.mark_429("anthropic", "sk-cooldown")
+    assert pool.rotate_to_next("anthropic") is None
