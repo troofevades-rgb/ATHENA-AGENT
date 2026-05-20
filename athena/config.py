@@ -204,6 +204,16 @@ class Config:
     # request. 0.95 means "throttle when within 5% of the limit"; set
     # to 1.0 to disable proactive throttling and react only to 429.
     rate_limit_throttle_threshold: float = 0.95
+    # Retry budget per call to provider.stream_chat (T2-03). The
+    # error_classifier dispatches each exception to RETRY /
+    # ROTATE_CREDENTIAL / COMPRESS_CONTEXT / ABORT; retry_utils.with_retry
+    # enforces this cap across all recovery actions.
+    max_retries_per_turn: int = 5
+    # Maximum backoff between retries, in seconds. The base is
+    # exponential (2^attempt + jitter); a server-supplied Retry-After
+    # also caps at this value so a malformed "Retry-After: 600" can't
+    # accidentally sleep for ten minutes (T2-03).
+    max_backoff_seconds: float = 30.0
 
 
 def load_config() -> Config:
