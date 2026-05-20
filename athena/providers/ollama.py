@@ -16,6 +16,7 @@ fight with the agent's prompt assembly.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Iterator
 from typing import Any
@@ -24,6 +25,7 @@ import httpx
 
 from . import register_provider
 from .base import Provider, StreamChunk
+from .retry_utils import with_retry
 
 
 @register_provider
@@ -41,6 +43,13 @@ class OllamaProvider(Provider):
         super().__init__(api_key=None, **kwargs)
         self.host = host.rstrip("/")
         self._client = httpx.Client(timeout=timeout)
+        # T2-03: retry budget. Ollama has no credential rotation
+        # (single local daemon, no API key pool), but 5xx and network
+        # errors against a local daemon are typically transient
+        # (daemon-not-yet-ready, port still binding) and benefit
+        # from the same retry policy.
+        self._retry_max: int = 5
+        self._retry_backoff_s: float = 30.0
 
     # ---- Core stream API ----
 
@@ -76,8 +85,30 @@ class OllamaProvider(Provider):
         if max_tokens is not None:
             payload["options"]["num_predict"] = max_tokens
 
-        with self._client.stream("POST", f"{self.host}/api/chat", json=payload) as r:
-            r.raise_for_status()
+        # T2-03: retry-wrap the open-stream + raise-for-status step.
+        # Streaming body itself is outside the retry boundary.
+        outer_stack = contextlib.ExitStack()
+        try:
+
+            def _open_response() -> Any:
+                tmp_stack = contextlib.ExitStack()
+                try:
+                    r = tmp_stack.enter_context(
+                        self._client.stream("POST", f"{self.host}/api/chat", json=payload)
+                    )
+                    r.raise_for_status()
+                except BaseException:
+                    tmp_stack.close()
+                    raise
+                outer_stack.push(tmp_stack.pop_all())
+                return r
+
+            r = with_retry(
+                _open_response,
+                max_retries=self._retry_max,
+                max_backoff_s=self._retry_backoff_s,
+                provider_label=self.name,
+            )
             for line in r.iter_lines():
                 if not line:
                     continue
@@ -110,6 +141,8 @@ class OllamaProvider(Provider):
                         },
                     )
                     yield StreamChunk("end", {"reason": obj.get("done_reason", "stop")})
+        finally:
+            outer_stack.close()
 
     def parse_tool_calls(
         self, content: str, raw_response: dict[str, Any]
