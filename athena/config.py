@@ -249,6 +249,14 @@ class Config:
     # content later via the read_tool_result tool.
     tool_result_threshold_bytes: int = 1_000_000
     tool_result_storage_path: str = "~/.athena/tool_results"
+    # T2-08: defaults for the clarify tool. Per-call args override.
+    # When the user doesn't reply within `clarify_default_timeout_seconds`
+    # the tool returns "no answer received (timeout after Ns)" and the
+    # agent decides whether to fall back to a default guess or abort.
+    # `clarify_allow_freeform = True` lets the user type a custom answer
+    # alongside the numbered options.
+    clarify_default_timeout_seconds: int = 300
+    clarify_allow_freeform: bool = False
 
 
 def load_config() -> Config:
