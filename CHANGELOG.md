@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- Rate-limit header tracking. `athena.providers.rate_limit_tracker.RateLimitTracker` parses the standard 12-header generic schema (Nous, OpenRouter, OpenAI) and Anthropic's `anthropic-ratelimit-*` schema (ISO-8601 resets normalised to Unix seconds). Per-(provider, credential) trackers stored on each provider; `should_throttle()` decides preemptively, `throttle_seconds()` caps the sleep at 60 s (T2-02).
+- `rate_limit_throttle_threshold` config option (default 0.95). Below the threshold a provider sleeps before the next request rather than waiting to trip 429 (T2-02).
+- `/status` "rate limits" section surfaces `<credential_id>: <tracker.format()>` per provider when state is available (T2-02).
+- `CredentialPool.get_credential_rate_state()` returns per-(provider, credential) cooldown / 429 / fail-count view, keyed by the same `...<last-4>` suffix the providers' tracker dicts use (T2-02).
+- `docs/reference/rate-limits.md` documents the schemas, configuration, provider coverage, and persistence semantics (T2-02).
 - Anthropic prompt caching: 4-breakpoint `system_and_3` layout
   (last system message + last 3 non-system messages), 5m default
   TTL / 1h opt-in via `prompt_cache_ttl = "1h"`, ~60-75% input-token
