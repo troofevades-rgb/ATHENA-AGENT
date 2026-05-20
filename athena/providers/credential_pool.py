@@ -228,6 +228,49 @@ class CredentialPool:
         with self._lock:
             return sorted(name for name, bucket in self._creds.items() if bucket)
 
+    def get_credential_rate_state(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """Per-(provider, credential) cooldown + 429 state (T2-02.7).
+
+        Shape::
+
+            {
+                "anthropic": {
+                    "...abcd": {
+                        "in_cooldown": False,
+                        "last_429_at": None,
+                        "fail_count": 0,
+                        "last_used_at": "2026-05-19T...",
+                    },
+                    ...
+                },
+                ...
+            }
+
+        The credential keys are the same redacted ``...<last-4>`` form
+        the provider uses for its rate-limit tracker dict, so consumers
+        can correlate the two surfaces. Rate-limit tracker state itself
+        lives on the provider (per-request), not on the credential — so
+        this method reports the pool's view (cooldown / fail counts).
+        T2-03's error classifier joins the two views.
+        """
+        with self._lock:
+            out: dict[str, dict[str, dict[str, Any]]] = {}
+            for provider_name, bucket in self._creds.items():
+                bucket_state: dict[str, dict[str, Any]] = {}
+                for cred in bucket:
+                    suffix = cred.key[-4:] if len(cred.key) >= 4 else cred.key
+                    bucket_state[f"...{suffix}"] = {
+                        "in_cooldown": cred.last_429_at is not None,
+                        "last_429_at": (cred.last_429_at.isoformat() if cred.last_429_at else None),
+                        "fail_count": cred.fail_count,
+                        "last_used_at": (
+                            cred.last_used_at.isoformat() if cred.last_used_at else None
+                        ),
+                    }
+                if bucket_state:
+                    out[provider_name] = bucket_state
+            return out
+
     # ---- Internals ---------------------------------------------------
 
     def _in_cooldown(self, cred: Credential, now: datetime) -> bool:

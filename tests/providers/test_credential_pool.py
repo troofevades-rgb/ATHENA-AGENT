@@ -340,3 +340,66 @@ def test_global_pool_uses_config_dir(monkeypatch, tmp_path: Path):
         assert (tmp_path / "credentials.json").exists()
     finally:
         reset_global_pool()
+
+
+# ---------------------------------------------------------------------------
+# T2-02.7: get_credential_rate_state surface
+# ---------------------------------------------------------------------------
+
+
+def test_credential_pool_exposes_rate_state(tmp_path):
+    """get_credential_rate_state() returns per-(provider, credential)
+    cooldown + 429 view, keyed by redacted ...<last-4> suffix."""
+    from athena.providers.credential_pool import Credential, CredentialPool
+
+    pool = CredentialPool(tmp_path / "credentials.json")
+    pool.add_credential("anthropic", Credential(key="sk-ant-aaaa1111abcd"))
+    pool.add_credential("anthropic", Credential(key="sk-ant-bbbb2222wxyz"))
+
+    state = pool.get_credential_rate_state()
+    assert "anthropic" in state
+    assert "...abcd" in state["anthropic"]
+    assert "...wxyz" in state["anthropic"]
+    assert state["anthropic"]["...abcd"]["in_cooldown"] is False
+    assert state["anthropic"]["...abcd"]["fail_count"] == 0
+
+
+def test_credential_pool_rate_state_reflects_429(tmp_path):
+    """mark_429 stamps last_429_at; get_credential_rate_state surfaces
+    in_cooldown=True until clear_cooldown."""
+    from athena.providers.credential_pool import Credential, CredentialPool
+
+    pool = CredentialPool(tmp_path / "credentials.json")
+    key = "sk-ant-zzzz9999cdef"
+    pool.add_credential("anthropic", Credential(key=key))
+
+    assert pool.get_credential_rate_state()["anthropic"]["...cdef"]["in_cooldown"] is False
+
+    pool.mark_429("anthropic", key)
+    after = pool.get_credential_rate_state()
+    assert after["anthropic"]["...cdef"]["in_cooldown"] is True
+    assert after["anthropic"]["...cdef"]["last_429_at"] is not None
+
+    pool.clear_cooldown("anthropic", key)
+    cleared = pool.get_credential_rate_state()
+    assert cleared["anthropic"]["...cdef"]["in_cooldown"] is False
+
+
+def test_credential_pool_rate_state_includes_fail_count(tmp_path):
+    from athena.providers.credential_pool import Credential, CredentialPool
+
+    pool = CredentialPool(tmp_path / "credentials.json")
+    key = "sk-test-failfail9876"
+    pool.add_credential("openai", Credential(key=key))
+
+    pool.mark_failure("openai", key)
+    pool.mark_failure("openai", key)
+    state = pool.get_credential_rate_state()
+    assert state["openai"]["...9876"]["fail_count"] == 2
+
+
+def test_credential_pool_rate_state_empty_when_no_creds(tmp_path):
+    from athena.providers.credential_pool import CredentialPool
+
+    pool = CredentialPool(tmp_path / "credentials.json")
+    assert pool.get_credential_rate_state() == {}
