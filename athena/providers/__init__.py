@@ -61,13 +61,63 @@ def unregister(name: str) -> None:
     _REGISTRY.pop(name, None)
 
 
+# ---------------------------------------------------------------------------
+# Capability queries over _REGISTRY (T5-01R.4)
+# ---------------------------------------------------------------------------
+
+
+def capability_matrix() -> dict[str, Capabilities]:
+    """``{provider_name: static_capabilities()}`` for every
+    registered provider. Pure class-level introspection — no
+    instances, no network. Suitable for ``athena providers``
+    rendering and for downstream consumers (T5-05 broker, T5-06
+    cache routing)."""
+    return {name: cls.static_capabilities() for name, cls in _REGISTRY.items()}
+
+
+def providers_with_capability(capability: str) -> list[str]:
+    """Names of providers whose class-level manifest declares
+    ``capability``. Sorted for stable output. Class-level only —
+    "who *can* do X". Use
+    :func:`runtime_resolver.available_providers_with_capability`
+    when credential availability also matters."""
+    return sorted(
+        name for name, cls in _REGISTRY.items() if cls.static_capabilities().supports(capability)
+    )
+
+
+def best_provider_for(needs: set[str], prefer: str | None = None) -> str | None:
+    """First provider whose class-level manifest covers every
+    capability in ``needs``.
+
+    ``prefer`` wins if it qualifies — downstream phases use this
+    to express "I want Anthropic if it works, anything else with
+    these capabilities otherwise." Returns ``None`` when no
+    registered provider covers ``needs``. Candidates are
+    alphabetised for deterministic fallback.
+    """
+    candidates = sorted(
+        name
+        for name, cls in _REGISTRY.items()
+        if all(cls.static_capabilities().supports(n) for n in needs)
+    )
+    if not candidates:
+        return None
+    if prefer and prefer in candidates:
+        return prefer
+    return candidates[0]
+
+
 __all__ = [
     "Capabilities",
     "Provider",
     "StreamChunk",
-    "register_provider",
+    "best_provider_for",
+    "capability_matrix",
     "get_provider_class",
     "list_providers",
+    "providers_with_capability",
+    "register_provider",
     "unregister",
 ]
 

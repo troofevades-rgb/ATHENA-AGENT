@@ -39,7 +39,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from . import get_provider_class
+from . import get_provider_class, providers_with_capability
 from .base import Provider
 from .credential_pool import CredentialPool
 
@@ -188,6 +188,38 @@ def _fallback_chain(primary: str, cfg: Config) -> list[tuple[str, str | None]]:
                 entry,
             )
     return out
+
+
+def available_providers_with_capability(
+    capability: str,
+    *,
+    cfg: Config,
+    pool: CredentialPool,
+) -> list[str]:
+    """Providers that BOTH declare ``capability`` AND are usable
+    right now (T5-01R.4).
+
+    "Usable" mirrors the credential gate in :func:`_build_provider`:
+
+    - ``requires_api_key=False`` (Ollama, OpenAI-compat) — always
+      usable; openai_compat additionally needs a configured host
+      to actually serve, but that's a different surface from
+      capability declaration.
+    - Hosted providers — usable iff the credential pool has a
+      live, non-cooldown credential.
+
+    Returns sorted names so the broker's fallback chain is
+    deterministic across runs.
+    """
+    out: list[str] = []
+    for name in providers_with_capability(capability):
+        cls = get_provider_class(name)
+        if not getattr(cls, "requires_api_key", True):
+            out.append(name)
+            continue
+        if pool.get(name) is not None:
+            out.append(name)
+    return sorted(out)
 
 
 def resolve_provider(model: str, cfg: Config, pool: CredentialPool) -> tuple[Provider, str]:
