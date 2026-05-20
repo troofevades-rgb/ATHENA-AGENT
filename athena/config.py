@@ -354,6 +354,22 @@ class Config:
     cross_session_cache_enabled: bool = True
     cache_min_prefix_tokens: int = 1024
     cache_index_path: str | None = None
+    # T5-07: /goal autonomous continuation loop. The passive goal
+    # invariant (goal.txt + system-prompt block) stays — this is
+    # an ADDITIVE active driver. After each real assistant turn,
+    # if a goal_state is active and the loop's caps haven't been
+    # hit, a synthetic continuation turn is injected. The loop
+    # stops on a "GOAL ACHIEVED" sentinel, a "GOAL BLOCKED:
+    # <reason>" sentinel, the turn cap, or the token cap. Ctrl+C
+    # always wins (pauses the goal); real user messages and
+    # /steer always preempt synthetic turns. Caps are mandatory;
+    # there is no unbounded mode.
+    goal_loop_enabled: bool = True
+    goal_max_turns: int = 25
+    goal_max_tokens: int = 200_000
+    goal_continuation_prompt: str | None = None  # None = built-in default
+    goal_achieved_sentinel: str = "GOAL ACHIEVED"
+    goal_blocked_sentinel: str = "GOAL BLOCKED"
 
 
 def load_config() -> Config:
