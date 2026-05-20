@@ -101,6 +101,8 @@ observability = [
 # Heavy GPU-only deps for the closed training loop. Install with
 # ``pip install -e ".[train]"`` only on a workstation with CUDA.
 train = [
+    # Labeling TUI (T3-05R) — small, terminal-only.
+    "textual>=0.40",
     "trl>=0.11",
     "peft>=0.11",
     "transformers>=4.42",

@@ -90,6 +90,31 @@ def _next_output_name(base_model: str) -> str:
 
 def _cmd_review(args) -> int:
     profile_dir = _profile_dir(args.profile)
+    if getattr(args, "no_tui", False):
+        return _cmd_review_classic(profile_dir, args)
+    # T3-05R: textual TUI is the default. Falls back to the classic
+    # one-at-a-time prompt if textual isn't installed (athena[train]
+    # extra not present).
+    try:
+        from ..transform.review_tui import run_review_tui
+        from ..transform.suggestion import build_suggestion_fn
+
+        suggestion_fn = build_suggestion_fn(profile_dir)
+        return run_review_tui(
+            profile_dir=profile_dir,
+            since_days=args.since_days,
+            keymap=getattr(args, "keymap", "default"),
+            suggestion_fn=suggestion_fn,
+        )
+    except RuntimeError as e:
+        # textual missing — fall back to classic with a hint
+        print(f"note: {e}\nfalling back to --no-tui mode.\n")
+        return _cmd_review_classic(profile_dir, args)
+
+
+def _cmd_review_classic(profile_dir: Path, args) -> int:
+    """The pre-T3-05R one-at-a-time prompt path. Reached via
+    --no-tui or when textual isn't installed."""
     review = ReviewSession(profile_dir, since_days=args.since_days)
     try:
         progress = review.start(default_prompt)
@@ -381,6 +406,20 @@ def _build_parser() -> argparse.ArgumentParser:
     p_review = sub.add_parser("review", help="Interactively label trajectories.")
     p_review.add_argument("--since-days", type=int, default=30)
     p_review.add_argument("--profile", default="default")
+    p_review.add_argument(
+        "--no-tui",
+        action="store_true",
+        help=(
+            "Use the existing one-at-a-time prompt instead of the textual TUI "
+            "(default: TUI). Falls back automatically if textual isn't installed."
+        ),
+    )
+    p_review.add_argument(
+        "--keymap",
+        choices=["default", "vim", "basic"],
+        default="default",
+        help="TUI keymap; `basic` avoids Ctrl combos for terminals that swallow them.",
+    )
 
     p_build = sub.add_parser("build-dataset", help="Build SFT + DPO JSONL.")
     p_build.add_argument("--since-days", type=int, default=30)
