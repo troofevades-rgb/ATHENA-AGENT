@@ -353,6 +353,18 @@ class Agent:
         # session start and re-injected into the system prompt on every
         # rebuild. Mutated by the /goal slash command via Agent.reload_goal().
         self.goal: str | None = self._load_goal()
+        # T5-07: active continuation state alongside the passive
+        # invariant. None when no goal is set. Mutated by
+        # /goal subcommands + the continuation hook in run_turn.
+        self.goal_state = self._load_goal_state()
+        # Per-turn tracking exposed to run_turn for the continuation
+        # decision. Reset on every _run_turn_inner entry.
+        self._last_assistant_text: str = ""
+        self._last_turn_interrupted: bool = False
+        # Running token budget for the active goal loop. Reset when
+        # a new goal is set or the loop terminates. Each
+        # continuation step adds the turn's prompt + eval tokens.
+        self._goal_loop_tokens_used: int = 0
         if session_store is not None:
             self.session_store = session_store
             if resume_session_id is not None:
@@ -708,6 +720,7 @@ class Agent:
             skills_catalog=skills_catalog,
             model_modelfile_system=model_system,
             goal=self.goal,
+            goal_state=self.goal_state,
             lean=self.cfg.lean_prompt,
             disabled_sections=self.cfg.disabled_prompt_sections,
         )
@@ -726,11 +739,25 @@ class Agent:
         except Exception:
             return None
 
+    def _load_goal_state(self):
+        """Read the T5-07 GoalState for this profile. None when no
+        state file (no active loop)."""
+        try:
+            from ..goal.state import load_state
+
+            return load_state(self._profile_dir())
+        except Exception:
+            return None
+
     def reload_goal(self) -> None:
-        """Re-read the persisted goal and rebuild the system prompt in place.
-        Called by the /goal slash command after set/clear.
-        """
+        """Re-read the persisted goal + state and rebuild the system
+        prompt in place. Called by /goal subcommands after any
+        mutation."""
         self.goal = self._load_goal()
+        self.goal_state = self._load_goal_state()
+        # A fresh goal resets the running token budget — last goal's
+        # consumption shouldn't bleed into the new goal's cap.
+        self._goal_loop_tokens_used = 0
         if self.messages and self.messages[0].get("role") == "system":
             self.messages[0] = {
                 "role": "system",
@@ -744,34 +771,154 @@ class Agent:
         ui.info("conversation cleared")
 
     def run_turn(self, user_input: str) -> None:
-        """Run one user turn to completion (model may call tools several times)."""
+        """Run one user turn to completion (model may call tools several times).
+
+        T5-07: when an active GoalState is present, run_turn loops
+        through synthetic continuation turns until the goal is
+        achieved, blocked, or exhausted (turn cap OR token cap),
+        or the user interrupts via Ctrl+C. Real user input always
+        wins — a synthetic turn is only injected when the prior
+        turn was NOT interrupted and the continuation hook says
+        keep going. The /steer mechanism (drained at the top of
+        each _run_turn_inner) preempts synthetic turns naturally.
+        """
         from ..skills.metrics import set_active_store as _set_metrics_store
         from .checkpoints import set_active_checkpoint_manager
 
         with self._turn_lock:
             token = _current_agent.set(self)
-            # T3-03: scope the active CheckpointManager to this turn so
-            # file_ops tracks modifications back to *this* Agent's
-            # manager. Fork threads get their own ContextVar context
-            # and won't inherit this.
             set_active_checkpoint_manager(self.checkpoint_manager)
-            # T3-06R: scope the active SkillMetricsStore so the
-            # disclosure hook in skills.manager / skills.loader
-            # increments views against *this* Agent's store. Forks
-            # have their own ContextVar context; the store is a
-            # foreground-only signal.
             _set_metrics_store(self.skill_metrics_store)
             try:
-                self._run_turn_inner(user_input)
+                current_input = user_input
+                tokens_at_loop_start = (
+                    self.stats.prompt_tokens + self.stats.eval_tokens
+                )
+                while True:
+                    self._run_turn_inner(current_input)
+                    next_input = self._consult_goal_continuation(
+                        tokens_at_loop_start=tokens_at_loop_start,
+                    )
+                    if next_input is None:
+                        return
+                    current_input = next_input
             finally:
                 _set_metrics_store(None)
                 set_active_checkpoint_manager(None)
                 _current_agent.reset(token)
 
+    def _consult_goal_continuation(
+        self, *, tokens_at_loop_start: int
+    ) -> str | None:
+        """T5-07 hook called after each real assistant turn.
+
+        Returns the synthetic prompt to inject for the next
+        continuation, or None when the loop should stop. Handles
+        the four stop conditions:
+
+          interrupted     Ctrl+C anywhere → pause + return None
+          token cap       loop tokens > goal_max_tokens → exhaust
+          turn cap        turns_taken >= max_turns → exhausted
+          sentinel        GOAL ACHIEVED → achieved
+                          GOAL BLOCKED → paused + surface reason
+
+        The returned synthetic prompt is the continuation nudge —
+        run_turn will pass it to _run_turn_inner as the next
+        "user" message.
+        """
+        if self.goal_state is None:
+            return None
+
+        # Interrupt wins over every continuation decision. A user
+        # who hit Ctrl+C does not want another synthetic turn.
+        if self._last_turn_interrupted:
+            self.goal_state.status = "paused"
+            self._persist_goal_state()
+            ui.warn(
+                "goal paused (interrupt detected) — /goal resume to continue"
+            )
+            return None
+
+        # Token-cap check. The cap counts tokens consumed since
+        # run_turn entered THIS loop (so /goal set + user turn
+        # don't pre-consume the budget).
+        used_this_loop = (
+            self.stats.prompt_tokens + self.stats.eval_tokens
+        ) - tokens_at_loop_start
+        self._goal_loop_tokens_used = used_this_loop
+        token_cap = int(getattr(self.cfg, "goal_max_tokens", 200_000))
+        if token_cap > 0 and used_this_loop > token_cap:
+            self.goal_state.status = "exhausted"
+            self._persist_goal_state()
+            ui.warn(
+                f"goal exhausted (token cap {token_cap} exceeded — "
+                f"{used_this_loop} used). "
+                "/goal resume grants more, /goal status, or /goal clear."
+            )
+            return None
+
+        from ..goal.loop import maybe_continue_goal_after_turn
+
+        decision = maybe_continue_goal_after_turn(
+            profile_dir=self._profile_dir(),
+            state=self.goal_state,
+            last_assistant_text=self._last_assistant_text,
+            cfg=self.cfg,
+        )
+        if decision.should_continue:
+            ui.info(
+                f"[goal] continuing "
+                f"(turn {self.goal_state.turns_taken}/"
+                f"{self.goal_state.max_turns})"
+            )
+            return decision.synthetic_prompt
+
+        # Stop. Announce the reason.
+        if decision.stop_reason == "achieved":
+            ui.console.print(
+                f"[bold green]Goal achieved[/] in "
+                f"{self.goal_state.turns_taken} turn(s)."
+            )
+        elif decision.stop_reason == "blocked":
+            ui.warn(
+                f"goal blocked: {decision.blocked_reason}. "
+                "/goal resume when ready."
+            )
+        elif decision.stop_reason == "exhausted":
+            ui.warn(
+                f"goal not completed after {self.goal_state.max_turns} "
+                "turn(s). /goal resume (grants more), /goal status, "
+                "or /goal clear."
+            )
+        # Other stop_reasons (paused, no_state, disabled) are silent —
+        # the user either set them themselves (paused) or the loop
+        # isn't engaged (no_state, disabled).
+        return None
+
+    def _persist_goal_state(self) -> None:
+        """Best-effort write of self.goal_state. A disk error is
+        logged but never raised — the loop is already mid-stop."""
+        if self.goal_state is None:
+            return
+        try:
+            from ..goal.state import save_state
+
+            save_state(self._profile_dir(), self.goal_state)
+        except Exception:  # noqa: BLE001
+            import logging as _logging
+
+            _logging.getLogger(__name__).debug(
+                "could not persist goal state on stop", exc_info=True
+            )
+
     def _run_turn_inner(self, user_input: str) -> None:
         # Clear any stale cancel flag so a True left from a previous
         # turn doesn't immediately abort this one.
         self.cancel_pending = False
+        # T5-07: per-turn tracking the continuation loop in run_turn
+        # consults after this method returns. Reset on entry.
+        self._last_assistant_text = ""
+        self._last_turn_interrupted = False
         # UserPromptSubmit hook — can cancel the turn
         allow, msg = hooks.fire("UserPromptSubmit", payload={"prompt": user_input})
         if not allow:
@@ -838,6 +985,10 @@ class Agent:
             self._persist_message(assistant_msg)
 
             if interrupted:
+                # T5-07: signal interrupt to the continuation loop in
+                # run_turn so it pauses the goal instead of injecting
+                # another synthetic turn.
+                self._last_turn_interrupted = True
                 # The stream was cut mid-flight. If the model had emitted tool_calls
                 # before the interrupt, mark them DENIED so the next turn doesn't
                 # see dangling calls. Then leave a marker so the model knows.
@@ -862,6 +1013,9 @@ class Agent:
                     self.plugin_hooks.on_assistant_message(assistant_text)
                 self._fire_stop("completed")
                 self._maybe_fire_review()
+                # T5-07: surface the final assistant text for the
+                # continuation hook in run_turn.
+                self._last_assistant_text = assistant_text or ""
                 return
 
             # Execute each tool call and append a tool message for it.
@@ -872,6 +1026,7 @@ class Agent:
                 for call in tool_calls:
                     self._handle_tool_call(call)
             except KeyboardInterrupt:
+                self._last_turn_interrupted = True
                 ui.warn("interrupted during tool execution")
                 # Count is robust to interrupts firing anywhere in the loop body.
                 recorded = sum(1 for m in self.messages[asst_idx + 1 :] if m.get("role") == "tool")

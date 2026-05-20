@@ -48,6 +48,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/migration/sessions_importer.py",  # imports legacy sessions
         "athena/migration/skills_mapper.py",  # one-shot hermes->athena migration
         "athena/cache/cross_session.py",  # cross-session prefix-cache index JSON (operational metadata, not user content) (T5-06)
+        "athena/goal/state.py",  # T5-07 goal_state.json — machine-managed bookkeeping for the active /goal loop (status/turns/subgoals), not user content
         "athena/mcp/differentiated.py",  # T5-05.3 MCP verified_write — routed through path_security + VerifiedExecution (verified writes are the model the test is protecting)
         "athena/mcp/request_log.py",  # per-request MCP JSONL append (T3-02 audit)
         "athena/plugins/bundled/shell_audit/plugin.py",  # shell audit log (append-only)
