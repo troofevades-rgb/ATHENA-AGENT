@@ -205,21 +205,24 @@ def classify(
                 reason=f"HTTP {status} (request malformed or unauthorized)",
             )
 
-    # 3. Other httpx network shapes (after status check so a 4xx
+    # 3. Mid-stream read errors. ReadError is a subclass of NetworkError;
+    # match it BEFORE the generic NetworkError check below so the
+    # error_class reads STREAM rather than NETWORK for an interrupted
+    # SSE body.
+    if isinstance(exc, httpx.ReadError) or "stream" in message.lower():
+        return Classification(
+            action=ErrorAction.RETRY,
+            error_class=ErrorClass.STREAM,
+            reason=f"Stream error: {message}",
+        )
+
+    # 4. Other httpx network shapes (after status check so a 4xx
     # carried by an HTTPStatusError doesn't get reclassified as network).
     if isinstance(exc, (httpx.RemoteProtocolError, httpx.NetworkError)):
         return Classification(
             action=ErrorAction.RETRY,
             error_class=ErrorClass.NETWORK,
             reason=f"Protocol/network error: {message}",
-        )
-
-    # 4. Mid-stream read errors
-    if isinstance(exc, httpx.ReadError) or "stream" in message.lower():
-        return Classification(
-            action=ErrorAction.RETRY,
-            error_class=ErrorClass.STREAM,
-            reason=f"Stream error: {message}",
         )
 
     # 5. JSON / SSE parse errors during streaming
