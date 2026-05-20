@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- Automatic context compression. `athena.agent.context_compressor` summarises the middle of a long conversation while preserving head (system prompt) and tail (most recent turns by token budget) verbatim. Triggered proactively when total tokens > `context_compress_watermark` × `context_window` (default 0.75) inside the agent's tool-round loop, or manually via `/compact` (T2-04).
+- Structured summary template: Resolved questions / Pending questions / Decisions made / Tool outputs of lasting value / Remaining work (NOT "Next steps" — hermes-learned model-behaviour gotcha). Synthetic summary lands as a `role="system"` message starting with the `[Compressed summary of turns N–M, ...]` marker (T2-04).
+- Iterative compression: earlier summaries are detected via the marker and carried forward as input to later compactions, so information survives multiple compressions at graceful fidelity decay (T2-04).
+- Prompt-injection-safe summariser preamble: tool outputs containing injected directives are framed as SOURCE MATERIAL, not as instructions the summariser should follow (T2-04).
+- Cheap tool-output pre-pass: `tool`-role messages in the to-be-compressed middle are pruned to `tool_output_prune_tokens` (default 200) before being fed to the summariser (T2-04).
+- `/compact` slash command upgraded to use the new compressor (replaces the prior inline summary-then-replace-all-after-system implementation) (T2-04).
+- Config options: `context_compress_watermark`, `tail_protection_ratio`, `tool_output_prune_tokens`, `summary_budget_ratio`, `summary_budget_cap_tokens` (T2-04).
+- `docs/reference/context-compression.md` documents the watermark, head/tail layout, summary format, iterative carry-forward, injection-defence, persistence, and configuration (T2-04).
 - Error classifier and retry/backoff. `athena.providers.error_classifier.classify(exc, ...)` returns a 5-action `Classification` (`retry` / `rotate_credential` / `fallback_provider` (reserved) / `compress_context` / `abort`) plus an `ErrorClass` for logging (`network`, `server_5xx`, `rate_limit`, `timeout`, `client_4xx`, `context_length`, `stream`, `parse`, `unknown`). Pure function, no I/O (T2-03).
 - `athena.providers.retry_utils.with_retry(operation, ...)` executes recovery: exponential backoff + jitter capped at `max_backoff_seconds`, `Retry-After` header respected (also capped), `on_rotate_credential` / `on_compress_context` callbacks, `RetryBudgetExceeded` on cap (T2-03).
 - Every provider (Anthropic, OpenAI, OpenRouter, Nous, OpenAI-compat, Ollama) wraps its `POST` + `raise-for-status` + rate-limit-header-capture in `with_retry`. The streaming body stays outside the retry boundary (yielded chunks can't be replayed). `ExitStack.pop_all` keeps the open response alive past the retry boundary (T2-03).
