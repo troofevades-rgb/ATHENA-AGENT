@@ -263,3 +263,97 @@ def test_compat_base_class_allows_extra_headers():
         assert p._client.headers["x-thing"] == "yes"
     finally:
         p.close()
+
+
+# ---------------------------------------------------------------------------
+# T2-02: rate-limit header capture + preemptive throttle
+# (logic lives on OpenAICompatibleProvider; OpenAIProvider inherits)
+# ---------------------------------------------------------------------------
+
+
+def test_rate_limit_headers_captured_from_response(provider):
+    """Generic 12-header schema parses into the provider's tracker dict."""
+    sample = _sse({"choices": [{"delta": {}, "finish_reason": "stop"}]})
+    with respx.mock() as m:
+        m.post("https://api.openai.test/v1/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                content=sample,
+                headers={
+                    "x-ratelimit-limit-requests": "200",
+                    "x-ratelimit-remaining-requests": "180",
+                    "x-ratelimit-reset-requests": "60",
+                    "x-ratelimit-limit-tokens": "100000",
+                    "x-ratelimit-remaining-tokens": "85000",
+                    "x-ratelimit-reset-tokens": "60",
+                },
+            )
+        )
+        list(
+            provider.stream_chat(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+
+    state = provider.get_rate_limit_state()
+    assert state, "rate-limit state was not captured"
+    tracker = next(iter(state.values()))
+    assert tracker.limit_requests_min == 200
+    assert tracker.remaining_requests_min == 180
+    assert tracker.limit_tokens_min == 100000
+
+
+def test_no_rate_limit_headers_leaves_state_empty(provider):
+    """Endpoints that omit x-ratelimit-* (Ollama-shaped servers etc.)
+    must not crash and must not populate state."""
+    sample = _sse({"choices": [{"delta": {}, "finish_reason": "stop"}]})
+    with respx.mock() as m:
+        m.post("https://api.openai.test/v1/chat/completions").mock(
+            return_value=httpx.Response(200, content=sample, headers={})
+        )
+        list(
+            provider.stream_chat(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+    assert provider.get_rate_limit_state() == {}
+
+
+def test_preemptive_throttle_sleeps_when_near_limit(provider, monkeypatch):
+    """OpenAI-family throttle behaves identically to Anthropic's."""
+    import time as _time
+
+    from athena.providers.rate_limit_tracker import RateLimitTracker
+
+    now = _time.time()
+    cred_id = provider._current_credential_id()
+    provider._rate_limit_state[cred_id] = RateLimitTracker(
+        provider="openai",
+        captured_at=now,
+        limit_tokens_min=10000,
+        remaining_tokens_min=100,  # 99% used
+        reset_tokens_min_at=now + 20.0,
+    )
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(
+        "athena.providers.openai.time.sleep",
+        lambda s: sleep_calls.append(s),
+    )
+
+    sample = _sse({"choices": [{"delta": {}, "finish_reason": "stop"}]})
+    with respx.mock() as m:
+        m.post("https://api.openai.test/v1/chat/completions").mock(
+            return_value=httpx.Response(200, content=sample, headers={})
+        )
+        list(
+            provider.stream_chat(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+
+    assert sleep_calls, "expected preemptive sleep call"
+    assert 15 < sleep_calls[0] <= 60

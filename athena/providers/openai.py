@@ -16,6 +16,8 @@ Used as the base for OpenAI-compat / OpenRouter / Nous in Prompt 8.4.
 from __future__ import annotations
 
 import json
+import logging
+import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -23,6 +25,9 @@ import httpx
 
 from . import register_provider
 from .base import Provider, StreamChunk
+from .rate_limit_tracker import RateLimitTracker
+
+_rl_logger = logging.getLogger(__name__)
 
 _DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
@@ -71,6 +76,12 @@ class OpenAICompatibleProvider(Provider):
         if extra_headers:
             headers.update(extra_headers)
         self._client = httpx.Client(base_url=self.base_url, headers=headers, timeout=timeout)
+        # T2-02: per-credential rate-limit state for the 12-header
+        # generic schema. All OpenAI-compat subclasses (OpenAIProvider,
+        # OpenRouterProvider, NousProvider, OpenAICompatProvider)
+        # inherit this and share the same throttle behaviour.
+        self._rate_limit_state: dict[str, RateLimitTracker] = {}
+        self.rate_limit_throttle_threshold: float = 0.95
 
     def _default_base_url(self) -> str:
         return _DEFAULT_BASE_URL
@@ -99,9 +110,51 @@ class OpenAICompatibleProvider(Provider):
         if tools:
             payload["tools"] = tools
 
+        # T2-02: preemptive throttle based on the previous response's
+        # rate-limit headers.
+        self._maybe_throttle()
+
         with self._client.stream("POST", "/chat/completions", json=payload) as r:
             _raise_with_body(r)
+            # T2-02: capture rate-limit headers BEFORE consuming the body.
+            self._capture_rate_limit_headers(r.headers)
             yield from self._parse_sse(r)
+
+    # ---- T2-02: rate-limit hooks shared across every OpenAI-compat subclass ----
+
+    def _maybe_throttle(self) -> None:
+        cred_id = self._current_credential_id()
+        tracker = self._rate_limit_state.get(cred_id)
+        if tracker is None:
+            return
+        if not tracker.should_throttle(threshold=self.rate_limit_throttle_threshold):
+            return
+        sleep_s = tracker.throttle_seconds(threshold=self.rate_limit_throttle_threshold)
+        if sleep_s <= 0:
+            return
+        _rl_logger.info(
+            "%s preemptive throttle: sleeping %.1fs (%s)",
+            self.name,
+            sleep_s,
+            tracker.format(),
+        )
+        time.sleep(sleep_s)
+
+    def _capture_rate_limit_headers(self, headers: Any) -> None:
+        tracker = RateLimitTracker.from_headers(headers, provider=self.name, schema="generic")
+        if tracker is None:
+            return
+        self._rate_limit_state[self._current_credential_id()] = tracker
+
+    def _current_credential_id(self) -> str:
+        api_key = getattr(self, "api_key", None) or ""
+        if api_key:
+            return f"...{api_key[-4:]}"
+        return "default"
+
+    def get_rate_limit_state(self) -> dict[str, RateLimitTracker]:
+        """Return the latest rate-limit tracker per credential (T2-02)."""
+        return dict(self._rate_limit_state)
 
     def parse_tool_calls(
         self, content: str, raw_response: dict[str, Any]
