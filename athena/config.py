@@ -214,6 +214,25 @@ class Config:
     # also caps at this value so a malformed "Retry-After: 600" can't
     # accidentally sleep for ten minutes (T2-03).
     max_backoff_seconds: float = 30.0
+    # T2-04 context compression knobs. When total session tokens
+    # exceed `context_compress_watermark * context_window`, the
+    # middle of the conversation is summarised via the auxiliary
+    # client and replaced with a synthetic system-role summary
+    # message. Head (system prompt) and tail (most recent turns
+    # totalling `tail_protection_ratio * context_window` tokens) are
+    # preserved verbatim.
+    context_compress_watermark: float = 0.75
+    tail_protection_ratio: float = 0.25
+    # Tool-role messages in the to-be-summarised middle are pruned to
+    # this many tokens before being fed to the summariser (cheap
+    # pre-pass — keeps large grep / curl outputs from blowing the
+    # summariser's own context).
+    tool_output_prune_tokens: int = 200
+    # The summary's target size is `summary_budget_ratio` of the
+    # compressed-middle token count, capped at
+    # `summary_budget_cap_tokens`. Defaults: 10% with a 4k cap.
+    summary_budget_ratio: float = 0.10
+    summary_budget_cap_tokens: int = 4000
 
 
 def load_config() -> Config:
