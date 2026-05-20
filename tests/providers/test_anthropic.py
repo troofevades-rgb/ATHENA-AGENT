@@ -310,3 +310,134 @@ def test_malformed_sse_lines_skipped(provider):
         )
     # Stream terminates cleanly despite the bad line.
     assert chunks[-1].kind == "end"
+
+
+# ---------------------------------------------------------------------------
+# T2-02: rate-limit header capture + preemptive throttle
+# ---------------------------------------------------------------------------
+
+
+def test_rate_limit_headers_captured_from_response(provider):
+    """After a successful stream_chat, the provider stores a
+    RateLimitTracker parsed from the anthropic-ratelimit-* response
+    headers."""
+    sample = _sse({"type": "message_start", "message": {"usage": {}}}, {"type": "message_stop"})
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(
+            return_value=httpx.Response(
+                200,
+                content=sample,
+                headers={
+                    "anthropic-ratelimit-requests-limit": "50",
+                    "anthropic-ratelimit-requests-remaining": "47",
+                    "anthropic-ratelimit-requests-reset": "2099-01-01T00:00:00Z",
+                    "anthropic-ratelimit-tokens-limit": "30000",
+                    "anthropic-ratelimit-tokens-remaining": "28440",
+                },
+            )
+        )
+        list(
+            provider.stream_chat(
+                model="claude-3-5-sonnet", messages=[{"role": "user", "content": "x"}]
+            )
+        )
+
+    state = provider.get_rate_limit_state()
+    assert state, "rate-limit state was not captured"
+    tracker = next(iter(state.values()))
+    assert tracker.limit_requests_min == 50
+    assert tracker.remaining_requests_min == 47
+    assert tracker.limit_tokens_min == 30000
+
+
+def test_no_rate_limit_headers_leaves_state_empty(provider):
+    """A response with no rate-limit headers does not populate the
+    tracker state (and does not crash)."""
+    sample = _sse({"type": "message_start", "message": {"usage": {}}}, {"type": "message_stop"})
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(
+            return_value=httpx.Response(200, content=sample, headers={})
+        )
+        list(
+            provider.stream_chat(
+                model="claude-3-5-sonnet", messages=[{"role": "user", "content": "x"}]
+            )
+        )
+    assert provider.get_rate_limit_state() == {}
+
+
+def test_preemptive_throttle_sleeps_when_near_limit(provider, monkeypatch):
+    """If the previous tracker says we should throttle, the next
+    stream_chat sleeps before issuing the request."""
+    import time as _time
+
+    from athena.providers.rate_limit_tracker import RateLimitTracker
+
+    now = _time.time()
+    # Pre-seed: previous response left us with 1/100 requests remaining
+    # (99% used), reset in 15s.
+    cred_id = provider._current_credential_id()
+    provider._rate_limit_state[cred_id] = RateLimitTracker(
+        provider="anthropic",
+        captured_at=now,
+        limit_requests_min=100,
+        remaining_requests_min=1,
+        reset_requests_min_at=now + 15.0,
+    )
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(
+        "athena.providers.anthropic.time.sleep",
+        lambda s: sleep_calls.append(s),
+    )
+
+    sample = _sse({"type": "message_start", "message": {"usage": {}}}, {"type": "message_stop"})
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(
+            return_value=httpx.Response(200, content=sample, headers={})
+        )
+        list(
+            provider.stream_chat(
+                model="claude-3-5-sonnet", messages=[{"role": "user", "content": "x"}]
+            )
+        )
+
+    assert sleep_calls, "expected at least one preemptive sleep call"
+    # Sleep duration matches throttle_seconds (capped at 60).
+    assert 10 < sleep_calls[0] <= 60
+
+
+def test_no_throttle_when_under_threshold(provider, monkeypatch):
+    """A previous tracker showing plenty of headroom does NOT trigger
+    a preemptive sleep."""
+    import time as _time
+
+    from athena.providers.rate_limit_tracker import RateLimitTracker
+
+    cred_id = provider._current_credential_id()
+    provider._rate_limit_state[cred_id] = RateLimitTracker(
+        provider="anthropic",
+        captured_at=_time.time(),
+        limit_requests_min=100,
+        remaining_requests_min=50,  # 50% used, well under 95% threshold
+        reset_requests_min_at=_time.time() + 15.0,
+    )
+
+    sleep_calls: list[float] = []
+    monkeypatch.setattr(
+        "athena.providers.anthropic.time.sleep",
+        lambda s: sleep_calls.append(s),
+    )
+
+    sample = _sse({"type": "message_start", "message": {"usage": {}}}, {"type": "message_stop"})
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(
+            return_value=httpx.Response(200, content=sample, headers={})
+        )
+        list(
+            provider.stream_chat(
+                model="claude-3-5-sonnet", messages=[{"role": "user", "content": "x"}]
+            )
+        )
+
+    assert sleep_calls == [], f"unexpected sleep calls: {sleep_calls}"

@@ -20,8 +20,14 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
+import time
 from collections.abc import Iterator
 from typing import Any
+
+from .rate_limit_tracker import RateLimitTracker
+
+_logger = logging.getLogger(__name__)
 
 _synth_counter = itertools.count(1)
 
@@ -90,6 +96,12 @@ class AnthropicProvider(Provider):
             },
             timeout=timeout,
         )
+        # T2-02: latest rate-limit tracker per credential. Keyed by
+        # the credential's last-4 suffix so a pool of multiple keys
+        # gets distinct trackers; with a single-key setup the dict
+        # has one entry under "default".
+        self._rate_limit_state: dict[str, RateLimitTracker] = {}
+        self.rate_limit_throttle_threshold: float = 0.95
 
     # ---- Core stream API ----
 
@@ -117,9 +129,57 @@ class AnthropicProvider(Provider):
         if tools:
             payload["tools"] = self._convert_tools(tools)
 
+        # T2-02: preemptive throttle. If the most recent tracker says
+        # we're near the limit, sleep until the soonest reset (capped
+        # at 60s) before issuing the next request.
+        self._maybe_throttle()
+
         with self._client.stream("POST", "/messages", json=payload) as r:
             _raise_with_body(r)
+            # Capture rate-limit headers BEFORE consuming the body.
+            self._capture_rate_limit_headers(r.headers)
             yield from self._parse_sse(r)
+
+    def _maybe_throttle(self) -> None:
+        """Sleep before the next request if the latest tracker for the
+        active credential says we're at or above the threshold."""
+        cred_id = self._current_credential_id()
+        tracker = self._rate_limit_state.get(cred_id)
+        if tracker is None:
+            return
+        if not tracker.should_throttle(threshold=self.rate_limit_throttle_threshold):
+            return
+        sleep_s = tracker.throttle_seconds(threshold=self.rate_limit_throttle_threshold)
+        if sleep_s <= 0:
+            return
+        _logger.info(
+            "anthropic preemptive throttle: sleeping %.1fs (%s)",
+            sleep_s,
+            tracker.format(),
+        )
+        time.sleep(sleep_s)
+
+    def _capture_rate_limit_headers(self, headers: Any) -> None:
+        """Parse the anthropic-ratelimit-* headers and store the
+        resulting tracker on ``self._rate_limit_state``. Silently
+        skips if no rate-limit headers are present."""
+        tracker = RateLimitTracker.from_headers(headers, provider="anthropic", schema="anthropic")
+        if tracker is None:
+            return
+        self._rate_limit_state[self._current_credential_id()] = tracker
+
+    def _current_credential_id(self) -> str:
+        """Identifier for the credential in use. Last-4 of the API key
+        gives stable, low-cardinality, non-sensitive keys when the
+        credential pool rotates."""
+        api_key = getattr(self, "api_key", None) or ""
+        if api_key:
+            return f"...{api_key[-4:]}"
+        return "default"
+
+    def get_rate_limit_state(self) -> dict[str, RateLimitTracker]:
+        """Return the latest rate-limit tracker per credential (T2-02)."""
+        return dict(self._rate_limit_state)
 
     def parse_tool_calls(
         self, content: str, raw_response: dict[str, Any]
