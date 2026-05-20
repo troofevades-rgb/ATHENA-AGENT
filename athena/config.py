@@ -370,6 +370,22 @@ class Config:
     goal_continuation_prompt: str | None = None  # None = built-in default
     goal_achieved_sentinel: str = "GOAL ACHIEVED"
     goal_blocked_sentinel: str = "GOAL BLOCKED"
+    # T6-01: semantic + hybrid recall. The existing FTS5
+    # keyword path stays — semantic is additive. recall_default_mode
+    # picks how the recall tool ranks results when no explicit
+    # mode is passed:
+    #   "keyword"  FTS5 only (today's behaviour)
+    #   "semantic" vector cosine only
+    #   "hybrid"   RRF fusion of both (default; the quality win)
+    # embedding_model is optional; when omitted, the resolved
+    # provider's default_embedding_model is used. vector_store_path
+    # defaults to <profile_dir>/vectors.json — flat-file works at
+    # athena's per-user scale.
+    semantic_recall_enabled: bool = True
+    recall_default_mode: str = "hybrid"
+    embedding_model_prefer: str = "local"
+    embedding_model: str | None = None
+    vector_store_path: str | None = None
 
 
 def load_config() -> Config:
