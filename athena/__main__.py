@@ -119,6 +119,7 @@ _SUBCOMMANDS = {
     "memory": "athena.cli.memory",
     "proxy": "athena.cli.proxy",
     "checkpoint": "athena.cli.checkpoint",
+    "audit": "athena.cli.audit",
 }
 
 
