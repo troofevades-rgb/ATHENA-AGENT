@@ -24,6 +24,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from .request_log import McpRequestLog, summarise_params, summarise_result
 from .resources import RESOURCE_DESCRIPTORS, AthenaMCPResources
 from .tools import TOOL_DESCRIPTORS, AthenaMCPTools
 
@@ -48,7 +49,9 @@ class AthenaMCPServer:
 
     tools: AthenaMCPTools
     resources: AthenaMCPResources
+    request_log: McpRequestLog | None = None
     _initialized: bool = False
+    _client_name: str = ""
 
     def handle_request(self, req: dict[str, Any]) -> dict[str, Any] | None:
         """Dispatch one JSON-RPC request.
@@ -57,12 +60,17 @@ class AthenaMCPServer:
         message was a notification (per JSON-RPC, no ``id`` ⇒ no
         response).
         """
+        import time as _time
+
         method = str(req.get("method") or "")
         params = req.get("params") or {}
         if not isinstance(params, dict):
             params = {}
         req_id = req.get("id")
         is_notification = req_id is None
+        start = _time.time()
+        result: Any = None
+        error_payload: dict[str, Any] | None = None
 
         try:
             if method == "initialize":
@@ -90,20 +98,63 @@ class AthenaMCPServer:
                     # Unrecognised notification — silently drop (spec
                     # says servers may ignore unknown notifications).
                     return None
-                return self._error(
+                err_resp = self._error(
                     req_id,
                     _ERR_METHOD_NOT_FOUND,
                     f"method not found: {method}",
                 )
+                error_payload = err_resp["error"]
+                self._record_request(req_id, method, params, None, error_payload, start)
+                return err_resp
         except Exception as e:  # noqa: BLE001
             logger.exception("MCP handler error for method=%s", method)
             if is_notification:
                 return None
-            return self._error(req_id, _ERR_INTERNAL, f"internal error: {e}")
+            err_resp = self._error(req_id, _ERR_INTERNAL, f"internal error: {e}")
+            error_payload = err_resp["error"]
+            self._record_request(req_id, method, params, None, error_payload, start)
+            return err_resp
 
         if is_notification:
             return None
+        # Track the client name from initialize for subsequent log
+        # lines. ``initialize`` is the first call, so this lands
+        # before any tool/resource call's record() fires.
+        if method == "initialize":
+            ci = params.get("clientInfo") or {}
+            if isinstance(ci, dict):
+                self._client_name = str(ci.get("name") or "")
+        self._record_request(req_id, method, params, result, None, start)
         return {"jsonrpc": "2.0", "id": req_id, "result": result}
+
+    def _record_request(
+        self,
+        req_id: Any,
+        method: str,
+        params: dict[str, Any],
+        result: Any,
+        error: dict[str, Any] | None,
+        start: float,
+    ) -> None:
+        if self.request_log is None:
+            return
+        import time as _time
+
+        latency_ms = (_time.time() - start) * 1000.0
+        try:
+            self.request_log.record(
+                request_id=str(req_id) if req_id is not None else "",
+                client_name=self._client_name,
+                method=method,
+                params_summary=summarise_params(method, params),
+                result_summary=summarise_result(method, result) if result is not None else None,
+                latency_ms=latency_ms,
+                error=error,
+            )
+        except Exception:  # noqa: BLE001
+            # Logging is best-effort; never let it sink a successful
+            # MCP response.
+            logger.debug("MCP request_log.record failed", exc_info=True)
 
     # ---- handlers ----------------------------------------------------
 
