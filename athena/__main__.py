@@ -30,6 +30,45 @@ def _model_pulled(want: str, available: list[str]) -> bool:
     return any(_normalize_model_name(m) == target for m in available)
 
 
+def _rewrite_singledash_longs(argv: list[str], parser: argparse.ArgumentParser) -> list[str]:
+    """Rewrite ``-foo`` -> ``--foo`` when ``--foo`` is a known long-form
+    flag on ``parser`` (and ``-foo`` is NOT a known short flag like ``-m``).
+
+    Catches the common typo ``athena -model NAME`` (which argparse
+    would otherwise parse as ``-m`` with value ``odel`` plus an
+    unrecognised positional). Suggests a close match for unknown
+    single-dash multi-char tokens.
+    """
+    import difflib
+
+    long_forms: set[str] = set()
+    short_forms: set[str] = set()
+    for action in parser._actions:  # type: ignore[attr-defined]
+        for opt in action.option_strings:
+            if opt.startswith("--"):
+                long_forms.add(opt[2:])
+            elif opt.startswith("-") and len(opt) == 2:
+                short_forms.add(opt[1:])
+    out: list[str] = []
+    for token in argv:
+        if (
+            token.startswith("-")
+            and not token.startswith("--")
+            and len(token) > 2
+            and token[1:].split("=")[0] not in short_forms
+        ):
+            key = token[1:].split("=")[0]
+            if key in long_forms:
+                # Pure rewrite — argparse handles it.
+                out.append("-" + token)
+                continue
+            close = difflib.get_close_matches(key, sorted(long_forms), n=1, cutoff=0.7)
+            if close:
+                sys.stderr.write(f"athena: did you mean --{close[0]} (you wrote -{key})?\n")
+        out.append(token)
+    return out
+
+
 def _handle_slash(agent: Agent, line: str) -> bool:
     """Returns True if the loop should continue, False to exit."""
     parts = line[1:].strip().split(maxsplit=1)
@@ -130,6 +169,12 @@ def main() -> int:
         "--profile",
         help="Active profile name (overrides ATHENA_PROFILE / active_profile / config).",
     )
+    # Rewrite "-foo" -> "--foo" for known long-form flags BEFORE
+    # argparse sees argv. Without this, `athena -model NAME` gets
+    # parsed as `-m odel NAME` (m's value becomes "odel", NAME lands
+    # as an unrecognised positional). This caught a user on the VPS
+    # who typed `athena -model anthropic/claude-sonnet-latest`.
+    sys.argv = _rewrite_singledash_longs(sys.argv, ap)
     args = ap.parse_args()
 
     cfg = load_config()
