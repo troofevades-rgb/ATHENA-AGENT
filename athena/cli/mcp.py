@@ -194,7 +194,22 @@ def cmd_serve(args: argparse.Namespace) -> int:
         if args.log_path
         else Path(cfg.mcp_log_path).expanduser()
     )
-    server = AthenaMCPServer(tools=tools, resources=resources, request_log=request_log)
+    # T5-05.3 — differentiated capability surface (verified_write,
+    # rollback_to, analyze_image, recall, ...). Manifest-driven:
+    # only host-available tools land in tools/list.
+    from ..mcp.differentiated import build_differentiated_tools
+
+    differentiated = build_differentiated_tools(
+        workspace=workspace,
+        cfg=cfg,
+        checkpoint_manager=None,  # CLI serve runs without an active session
+    )
+    server = AthenaMCPServer(
+        tools=tools,
+        resources=resources,
+        request_log=request_log,
+        differentiated=differentiated,
+    )
 
     logging.getLogger("athena.mcp.cli").info(
         "athena mcp serve: stdio, workspace=%s, profile=%s, audit_dir=%s",

@@ -45,11 +45,18 @@ class AthenaMCPServer:
 
     ``tools`` and ``resources`` are the curated surfaces built by
     the subcommand wiring; tests inject a stub of each.
+
+    ``differentiated`` is the T5-05.3 differentiated-capability
+    surface (verified_write, rollback_to, analyze_image, recall,
+    ...). Optional — when None, only the base ``tools`` set is
+    advertised; the curated read-only T3-02 surface stays as the
+    fallback.
     """
 
     tools: AthenaMCPTools
     resources: AthenaMCPResources
     request_log: McpRequestLog | None = None
+    differentiated: Any = None  # DifferentiatedTools | None
     _initialized: bool = False
     _client_name: str = ""
 
@@ -79,13 +86,25 @@ class AthenaMCPServer:
                 self._initialized = True
                 return None
             elif method == "tools/list":
-                result = {"tools": TOOL_DESCRIPTORS}
+                tools_list = list(TOOL_DESCRIPTORS)
+                if self.differentiated is not None:
+                    tools_list.extend(self.differentiated.descriptors)
+                result = {"tools": tools_list}
             elif method == "tools/call":
                 tool_name = str(params.get("name") or "")
                 tool_args = params.get("arguments") or {}
                 if not isinstance(tool_args, dict):
                     return self._error(req_id, _ERR_INVALID_PARAMS, "arguments must be an object")
-                result = self.tools.call_tool(tool_name, tool_args)
+                # Try the differentiated surface first (its names
+                # don't collide with the base curated tools — those
+                # are athena_-prefixed). Falls back to the base
+                # surface when the name doesn't match.
+                if self.differentiated is not None and any(
+                    d["name"] == tool_name for d in self.differentiated.descriptors
+                ):
+                    result = self.differentiated.call(tool_name, tool_args)
+                else:
+                    result = self.tools.call_tool(tool_name, tool_args)
             elif method == "resources/list":
                 result = {"resources": RESOURCE_DESCRIPTORS}
             elif method == "resources/read":
