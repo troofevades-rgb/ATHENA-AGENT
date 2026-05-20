@@ -340,6 +340,20 @@ class Config:
     # tools are advertised even when other tools are available.
     media_backend_prefer: str = "local"
     mcp_expose: tuple[str, ...] = ()
+    # T5-06: cross-session prompt cache. Reuses a stable prefix
+    # (system prompt + pinned skills + durable context) across
+    # sessions, keyed by SHA-256 of the exact prefix bytes (a
+    # changed prefix → a clean miss, never a wrong hit). The
+    # caching mechanism (server-side TTL cache / local KV reuse
+    # / none) is chosen from the provider's T5-01 manifest. Tiny
+    # prefixes (below cache_min_prefix_tokens) skip caching
+    # entirely. cache_index_path defaults to
+    # <profile_dir>/cache_index.json — resolved lazily at
+    # session start since the profile dir depends on the
+    # selected profile.
+    cross_session_cache_enabled: bool = True
+    cache_min_prefix_tokens: int = 1024
+    cache_index_path: str | None = None
 
 
 def load_config() -> Config:
