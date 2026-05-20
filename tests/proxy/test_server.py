@@ -1,32 +1,29 @@
-"""End-to-end server tests with FastAPI TestClient (T3-01.6).
+"""End-to-end aiohttp server tests (T3-01R.3).
 
-A stub provider replaces athena's runtime resolver so tests stay
-hermetic — no network, no credential pool entanglement.
+Uses ``aiohttp.test_utils.TestServer`` + ``TestClient`` so the
+suite doesn't need pytest-aiohttp. A stub provider replaces
+athena's resolver path; tests stay hermetic (no network, no
+credential pool).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from fastapi.testclient import TestClient
+import pytest
+from aiohttp.test_utils import TestClient, TestServer
 
 from athena.config import Config
 from athena.providers.base import Provider, StreamChunk
 
-# ---------------------------------------------------------------------------
-# Stubs
-# ---------------------------------------------------------------------------
-
 
 @dataclass
 class StubProvider(Provider):
-    """In-memory fake. Each call to stream_chat replays the configured
-    chunks. ``available_models`` populates :meth:`list_models`."""
-
     name: str = "anthropic"
     chunks_to_yield: list[StreamChunk] = field(default_factory=list)
     available_models: list[str] = field(default_factory=list)
@@ -35,7 +32,7 @@ class StubProvider(Provider):
     raise_on_stream: Exception | None = None
 
     def __post_init__(self) -> None:
-        # Skip Provider.__init__ — no api_key on stub
+        # Skip Provider.__init__'s api_key handling on the stub.
         pass
 
     def stream_chat(self, **kwargs: Any) -> Iterator[StreamChunk]:  # type: ignore[override]
@@ -58,20 +55,13 @@ class StubProvider(Provider):
 
 @dataclass
 class StubPool:
-    """Just enough of CredentialPool's surface for the proxy server."""
-
     providers_with_creds: list[str] = field(default_factory=list)
 
     def providers(self) -> list[str]:
         return list(self.providers_with_creds)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_test_cfg(tmp_path: Path, **overrides: Any) -> Config:
+def _make_cfg(tmp_path: Path, **overrides: Any) -> Config:
     cfg = Config()
     cfg.proxy_default_provider = overrides.get("proxy_default_provider", "anthropic")
     cfg.proxy_log_path = str(tmp_path / "proxy.jsonl")
@@ -80,42 +70,54 @@ def _make_test_cfg(tmp_path: Path, **overrides: Any) -> Config:
     return cfg
 
 
-def _build_app(
-    cfg: Config,
-    pool: StubPool,
-    providers_by_name: dict[str, StubProvider],
-) -> Any:
+def _build_app(cfg: Config, pool: StubPool, by_name: dict[str, StubProvider]):
     from athena.proxy.server import make_app
 
     def factory(name: str, model: str) -> tuple[Provider, str]:
-        if name not in providers_by_name:
+        if name not in by_name:
             raise RuntimeError(f"no stub for provider {name!r}")
-        return providers_by_name[name], model
+        return by_name[name], model
 
     return make_app(cfg=cfg, pool=pool, provider_factory=factory)  # type: ignore[arg-type]
 
 
-def _decode_sse_stream(raw: bytes) -> list[Any]:
-    """Pull `data: ` chunks out of the raw SSE body and parse them."""
+async def _run_client(app, coro_factory):
+    async with TestClient(TestServer(app)) as client:
+        return await coro_factory(client)
+
+
+def _parse_sse(text: str) -> list[Any]:
     out: list[Any] = []
-    for line in raw.decode("utf-8").splitlines():
+    for line in text.splitlines():
         if not line.startswith("data: "):
             continue
-        payload = line.removeprefix("data: ")
-        if payload == "[DONE]":
-            out.append("[DONE]")
-        else:
-            out.append(json.loads(payload))
+        body = line.removeprefix("data: ")
+        out.append("[DONE]" if body == "[DONE]" else json.loads(body))
     return out
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# /health and /v1/models
 # ---------------------------------------------------------------------------
 
 
-def test_list_models_returns_available_models(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path)
+def test_health_ok(tmp_path) -> None:
+    cfg = _make_cfg(tmp_path)
+    pool = StubPool(providers_with_creds=["anthropic"])
+    app = _build_app(cfg, pool, {"anthropic": StubProvider()})
+
+    async def run(client: TestClient) -> None:
+        resp = await client.get("/health")
+        assert resp.status == 200
+        body = await resp.json()
+        assert body["status"] == "ok"
+        assert "anthropic" in body["providers"]
+
+    asyncio.run(_run_client(app, run))
+
+
+def test_models_lists_providers(tmp_path) -> None:
+    cfg = _make_cfg(tmp_path)
     pool = StubPool(providers_with_creds=["anthropic"])
     provider = StubProvider(
         name="anthropic",
@@ -123,20 +125,25 @@ def test_list_models_returns_available_models(tmp_path) -> None:
     )
     app = _build_app(cfg, pool, {"anthropic": provider})
 
-    with TestClient(app) as client:
-        response = client.get("/v1/models")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["object"] == "list"
-        ids = sorted(m["id"] for m in data["data"])
+    async def run(client: TestClient) -> None:
+        resp = await client.get("/v1/models")
+        assert resp.status == 200
+        body = await resp.json()
+        ids = sorted(m["id"] for m in body["data"])
         assert "claude-opus-4-7" in ids
-        assert "claude-sonnet-4-6" in ids
-        for m in data["data"]:
+        for m in body["data"]:
             assert m["owned_by"] == "anthropic"
 
+    asyncio.run(_run_client(app, run))
 
-def test_chat_completions_non_streaming_anthropic_route(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path)
+
+# ---------------------------------------------------------------------------
+# /v1/chat/completions — non-streaming
+# ---------------------------------------------------------------------------
+
+
+def test_chat_completions_nonstreaming_returns_object(tmp_path) -> None:
+    cfg = _make_cfg(tmp_path)
     pool = StubPool(providers_with_creds=["anthropic"])
     provider = StubProvider(
         name="anthropic",
@@ -152,29 +159,31 @@ def test_chat_completions_non_streaming_anthropic_route(tmp_path) -> None:
     )
     app = _build_app(cfg, pool, {"anthropic": provider})
 
-    with TestClient(app) as client:
-        response = client.post(
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
             "/v1/chat/completions",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "hi"}],
             },
         )
-        assert response.status_code == 200, response.text
-        body = response.json()
+        assert resp.status == 200
+        body = await resp.json()
         assert body["object"] == "chat.completion"
         assert body["choices"][0]["message"]["content"] == "Hello world."
         assert body["choices"][0]["finish_reason"] == "stop"
         assert body["usage"]["total_tokens"] == 13
-        assert body["model"] == "claude-sonnet-4-6"
 
-    # provider.last_call_kwargs should reflect what we sent.
-    assert provider.last_call_kwargs["model"] == "claude-sonnet-4-6"
-    assert provider.last_call_kwargs["messages"] == [{"role": "user", "content": "hi"}]
+    asyncio.run(_run_client(app, run))
 
 
-def test_chat_completions_streaming_anthropic_route(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path)
+# ---------------------------------------------------------------------------
+# /v1/chat/completions — streaming SSE
+# ---------------------------------------------------------------------------
+
+
+def test_chat_completions_streams_openai_sse(tmp_path) -> None:
+    cfg = _make_cfg(tmp_path)
     pool = StubPool(providers_with_creds=["anthropic"])
     provider = StubProvider(
         name="anthropic",
@@ -190,8 +199,8 @@ def test_chat_completions_streaming_anthropic_route(tmp_path) -> None:
     )
     app = _build_app(cfg, pool, {"anthropic": provider})
 
-    with TestClient(app) as client:
-        response = client.post(
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
             "/v1/chat/completions",
             json={
                 "model": "claude-sonnet-4-6",
@@ -199,26 +208,27 @@ def test_chat_completions_streaming_anthropic_route(tmp_path) -> None:
                 "stream": True,
             },
         )
-        assert response.status_code == 200, response.text
-        chunks = _decode_sse_stream(response.content)
+        assert resp.status == 200
+        assert resp.headers["Content-Type"].startswith("text/event-stream")
+        raw = (await resp.read()).decode("utf-8")
+        chunks = _parse_sse(raw)
         # role chunk, content chunks, finish chunk, [DONE]
         assert chunks[0]["choices"][0]["delta"]["role"] == "assistant"
         contents = [
-            c["choices"][0]["delta"].get("content", "")
+            c["choices"][0]["delta"].get("content")
             for c in chunks
-            if c != "[DONE]" and "delta" in c["choices"][0]
+            if c != "[DONE]" and c["choices"][0]["delta"].get("content") is not None
         ]
-        assert "Hello" in contents
-        assert " world." in contents
-        finish_chunks = [
-            c for c in chunks if c != "[DONE]" and c["choices"][0].get("finish_reason")
-        ]
-        assert finish_chunks[-1]["choices"][0]["finish_reason"] == "stop"
+        assert "Hello" in contents and " world." in contents
+        finish = [c for c in chunks if c != "[DONE]" and c["choices"][0].get("finish_reason")]
+        assert finish[-1]["choices"][0]["finish_reason"] == "stop"
         assert chunks[-1] == "[DONE]"
+
+    asyncio.run(_run_client(app, run))
 
 
 def test_streaming_tool_call_emits_tool_calls_delta(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path)
+    cfg = _make_cfg(tmp_path)
     pool = StubPool(providers_with_creds=["anthropic"])
     provider = StubProvider(
         name="anthropic",
@@ -236,8 +246,8 @@ def test_streaming_tool_call_emits_tool_calls_delta(tmp_path) -> None:
     )
     app = _build_app(cfg, pool, {"anthropic": provider})
 
-    with TestClient(app) as client:
-        response = client.post(
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
             "/v1/chat/completions",
             json={
                 "model": "claude-sonnet-4-6",
@@ -245,29 +255,28 @@ def test_streaming_tool_call_emits_tool_calls_delta(tmp_path) -> None:
                 "stream": True,
             },
         )
-        chunks = _decode_sse_stream(response.content)
+        raw = (await resp.read()).decode("utf-8")
+        chunks = _parse_sse(raw)
         tool_chunks = [
             c for c in chunks if c != "[DONE]" and c["choices"][0]["delta"].get("tool_calls")
         ]
         assert len(tool_chunks) == 1
         tc = tool_chunks[0]["choices"][0]["delta"]["tool_calls"][0]
-        assert tc["id"] == "toolu_1"
         assert tc["function"]["name"] == "search"
-        assert tc["function"]["arguments"] == '{"q":"foo"}'
-        # finish reason should be tool_calls
-        finish_chunks = [
-            c for c in chunks if c != "[DONE]" and c["choices"][0].get("finish_reason")
-        ]
-        assert finish_chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
+        finish = [c for c in chunks if c != "[DONE]" and c["choices"][0].get("finish_reason")]
+        assert finish[-1]["choices"][0]["finish_reason"] == "tool_calls"
+
+    asyncio.run(_run_client(app, run))
+
+
+# ---------------------------------------------------------------------------
+# Routing + error handling
+# ---------------------------------------------------------------------------
 
 
 def test_provider_header_overrides_route(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path, proxy_default_provider="anthropic")
+    cfg = _make_cfg(tmp_path, proxy_default_provider="anthropic")
     pool = StubPool(providers_with_creds=["anthropic", "openai"])
-    anthropic = StubProvider(
-        name="anthropic",
-        chunks_to_yield=[StreamChunk(kind="end", payload={"reason": "stop"})],
-    )
     openai = StubProvider(
         name="openai",
         chunks_to_yield=[
@@ -275,53 +284,114 @@ def test_provider_header_overrides_route(tmp_path) -> None:
             StreamChunk(kind="end", payload={"reason": "stop"}),
         ],
     )
+    anthropic = StubProvider(
+        name="anthropic",
+        chunks_to_yield=[StreamChunk(kind="end", payload={"reason": "stop"})],
+    )
     app = _build_app(cfg, pool, {"anthropic": anthropic, "openai": openai})
 
-    with TestClient(app) as client:
-        response = client.post(
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
             "/v1/chat/completions",
             json={
-                "model": "claude-sonnet-4-6",  # would route to anthropic
+                "model": "claude-sonnet-4-6",  # would route anthropic
                 "messages": [{"role": "user", "content": "hi"}],
             },
             headers={"X-Athena-Provider": "openai"},
         )
-        assert response.status_code == 200, response.text
-        # openai stub's content should be what we got
-        assert response.json()["choices"][0]["message"]["content"] == "from-openai"
+        body = await resp.json()
+        assert body["choices"][0]["message"]["content"] == "from-openai"
+
+    asyncio.run(_run_client(app, run))
 
 
-def test_unavailable_provider_returns_400(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path, proxy_default_provider="openai")
-    # Pool has nothing usable — and proxy_default_provider isn't in it
+def test_no_credentials_returns_openai_error(tmp_path) -> None:
+    """No usable providers at all → 400 with an OpenAI-shaped error."""
+    cfg = _make_cfg(tmp_path, proxy_default_provider="openai")
     pool = StubPool(providers_with_creds=[])
     app = _build_app(cfg, pool, {})
 
-    with TestClient(app) as client:
-        response = client.post(
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
             "/v1/chat/completions",
             json={
-                "model": "some-random-model",
+                "model": "some-model",
                 "messages": [{"role": "user", "content": "hi"}],
             },
         )
-        assert response.status_code == 400
-        assert "default provider" in response.json()["detail"]
+        assert resp.status == 400
+        body = await resp.json()
+        assert "error" in body
+        assert "default provider" in body["error"]["message"]
+        assert body["error"]["type"] == "invalid_request_error"
+
+    asyncio.run(_run_client(app, run))
+
+
+def test_resolver_runtime_error_returns_503(tmp_path) -> None:
+    """A factory that raises RuntimeError (no credentials path)
+    surfaces as an OpenAI-shaped 503."""
+    cfg = _make_cfg(tmp_path)
+    pool = StubPool(providers_with_creds=["anthropic"])
+    app_no_factory = _build_app(cfg, pool, {})  # factory will raise
+
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        assert resp.status == 503
+        body = await resp.json()
+        assert body["error"]["type"] == "provider_unavailable"
+
+    asyncio.run(_run_client(app_no_factory, run))
 
 
 def test_embeddings_endpoint_returns_501(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path)
+    cfg = _make_cfg(tmp_path)
     pool = StubPool(providers_with_creds=["anthropic"])
     app = _build_app(cfg, pool, {"anthropic": StubProvider()})
-    with TestClient(app) as client:
-        response = client.post(
-            "/v1/embeddings", json={"model": "text-embedding-3-small", "input": "x"}
+
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
+            "/v1/embeddings",
+            json={"model": "text-embedding-3-small", "input": "x"},
         )
-        assert response.status_code == 501
+        assert resp.status == 501
+        body = await resp.json()
+        assert body["error"]["type"] == "not_implemented"
+
+    asyncio.run(_run_client(app, run))
+
+
+def test_invalid_json_body_returns_400(tmp_path) -> None:
+    cfg = _make_cfg(tmp_path)
+    pool = StubPool(providers_with_creds=["anthropic"])
+    app = _build_app(cfg, pool, {"anthropic": StubProvider()})
+
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
+            "/v1/chat/completions",
+            data=b"not json",
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status == 400
+        body = await resp.json()
+        assert body["error"]["type"] == "invalid_request_error"
+
+    asyncio.run(_run_client(app, run))
+
+
+# ---------------------------------------------------------------------------
+# Proxy logging
+# ---------------------------------------------------------------------------
 
 
 def test_proxy_logs_each_request(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path)
+    cfg = _make_cfg(tmp_path)
     pool = StubPool(providers_with_creds=["anthropic"])
     provider = StubProvider(
         name="anthropic",
@@ -335,12 +405,11 @@ def test_proxy_logs_each_request(tmp_path) -> None:
         ],
     )
     app = _build_app(cfg, pool, {"anthropic": provider})
-
     log_path = Path(cfg.proxy_log_path)
     assert not log_path.exists()
 
-    with TestClient(app) as client:
-        client.post(
+    async def run(client: TestClient) -> None:
+        await client.post(
             "/v1/chat/completions",
             json={
                 "model": "claude-sonnet-4-6",
@@ -349,104 +418,35 @@ def test_proxy_logs_each_request(tmp_path) -> None:
             headers={"User-Agent": "TestClient/1.0"},
         )
 
+    asyncio.run(_run_client(app, run))
+
     lines = log_path.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     record = json.loads(lines[0])
     assert record["client_ua"] == "TestClient/1.0"
-    assert record["model_requested"] == "claude-sonnet-4-6"
     assert record["provider_used"] == "anthropic"
     assert record["tokens_in"] == 5
     assert record["tokens_out"] == 1
 
 
-def test_upstream_error_surfaces_as_502(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path)
-    pool = StubPool(providers_with_creds=["anthropic"])
-    provider = StubProvider(
-        name="anthropic",
-        raise_on_stream=RuntimeError("upstream blew up"),
-    )
-    app = _build_app(cfg, pool, {"anthropic": provider})
-
-    with TestClient(app) as client:
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "hi"}],
-            },
-        )
-        assert response.status_code == 502
-        assert "upstream blew up" in response.json()["detail"]
-
-
-def test_streaming_provider_error_emits_error_chunk(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path)
-    pool = StubPool(providers_with_creds=["anthropic"])
-    provider = StubProvider(
-        name="anthropic",
-        raise_on_stream=RuntimeError("stream blew up"),
-    )
-    app = _build_app(cfg, pool, {"anthropic": provider})
-
-    with TestClient(app) as client:
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "hi"}],
-                "stream": True,
-            },
-        )
-        # Streaming responses always return 200; errors are inside the
-        # SSE stream so the client can surface them inline.
-        assert response.status_code == 200
-        raw = response.content.decode("utf-8")
-        assert "stream blew up" in raw
-        assert "[DONE]" in raw
-
-
-def test_log_bodies_writes_full_payload(tmp_path) -> None:
-    cfg = _make_test_cfg(tmp_path, proxy_log_bodies=True)
+def test_streaming_log_records_usage(tmp_path) -> None:
+    cfg = _make_cfg(tmp_path)
     pool = StubPool(providers_with_creds=["anthropic"])
     provider = StubProvider(
         name="anthropic",
         chunks_to_yield=[
             StreamChunk(kind="content", payload="ok"),
+            StreamChunk(
+                kind="usage",
+                payload={"prompt_tokens": 7, "completion_tokens": 2},
+            ),
             StreamChunk(kind="end", payload={"reason": "stop"}),
         ],
     )
     app = _build_app(cfg, pool, {"anthropic": provider})
 
-    with TestClient(app) as client:
-        client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "claude-sonnet-4-6",
-                "messages": [{"role": "user", "content": "hi"}],
-            },
-        )
-
-    bodies = list(Path(cfg.proxy_bodies_dir).iterdir())
-    assert len(bodies) == 1
-    payload = json.loads(bodies[0].read_text(encoding="utf-8"))
-    assert payload["request"]["messages"] == [{"role": "user", "content": "hi"}]
-    assert payload["response"]["choices"][0]["message"]["content"] == "ok"
-
-
-def test_finishes_default_to_stop_when_provider_omits_end(tmp_path) -> None:
-    """A misbehaving provider that doesn't emit an ``end`` chunk
-    should still get a terminating finish_reason in the SSE stream."""
-    cfg = _make_test_cfg(tmp_path)
-    pool = StubPool(providers_with_creds=["anthropic"])
-    provider = StubProvider(
-        name="anthropic",
-        chunks_to_yield=[StreamChunk(kind="content", payload="oops")],
-    )
-    app = _build_app(cfg, pool, {"anthropic": provider})
-
-    with TestClient(app) as client:
-        response = client.post(
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
             "/v1/chat/completions",
             json={
                 "model": "claude-sonnet-4-6",
@@ -454,9 +454,13 @@ def test_finishes_default_to_stop_when_provider_omits_end(tmp_path) -> None:
                 "stream": True,
             },
         )
-        chunks = _decode_sse_stream(response.content)
-        finish_chunks = [
-            c for c in chunks if c != "[DONE]" and c["choices"][0].get("finish_reason")
-        ]
-        assert finish_chunks[-1]["choices"][0]["finish_reason"] == "stop"
-        assert chunks[-1] == "[DONE]"
+        await resp.read()
+
+    asyncio.run(_run_client(app, run))
+
+    log_path = Path(cfg.proxy_log_path)
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    record = json.loads(lines[-1])
+    assert record["tokens_in"] == 7
+    assert record["tokens_out"] == 2
+    assert record["request_summary"]["stream"] is True

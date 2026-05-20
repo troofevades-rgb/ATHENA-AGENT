@@ -82,12 +82,13 @@ gateway = [
     "aiohttp>=3.9",
 ]
 # `athena proxy` — local OpenAI-compatible HTTP endpoint (T3-01).
-# FastAPI + uvicorn aren't pulled in for headless / agent-only
-# installs; users running `athena proxy` add them via the `proxy`
-# extra: `pipx install --force "athena-coder[proxy]"`.
+# Retargeted in T3-01R onto aiohttp (already pulled by the gateway
+# extra) so no new server deps are required for the proxy itself.
+# Kept as a named extra for forward compatibility — installing
+# `[proxy]` ensures aiohttp is present even on headless installs
+# that don't pull `[gateway]`.
 proxy = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.27",
+    "aiohttp>=3.9",
 ]
 # Observability — OpenTelemetry SDK + JSON logging. Optional because
 # the SDK pulls a meaningful chunk of transitive deps (protobuf,
