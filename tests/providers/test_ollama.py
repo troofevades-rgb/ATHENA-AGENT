@@ -238,3 +238,82 @@ def test_parse_tool_calls_returns_unchanged_for_now():
     assert out == "some content"
     assert calls == []
     p.close()
+
+
+# ---------------------------------------------------------------------------
+# T2-08 hotfix: 404 carries Ollama's "model not found" message
+# ---------------------------------------------------------------------------
+
+
+def test_404_model_not_found_message_surfaces(provider: OllamaProvider):
+    """When Ollama returns 404 with its standard
+    {"error": "model 'foo' not found, try pulling it first"} body,
+    the HTTPStatusError message includes that human-readable text
+    instead of the generic 404 line."""
+    import json
+
+    import httpx
+    import respx
+
+    from athena.providers.retry_utils import RetryBudgetExceeded
+
+    provider._retry_max = 0  # don't retry; we want the underlying error
+    body = json.dumps(
+        {"error": "model 'qwen2.5-coder:14b' not found, try pulling it first"}
+    ).encode("utf-8")
+    with respx.mock() as m:
+        m.post("http://test-host.invalid:11434/api/chat").mock(
+            return_value=httpx.Response(404, content=body)
+        )
+        try:
+            list(
+                provider.stream_chat(
+                    model="qwen2.5-coder:14b",
+                    messages=[{"role": "user", "content": "x"}],
+                )
+            )
+            raise AssertionError("expected an HTTPStatusError / RetryBudgetExceeded")
+        except (httpx.HTTPStatusError, RetryBudgetExceeded) as e:
+            assert "model 'qwen2.5-coder:14b' not found" in str(e)
+            assert "try pulling it first" in str(e)
+
+
+def test_500_unwraps_error_field_when_present(provider: OllamaProvider):
+    """Same unwrap logic applies to other 4xx/5xx with the same
+    Ollama error envelope shape."""
+    import httpx
+    import respx
+
+    from athena.providers.retry_utils import RetryBudgetExceeded
+
+    provider._retry_max = 0
+    body = b'{"error": "internal CUDA OOM, retry with smaller batch"}'
+    with respx.mock() as m:
+        m.post("http://test-host.invalid:11434/api/chat").mock(
+            return_value=httpx.Response(500, content=body)
+        )
+        try:
+            list(provider.stream_chat(model="x", messages=[{"role": "user", "content": "y"}]))
+            raise AssertionError("expected HTTPStatusError / RetryBudgetExceeded")
+        except (httpx.HTTPStatusError, RetryBudgetExceeded) as e:
+            assert "internal CUDA OOM" in str(e)
+
+
+def test_404_with_non_json_body_falls_through_to_raw(provider: OllamaProvider):
+    """A 404 with a non-JSON body still surfaces the raw text in the
+    HTTPStatusError message (no crash on the json.loads attempt)."""
+    import httpx
+    import respx
+
+    from athena.providers.retry_utils import RetryBudgetExceeded
+
+    provider._retry_max = 0
+    with respx.mock() as m:
+        m.post("http://test-host.invalid:11434/api/chat").mock(
+            return_value=httpx.Response(404, content=b"raw plain-text 404 body")
+        )
+        try:
+            list(provider.stream_chat(model="x", messages=[{"role": "user", "content": "y"}]))
+            raise AssertionError("expected HTTPStatusError / RetryBudgetExceeded")
+        except (httpx.HTTPStatusError, RetryBudgetExceeded) as e:
+            assert "raw plain-text 404 body" in str(e)

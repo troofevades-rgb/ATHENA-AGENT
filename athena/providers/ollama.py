@@ -28,6 +28,38 @@ from .base import Provider, StreamChunk
 from .retry_utils import with_retry
 
 
+def _raise_ollama_status(response: httpx.Response) -> None:
+    """Like ``response.raise_for_status()`` but reads the response body
+    first so the HTTPStatusError message includes Ollama's own
+    explanation. For a 404 in particular, Ollama returns
+    ``{"error": "model 'foo' not found, try pulling it first"}`` —
+    surfacing that beats the generic
+    ``Client error '404 Not Found' for url ...`` shape that hides
+    the actual reason from the user (T2-08).
+    """
+    if response.status_code < 400:
+        return
+    try:
+        response.read()
+        body = (response.text or "").strip()
+    except Exception:
+        body = ""
+    # Ollama wraps the human-readable text in {"error": "..."}; strip
+    # the wrapper if present so the user sees the bare message.
+    try:
+        parsed = json.loads(body) if body else None
+        if isinstance(parsed, dict) and isinstance(parsed.get("error"), str):
+            body = parsed["error"]
+    except (json.JSONDecodeError, ValueError):
+        pass
+    snippet = body[:500]
+    raise httpx.HTTPStatusError(
+        f"{response.status_code} from {response.request.url}: {snippet}",
+        request=response.request,
+        response=response,
+    )
+
+
 @register_provider
 class OllamaProvider(Provider):
     name = "ollama"
@@ -99,7 +131,7 @@ class OllamaProvider(Provider):
                     r = tmp_stack.enter_context(
                         self._client.stream("POST", f"{self.host}/api/chat", json=payload)
                     )
-                    r.raise_for_status()
+                    _raise_ollama_status(r)
                 except BaseException:
                     tmp_stack.close()
                     raise

@@ -159,13 +159,19 @@ def classify(
 
     if status is not None:
         body = response_text or ""
+        # Trim and snip the body so the classification's reason
+        # carries upstream context for the user (e.g. Ollama's
+        # "model 'foo' not found, try pulling it first") without
+        # blowing up the log line on a multi-MB error page.
+        snippet = body.strip()[:300]
+        detail = f": {snippet}" if snippet else ""
 
         if status == 429:
             suggested = _parse_retry_after(retry_after_header)
             return Classification(
                 action=ErrorAction.RETRY,
                 error_class=ErrorClass.RATE_LIMIT,
-                reason="HTTP 429 Too Many Requests",
+                reason=f"HTTP 429 Too Many Requests{detail}",
                 suggested_backoff_s=suggested,
             )
 
@@ -174,7 +180,7 @@ def classify(
             return Classification(
                 action=ErrorAction.RETRY,
                 error_class=ErrorClass.TIMEOUT,
-                reason="HTTP 408 Request Timeout",
+                reason=f"HTTP 408 Request Timeout{detail}",
                 suggested_backoff_s=suggested,
             )
 
@@ -188,7 +194,7 @@ def classify(
             return Classification(
                 action=ErrorAction.RETRY,
                 error_class=ErrorClass.SERVER_5XX,
-                reason=f"HTTP {status} server error",
+                reason=f"HTTP {status} server error{detail}",
             )
 
         if status == 400 and _matches_context_length(body):
@@ -202,7 +208,7 @@ def classify(
             return Classification(
                 action=ErrorAction.ABORT,
                 error_class=ErrorClass.CLIENT_4XX,
-                reason=f"HTTP {status} (request malformed or unauthorized)",
+                reason=f"HTTP {status} (request malformed or unauthorized){detail}",
             )
 
     # 3. Mid-stream read errors. ReadError is a subclass of NetworkError;
