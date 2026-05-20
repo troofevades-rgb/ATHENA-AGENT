@@ -619,6 +619,10 @@ class Agent:
         # Loop until the model produces a final assistant message with no tool calls.
         max_steps = max(1, int(self.cfg.max_turn_steps))
         for step in range(max_steps):
+            # T2-04: check token watermark before each provider call.
+            # The compressor is a no-op when below threshold; when
+            # above, it replaces self.messages with [head, summary, tail].
+            self._maybe_compress_context()
             # External cancel check (ACP session/cancel sets this).
             # Honored between tool rounds — the in-flight stream
             # itself completes naturally, but no further rounds spawn.
@@ -1055,6 +1059,61 @@ class Agent:
             self.session_store.append_turn(self.session_id, clean)
         except Exception as e:  # pragma: no cover — defensive
             ui.info(f"session append failed (continuing): {e}")
+
+    def _maybe_compress_context(self) -> None:
+        """T2-04: compress ``self.messages`` if total tokens exceed
+        the configured watermark. No-op when below threshold or when
+        the head + tail already span the entire context (nothing in
+        the middle to summarise).
+
+        When compression runs, the synthetic summary message is
+        persisted to the session JSONL so a resumed session sees the
+        same compressed shape.
+        """
+        from .context_compressor import CompressionConfig, compress, should_compress
+
+        cfg = CompressionConfig(
+            model_context_window=self.cfg.context_window,
+            watermark=self.cfg.context_compress_watermark,
+            tail_protection_ratio=self.cfg.tail_protection_ratio,
+            tool_output_prune_tokens=self.cfg.tool_output_prune_tokens,
+            summary_budget_ratio=self.cfg.summary_budget_ratio,
+            summary_budget_cap_tokens=self.cfg.summary_budget_cap_tokens,
+            head_message_indices=1,
+        )
+        if not should_compress(self.messages, cfg):
+            return
+
+        def _summarizer(prompt_messages: list[dict[str, Any]], target_tokens: int) -> str:
+            chunks: list[str] = []
+            for chunk in self.provider.stream_chat(
+                model=self.model,
+                messages=prompt_messages,
+                tools=None,
+                max_tokens=target_tokens,
+                num_ctx=self.cfg.context_window,
+            ):
+                if chunk.kind == "content":
+                    payload = chunk.payload or ""
+                    if isinstance(payload, str):
+                        chunks.append(payload)
+            return "".join(chunks)
+
+        result = compress(self.messages, summarizer=_summarizer, cfg=cfg)
+        if result.middle_message_count == 0:
+            return
+        ui.info(
+            f"context compressed: {result.tokens_before:,} → "
+            f"{result.tokens_after:,} tokens "
+            f"({100 * (1 - result.compression_ratio):.0f}% reduction; "
+            f"{result.middle_message_count} messages folded)"
+        )
+        self.messages = result.new_messages
+        # Persist the synthetic summary (the new messages[1]) so a
+        # resumed session sees the compressed shape rather than
+        # re-replaying the original middle.
+        if len(result.new_messages) > 1:
+            self._persist_message(result.new_messages[1])
 
     # Providers that benefit from Anthropic-style cache_control
     # markers. OpenRouter and Nous-Portal relay the marker upstream
