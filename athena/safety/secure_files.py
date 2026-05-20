@@ -37,24 +37,34 @@ _WINDOWS_REPLACE_BACKOFF_S = 0.005
 
 logger = logging.getLogger(__name__)
 
+# Per-process memo of directories we've already warned about, so a
+# single credential write doesn't print the same mode-warning twice
+# when both the credential-pool ``_save`` and the underlying
+# ``secure_write_text`` walk ``ensure_secure_dir``.
+_warned_wide_dirs: set[str] = set()
+
 
 def ensure_secure_dir(path: Path | str, *, mode: int = 0o700) -> None:
     """Create ``path`` (and parents) at ``mode``.
 
     Existing dirs are not re-chmodded; if the directory exists at a
-    wider mode, emit a warning so the user can audit and ``chmod``
-    themselves rather than us silently mutating filesystem state.
+    wider mode, emit a WARNING once per (process, path) so the user
+    can audit and ``chmod`` themselves rather than us silently
+    mutating filesystem state.
     """
     path = Path(path)
     if path.exists():
         actual = stat.S_IMODE(path.stat().st_mode)
         if actual & 0o077:
-            logger.warning(
-                "Directory %s has mode 0o%o; recommend chmod 0o%o for credential storage",
-                path,
-                actual,
-                mode,
-            )
+            key = str(path.resolve())
+            if key not in _warned_wide_dirs:
+                _warned_wide_dirs.add(key)
+                logger.warning(
+                    "Directory %s has mode 0o%o; recommend chmod 0o%o for credential storage",
+                    path,
+                    actual,
+                    mode,
+                )
         return
     path.mkdir(parents=True, mode=mode, exist_ok=True)
 

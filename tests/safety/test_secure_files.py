@@ -140,6 +140,28 @@ def test_ensure_secure_dir_warns_on_existing_wide_mode(
 
 
 @posix_only
+def test_ensure_secure_dir_dedups_repeated_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The credential-pool _save path calls ensure_secure_dir twice
+    (once explicitly, once via secure_write_text). The warning must
+    fire EXACTLY ONCE per (process, path) — not once per call site."""
+    from athena.safety.secure_files import _warned_wide_dirs
+
+    _warned_wide_dirs.clear()
+    target = tmp_path / "wide2"
+    target.mkdir(mode=0o755)
+    with caplog.at_level("WARNING"):
+        ensure_secure_dir(target)
+        ensure_secure_dir(target)
+        ensure_secure_dir(target)
+    warnings = [r for r in caplog.records if "0o755" in r.message]
+    assert len(warnings) == 1, (
+        f"expected 1 warning, got {len(warnings)}: {[r.message for r in warnings]}"
+    )
+
+
+@posix_only
 def test_secure_write_handles_unwritable_temp(tmp_path: Path) -> None:
     """If we can't create the temp file, raise PermissionError cleanly."""
     target = tmp_path / "creds.txt"
