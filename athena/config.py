@@ -290,6 +290,18 @@ class Config:
     # curator reads these to flag never-used / stale skills as
     # prune candidates; metrics inform, they don't override.
     skill_metrics_enabled: bool = True
+    # T5-02R: local sandbox. Wraps the Bash tool's command in a
+    # bubblewrap (bwrap) jail when enabled: read-only system root,
+    # writable workspace only, no network by default. The
+    # shell_policy denylist still runs FIRST as the security
+    # floor; the sandbox is defense-in-depth on top. Linux-only;
+    # `sandbox_fallback="warn"` lets non-Linux / no-bwrap installs
+    # continue with the policy alone, `"error"` refuses commands.
+    sandbox_enabled: bool = False
+    sandbox_backend: str = "bwrap"
+    sandbox_allow_network: bool = False
+    sandbox_writable_paths: list[str] = field(default_factory=list)
+    sandbox_fallback: str = "warn"  # "warn" | "error"
 
 
 def load_config() -> Config:
