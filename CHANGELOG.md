@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- Error classifier and retry/backoff. `athena.providers.error_classifier.classify(exc, ...)` returns a 5-action `Classification` (`retry` / `rotate_credential` / `fallback_provider` (reserved) / `compress_context` / `abort`) plus an `ErrorClass` for logging (`network`, `server_5xx`, `rate_limit`, `timeout`, `client_4xx`, `context_length`, `stream`, `parse`, `unknown`). Pure function, no I/O (T2-03).
+- `athena.providers.retry_utils.with_retry(operation, ...)` executes recovery: exponential backoff + jitter capped at `max_backoff_seconds`, `Retry-After` header respected (also capped), `on_rotate_credential` / `on_compress_context` callbacks, `RetryBudgetExceeded` on cap (T2-03).
+- Every provider (Anthropic, OpenAI, OpenRouter, Nous, OpenAI-compat, Ollama) wraps its `POST` + `raise-for-status` + rate-limit-header-capture in `with_retry`. The streaming body stays outside the retry boundary (yielded chunks can't be replayed). `ExitStack.pop_all` keeps the open response alive past the retry boundary (T2-03).
+- `CredentialPool.rotate_to_next(provider_name) -> Credential | None` — the pool's contribution to the `on_rotate_credential` callback (T2-03).
+- `max_retries_per_turn` (default 5) and `max_backoff_seconds` (default 30.0) config options (T2-03).
+- `/status` "retries this session" section displays `<provider>: N retries, M aborts` per provider (T2-03).
+- `docs/reference/error-handling.md` documents the taxonomy, priority order, configuration, interrupt propagation, and implementation seam (T2-03).
 - Rate-limit header tracking. `athena.providers.rate_limit_tracker.RateLimitTracker` parses the standard 12-header generic schema (Nous, OpenRouter, OpenAI) and Anthropic's `anthropic-ratelimit-*` schema (ISO-8601 resets normalised to Unix seconds). Per-(provider, credential) trackers stored on each provider; `should_throttle()` decides preemptively, `throttle_seconds()` caps the sleep at 60 s (T2-02).
 - `rate_limit_throttle_threshold` config option (default 0.95). Below the threshold a provider sleeps before the next request rather than waiting to trip 429 (T2-02).
 - `/status` "rate limits" section surfaces `<credential_id>: <tracker.format()>` per provider when state is available (T2-02).
