@@ -279,6 +279,7 @@ _SUBCOMMANDS = {
     "model": "athena.cli.model",
     "train": "athena.cli.train",
     "providers": "athena.cli.providers",
+    "cleanup-blobs": "athena.cli.cleanup_blobs",
     "gateway": "athena.cli.gateway",
     "mcp": "athena.cli.mcp",
     "acp": "athena.cli.acp",
