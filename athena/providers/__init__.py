@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .base import Provider, StreamChunk
+from .base import Capabilities, Provider, StreamChunk
 
 if TYPE_CHECKING:
     pass
@@ -62,6 +62,7 @@ def unregister(name: str) -> None:
 
 
 __all__ = [
+    "Capabilities",
     "Provider",
     "StreamChunk",
     "register_provider",

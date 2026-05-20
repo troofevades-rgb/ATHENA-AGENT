@@ -18,6 +18,7 @@ before yielding.
 
 from __future__ import annotations
 
+import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -38,6 +39,51 @@ class StreamChunk:
     def content(self) -> str:
         """Convenience accessor: empty string for non-content chunks."""
         return self.payload if self.kind == "content" and isinstance(self.payload, str) else ""
+
+
+@dataclasses.dataclass(frozen=True)
+class Capabilities:
+    """Declarative provider manifest (T5-01R).
+
+    Data, never behavior. New capabilities default OFF (opt-in);
+    ``tool_calls`` and ``streaming`` default ON so folding the
+    existing ``supports_tools`` / ``supports_streaming`` methods
+    into delegators reading this manifest is byte-identical with
+    today's behaviour.
+
+    The fields cover the capability axes downstream phases key off:
+
+    - ``tool_calls`` / ``streaming`` — the existing two-field surface
+    - ``vision`` + ``max_image_edge_px`` — multimodal input
+    - ``prompt_caching`` + ``cache_ttls_seconds`` — server-side
+      prefix caches (Anthropic, OpenAI, OpenRouter, Nous)
+    - ``kv_cache_reuse`` — local-machine prefix cache (Ollama)
+    - ``structured_output`` — JSON / strict-schema responses
+    - ``embeddings`` — separate embedding endpoint
+    - ``max_context_tokens`` — hard context limit
+    - ``is_local`` — broker preference signal
+    - ``native_format`` — the request/response shape on the wire
+      (``"openai"``, ``"anthropic"``, ``"ollama"``, ``"google"``)
+    """
+
+    tool_calls: bool = True
+    streaming: bool = True
+    vision: bool = False
+    max_image_edge_px: int | None = None
+    prompt_caching: bool = False
+    cache_ttls_seconds: tuple[int, ...] = ()
+    kv_cache_reuse: bool = False
+    structured_output: bool = False
+    embeddings: bool = False
+    max_context_tokens: int | None = None
+    is_local: bool = False
+    native_format: str = "openai"
+
+    def supports(self, capability: str) -> bool:
+        """``True`` when the named field is truthy. Lets callers
+        check capabilities by name without reflecting on the dataclass
+        fields directly."""
+        return bool(getattr(self, capability, False))
 
 
 class Provider(ABC):
@@ -101,11 +147,37 @@ class Provider(ABC):
             return 0
         return int(len(text.split()) / 0.75) or 1
 
+    # ---- Capability manifest (T5-01R) --------------------------------
+
+    @classmethod
+    def static_capabilities(cls) -> Capabilities:
+        """Class-level maximal capability set, suitable for cross-
+        provider registry queries (``providers_with_capability`` etc.)
+        without instantiation. Override per provider to declare
+        honest capabilities.
+
+        The base default mirrors the historical behaviour of
+        ``supports_tools`` / ``supports_streaming``: both True; every
+        other capability conservatively False."""
+        return Capabilities()
+
+    def capabilities(self, model: str | None = None) -> Capabilities:
+        """This instance's capabilities, optionally refined for a
+        specific ``model``. Defaults to the class baseline; override
+        to refine per-model (e.g. Ollama: vision only for vision
+        models, mirroring how the original ``supports_tools(model)``
+        was already model-aware)."""
+        return type(self).static_capabilities()
+
     def supports_tools(self, model: str) -> bool:
-        return True
+        """Fold into the manifest as a delegator. Signature
+        unchanged; behaviour preserved by the True default on
+        ``Capabilities.tool_calls``."""
+        return self.capabilities(model).tool_calls
 
     def supports_streaming(self, model: str) -> bool:
-        return True
+        """Same fold as ``supports_tools``."""
+        return self.capabilities(model).streaming
 
     # ---- Discovery (Ollama-flavored; safe defaults for hosted providers) ----
 
