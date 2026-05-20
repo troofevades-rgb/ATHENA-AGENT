@@ -47,6 +47,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/migration/sessions_importer.py",  # imports legacy sessions
         "athena/migration/skills_mapper.py",  # one-shot hermes->athena migration
         "athena/plugins/bundled/shell_audit/plugin.py",  # shell audit log (append-only)
+        "athena/proxy/logging.py",  # proxy traffic JSONL append + opt-in bodies (T3-01)
         "athena/plugins/loader.py",  # plugin state file
         "athena/profiles/manager.py",  # atomic profile metadata writes
         "athena/profiles/resolution.py",  # active-profile pointer
