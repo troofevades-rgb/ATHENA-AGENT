@@ -241,6 +241,14 @@ class Config:
     # the raw json.loads error path (useful for debugging upstream
     # model behaviour).
     tool_call_sanitize: bool = True
+    # T2-06: out-of-band tool result storage. When a tool's
+    # stringified output exceeds tool_result_threshold_bytes, the
+    # full output is persisted to a content-addressed blob under
+    # tool_result_storage_path and the agent sees a short reference
+    # handle in conversation history. The agent can read the stored
+    # content later via the read_tool_result tool.
+    tool_result_threshold_bytes: int = 1_000_000
+    tool_result_storage_path: str = "~/.athena/tool_results"
 
 
 def load_config() -> Config:
