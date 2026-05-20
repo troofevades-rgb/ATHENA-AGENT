@@ -17,23 +17,13 @@ from .. import ui
 from ..agent.checkpoints import CheckpointNotFound, InFlightToolCallError
 from . import command
 
-
-def _resolve_conflict_interactive(path, _original, _current) -> str:
-    """File-conflict resolver for /rollback-to. Asks the user
-    once; defaults to skip on bad input."""
-    ui.warn(f"file {path} modified after checkpoint AND modified externally since.")
-    try:
-        ans = input("  (o)verwrite, (s)kip, (d)iff? [s] ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return "skip"
-    if ans.startswith("o"):
-        return "overwrite"
-    if ans.startswith("d"):
-        # Snapshot doesn't expose pre-extract diffs; degrade to skip
-        # with a hint.
-        ui.info("(diff view not available; skipping)")
-        return "skip"
-    return "skip"
+# Per-file conflict prompting is intentionally not wired in T3-03.
+# The safety net is the auto-created pre-rollback checkpoint:
+# CheckpointManager.rollback_to snapshots the current state BEFORE
+# overwriting anything, so any externally-modified files captured
+# in that pre-rollback snapshot can be recovered by rolling forward
+# again. SnapshotStore.restore is all-or-nothing today; a richer
+# per-file diff/prompt flow is a follow-up.
 
 
 @command("checkpoint")
@@ -66,10 +56,7 @@ def cmd_rollback_to(agent, arg: str = "") -> str:
         ui.error("usage: /rollback-to <label-or-id>")
         return ""
     try:
-        cp = mgr.rollback_to(
-            label_or_id,
-            on_file_conflict=_resolve_conflict_interactive,
-        )
+        cp = mgr.rollback_to(label_or_id, on_file_conflict=None)
     except InFlightToolCallError as e:
         ui.error(str(e))
         return ""
