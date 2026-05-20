@@ -39,13 +39,25 @@ def all_commands() -> dict[str, CommandFn]:
 
 # Import command modules so they register
 from . import (
+    clear_cmd,  # noqa: F401
     compact,  # noqa: F401
+    cost_cmd,  # noqa: F401
+    cwd_cmd,  # noqa: F401
+    dump_cmd,  # noqa: F401
     goal,  # noqa: F401
+    help_cmd,  # noqa: F401
+    hooks_cmd,  # noqa: F401
     init,  # noqa: F401
     loop,  # noqa: F401
+    mcp_cmd,  # noqa: F401
     memory_command,  # noqa: F401
+    model_cmd,  # noqa: F401
+    models_cmd,  # noqa: F401
     plan_command,  # noqa: F401
     resume,  # noqa: F401
     review,  # noqa: F401
+    save_cmd,  # noqa: F401
+    status_cmd,  # noqa: F401
     steer,  # noqa: F401
+    tools_cmd,  # noqa: F401
 )
