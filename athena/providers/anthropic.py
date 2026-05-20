@@ -18,6 +18,7 @@ API auth: ``x-api-key`` header + ``anthropic-version`` pin.
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import json
 import logging
@@ -26,6 +27,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from .rate_limit_tracker import RateLimitTracker
+from .retry_utils import with_retry
 
 _logger = logging.getLogger(__name__)
 
@@ -102,6 +104,11 @@ class AnthropicProvider(Provider):
         # has one entry under "default".
         self._rate_limit_state: dict[str, RateLimitTracker] = {}
         self.rate_limit_throttle_threshold: float = 0.95
+        # T2-03: retry budget defaults match the Config defaults
+        # (max_retries_per_turn / max_backoff_seconds). Callers that
+        # want a different policy can override these post-construction.
+        self._retry_max: int = 5
+        self._retry_backoff_s: float = 30.0
 
     # ---- Core stream API ----
 
@@ -129,16 +136,44 @@ class AnthropicProvider(Provider):
         if tools:
             payload["tools"] = self._convert_tools(tools)
 
-        # T2-02: preemptive throttle. If the most recent tracker says
-        # we're near the limit, sleep until the soonest reset (capped
-        # at 60s) before issuing the next request.
-        self._maybe_throttle()
+        # T2-03: wrap the POST + raise-for-status + header-capture in
+        # with_retry so transient 5xx / network / 429 errors recover.
+        # The streaming body itself can't be retried (we'd have to
+        # replay yielded chunks), so the retry boundary is strictly
+        # "open the response and check status." Once we have a healthy
+        # response, the outer ExitStack keeps it open while we yield
+        # from _parse_sse.
+        outer_stack = contextlib.ExitStack()
+        try:
 
-        with self._client.stream("POST", "/messages", json=payload) as r:
-            _raise_with_body(r)
-            # Capture rate-limit headers BEFORE consuming the body.
-            self._capture_rate_limit_headers(r.headers)
-            yield from self._parse_sse(r)
+            def _open_response() -> Any:
+                # T2-02: preemptive throttle. Idempotent; runs every
+                # attempt (each retry may benefit from updated tracker).
+                self._maybe_throttle()
+                tmp_stack = contextlib.ExitStack()
+                try:
+                    r = tmp_stack.enter_context(
+                        self._client.stream("POST", "/messages", json=payload)
+                    )
+                    _raise_with_body(r)
+                    self._capture_rate_limit_headers(r.headers)
+                except BaseException:
+                    tmp_stack.close()
+                    raise
+                # Transfer ownership of the open stream context to
+                # outer_stack so it stays alive past with_retry.
+                outer_stack.push(tmp_stack.pop_all())
+                return r
+
+            response = with_retry(
+                _open_response,
+                max_retries=self._retry_max,
+                max_backoff_s=self._retry_backoff_s,
+                provider_label=self.name,
+            )
+            yield from self._parse_sse(response)
+        finally:
+            outer_stack.close()
 
     def _maybe_throttle(self) -> None:
         """Sleep before the next request if the latest tracker for the

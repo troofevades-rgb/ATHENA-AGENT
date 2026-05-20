@@ -195,13 +195,17 @@ def test_tool_use_block_assembled_from_delta_stream(provider):
 
 
 def test_429_propagates_to_caller(provider):
-    """A 429 response surfaces as httpx.HTTPStatusError — the credential
-    pool (Prompt 8.5) is what catches and retries."""
+    """A 429 response surfaces to the caller. Since T2-03 the
+    provider's stream_chat is wrapped in with_retry; with retries
+    disabled the underlying httpx.HTTPStatusError still propagates."""
+    provider._retry_max = 0  # disable retry for this assertion
     with respx.mock() as m:
         m.post("https://api.anthropic.test/v1/messages").mock(
             return_value=httpx.Response(429, json={"error": "rate limited"})
         )
-        with pytest.raises(httpx.HTTPStatusError):
+        from athena.providers.retry_utils import RetryBudgetExceeded
+
+        with pytest.raises((httpx.HTTPStatusError, RetryBudgetExceeded)):
             list(
                 provider.stream_chat(
                     model="claude-3-5-sonnet",
@@ -441,3 +445,59 @@ def test_no_throttle_when_under_threshold(provider, monkeypatch):
         )
 
     assert sleep_calls == [], f"unexpected sleep calls: {sleep_calls}"
+
+
+# ---------------------------------------------------------------------------
+# T2-03: retry wrapping
+# ---------------------------------------------------------------------------
+
+
+def test_5xx_retries_then_succeeds(provider, monkeypatch):
+    """A 503 followed by a 200 produces a successful stream — the
+    classifier flagged 503 as SERVER_5XX + RETRY, with_retry slept
+    (mocked) and re-called the operation."""
+    monkeypatch.setattr("athena.providers.retry_utils.time.sleep", lambda s: None)
+
+    sample = _sse(
+        {"type": "message_start", "message": {"usage": {}}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "ok"}},
+        {"type": "message_stop"},
+    )
+    with respx.mock() as m:
+        route = m.post("https://api.anthropic.test/v1/messages")
+        route.side_effect = [
+            httpx.Response(503, text="oops"),
+            httpx.Response(200, content=sample),
+        ]
+        chunks = list(
+            provider.stream_chat(
+                model="claude-3-5-sonnet",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+    contents = [c.payload for c in chunks if c.kind == "content"]
+    assert "".join(contents) == "ok"
+
+
+def test_4xx_aborts_without_retry(provider, monkeypatch):
+    """A 401 is classified as CLIENT_4XX + ABORT; with_retry re-raises
+    the original HTTPStatusError without retrying."""
+    call_count = 0
+    original_sleep = __import__("time").sleep
+    monkeypatch.setattr("athena.providers.retry_utils.time.sleep", lambda s: None)
+
+    def _hook(request):
+        nonlocal call_count
+        call_count += 1
+        return httpx.Response(401, text="unauthorized")
+
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_hook)
+        with pytest.raises(httpx.HTTPStatusError):
+            list(
+                provider.stream_chat(
+                    model="claude-3-5-sonnet",
+                    messages=[{"role": "user", "content": "x"}],
+                )
+            )
+    assert call_count == 1  # ABORT means exactly one upstream call
