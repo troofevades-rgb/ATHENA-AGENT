@@ -926,10 +926,27 @@ class Agent:
         args_raw = fn.get("arguments", {})
         # Ollama may give us a dict or a JSON string depending on model
         if isinstance(args_raw, str):
-            try:
-                args = json.loads(args_raw) if args_raw.strip() else {}
-            except json.JSONDecodeError:
+            stripped = args_raw.strip()
+            if not stripped:
                 args = {}
+            else:
+                # T2-05: route through the JSON sanitiser before the
+                # raw json.loads. Recovers smart quotes / single quotes
+                # / trailing commas / unquoted keys without speculating
+                # about missing values. Gated by cfg.tool_call_sanitize.
+                to_parse = stripped
+                if getattr(self.cfg, "tool_call_sanitize", True):
+                    from ..providers.schema_sanitizer import sanitize_tool_call_args
+
+                    sanitized, fixes = sanitize_tool_call_args(stripped, tool_name=name)
+                    if sanitized is not None:
+                        if fixes:
+                            ui.info(f"sanitised tool-call args for {name}: {', '.join(fixes)}")
+                        to_parse = sanitized
+                try:
+                    args = json.loads(to_parse)
+                except json.JSONDecodeError:
+                    args = {}
         else:
             args = args_raw or {}
 
