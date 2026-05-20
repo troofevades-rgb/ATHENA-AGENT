@@ -28,6 +28,42 @@ def set_workspace(path: Path, max_read: int = 256_000) -> None:
     _set_path_security_workspace(_WORKSPACE)
 
 
+def _verify_after_write(p: Path) -> str:
+    """T5-04 post-write verification.
+
+    Returns a one-line tail to append to the tool's return string,
+    or an empty string when verification is off / silent-passing.
+    A failed verification surfaces the rollback hint inline so the
+    model sees it in the tool result.
+
+    Best-effort: any exception inside the verifier becomes a debug
+    log + empty suffix. The write itself is never blocked.
+    """
+    try:
+        from ..config import load_config
+
+        cfg = load_config()
+        if getattr(cfg, "verify_on_write", "diagnose") == "off":
+            return ""
+        from ..verify import VerifiedExecution
+
+        verifier = VerifiedExecution(cfg=cfg, workspace=_WORKSPACE)
+        outcome = verifier.verify_write(p)
+    except Exception:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            "post-write verify failed for %s", p, exc_info=True
+        )
+        return ""
+    # passed → quiet (no noise on the green path), failure / skipped
+    # → surface the full report so the rollback hint reaches the
+    # model.
+    if outcome.outcome == "passed":
+        return ""
+    return "\n" + outcome.report()
+
+
 def _resolve(path: str, *, intent: str) -> Path:
     """Resolve a possibly-relative path against the workspace, then
     validate it via path_security.
@@ -144,7 +180,11 @@ def Write(file_path: str = "", content: str = "", **legacy) -> str:
             f"but failed validation: {lint_err}. "
             "Fix the syntax and re-call Write."
         )
-    return f"{'overwrote' if existed else 'created'} {p} ({len(content)} bytes)"
+    verify_tail = _verify_after_write(p)
+    return (
+        f"{'overwrote' if existed else 'created'} {p} ({len(content)} bytes)"
+        + verify_tail
+    )
 
 
 # ---- Edit (str_replace) -------------------------------------------------
@@ -249,9 +289,11 @@ def Edit(
                 f"but failed validation: {lint_err}. "
                 "Fix the syntax and re-call Edit."
             )
+        verify_tail = _verify_after_write(p)
         return (
             f"edited {p}: replaced 1 occurrence{suffix} "
             f"({len(old_string)} -> {len(new_string)} chars)"
+            + verify_tail
         )
     if count > 1 and not replace_all:
         return (
@@ -275,7 +317,12 @@ def Edit(
             f"but failed validation: {lint_err}. "
             "Fix the syntax and re-call Edit."
         )
-    return f"edited {p}: replaced {replacements} occurrence(s) ({len(old_string)} -> {len(new_string)} chars each)"
+    verify_tail = _verify_after_write(p)
+    return (
+        f"edited {p}: replaced {replacements} occurrence(s) "
+        f"({len(old_string)} -> {len(new_string)} chars each)"
+        + verify_tail
+    )
 
 
 # ---- list_dir (kept for convenience; no Claude Code analogue) -----------

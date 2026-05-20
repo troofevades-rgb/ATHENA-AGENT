@@ -120,6 +120,7 @@ _SUBCOMMANDS = {
     "proxy": "athena.cli.proxy",
     "checkpoint": "athena.cli.checkpoint",
     "audit": "athena.cli.audit",
+    "verify": "athena.cli.verify",
 }
 
 
