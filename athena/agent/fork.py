@@ -164,11 +164,16 @@ def fork(
                 scope_fresh_approvals,
             )
             from ..safety.path_security import set_workspace as set_ps_workspace
+            from ..tools.clarify import in_fork_context
 
             # ContextVars don't propagate across thread boundaries, so the
             # fork sees the default path_security workspace (cwd) unless
             # we re-pin it. Inherit the parent's workspace explicitly.
             set_ps_workspace(child.workspace)
+            # T2-08: tell the clarify tool we're inside a fork so it
+            # AUTO_DENYs instead of blocking on stdin (which the fork
+            # doesn't own anyway).
+            in_fork_context.set(True)
 
             origin_token = set_current_write_origin(write_origin)
             approval_token = set_approval_callback(AUTO_DENY)

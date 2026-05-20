@@ -265,3 +265,38 @@ def test_fork_shares_client_when_auxiliary_false(parent_agent: Agent) -> None:
     assert after > before, (
         "fork(auxiliary_client=False) should have streamed on the parent's provider"
     )
+
+
+# ---------------------------------------------------------------------------
+# T2-08: in_fork_context ContextVar is set inside the fork runner
+# ---------------------------------------------------------------------------
+
+
+def test_fork_sets_in_fork_context_for_clarify(parent_agent: Agent) -> None:
+    """The fork's runner sets athena.tools.clarify.in_fork_context to
+    True before run_until_done, so a clarify call inside the fork
+    sees the fork mode and AUTO_DENYs instead of blocking on stdin."""
+    from athena.tools.clarify import in_fork_context
+
+    captured: dict[str, bool] = {}
+
+    # Patch the ObservingProvider so each call records the value of
+    # in_fork_context at stream_chat time — gives us per-thread proof.
+    original_stream = ObservingProvider.stream_chat
+
+    def _instrumented_stream(self, **kwargs):
+        captured["in_fork"] = in_fork_context.get()
+        return original_stream(self, **kwargs)
+
+    ObservingProvider.stream_chat = _instrumented_stream  # type: ignore[method-assign]
+    try:
+        # Parent is foreground -> in_fork_context is False here.
+        assert in_fork_context.get() is False
+        parent_agent.fork(enabled_toolsets=["core"], system_addendum="")
+    finally:
+        ObservingProvider.stream_chat = original_stream  # type: ignore[method-assign]
+
+    assert captured.get("in_fork") is True, (
+        "fork runner did not set in_fork_context to True; clarify would "
+        "block on stdin from inside a background fork"
+    )
