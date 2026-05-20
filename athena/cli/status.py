@@ -97,6 +97,14 @@ def render_status(snapshot: dict[str, Any]) -> str:
             key=lambda kv: -int(kv[1]),
         ):
             lines.append(f"  {tool:<20} {count:>4}")
+
+    # T2-02: rate-limit state per credential.
+    rate_limits = snapshot.get("rate_limits") or {}
+    if rate_limits:
+        lines.append("")
+        lines.append("rate limits:")
+        for cred_id, formatted in rate_limits.items():
+            lines.append(f"  {cred_id}: {formatted}")
     return "\n".join(lines)
 
 
