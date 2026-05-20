@@ -10,6 +10,7 @@ from . import (
     ask,  # AskUserQuestion
     file_ops,  # Read, Write, Edit, list_dir
     memory_tools,  # write_memory, list_memories, delete_memory
+    patch_apply,  # patch_apply (T2-07)
     plan,  # ExitPlanMode, EnterPlanMode
     read_tool_result,  # read_tool_result (T2-06)
     recall_tools,  # search_sessions
