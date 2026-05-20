@@ -155,6 +155,12 @@ def _slash_status(agent: Agent, arg: str) -> None:
         cache_strategy=getattr(agent.cfg, "cache_strategy", None),
         prompt_cache_ttl=getattr(agent.cfg, "prompt_cache_ttl", None),
     )
+    # T2-02: rate-limit state per credential.
+    rl_getter = getattr(agent.provider, "get_rate_limit_state", None)
+    if callable(rl_getter):
+        snapshot["rate_limits"] = {
+            cred_id: tracker.format() for cred_id, tracker in rl_getter().items()
+        }
     ui.console.print(render_status(snapshot))
 
 
