@@ -284,6 +284,12 @@ class Config:
     mcp_sse_port: int = 8765
     mcp_log_path: str = "~/.athena/mcp.jsonl"
     mcp_allow_write: bool = False
+    # T3-06R: per-skill usage metrics. When True (default), each
+    # disclosure of a skill body via skill_view / load_body records
+    # one JSONL line at <profile_dir>/skill_metrics.jsonl. The
+    # curator reads these to flag never-used / stale skills as
+    # prune candidates; metrics inform, they don't override.
+    skill_metrics_enabled: bool = True
 
 
 def load_config() -> Config:

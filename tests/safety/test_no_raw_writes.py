@@ -59,6 +59,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/sessions/reindex.py",  # session index rebuild
         "athena/sessions/store.py",  # session meta writes
         "athena/skills/archive.py",  # invoked by skill_delete (audited)
+        "athena/skills/metrics.py",  # T3-06R per-skill metrics JSONL (operational data, not user content)
         "athena/skills/manager.py",  # the snapshot site
         "athena/skills/pin.py",  # invoked by skill_pin (foreground-only)
         "athena/skills/state_machine.py",  # skill state transitions
