@@ -30,6 +30,7 @@ def write_run(
     dry_run: bool = False,
     logs_root: Path | None = None,
     drift: dict | None = None,
+    usage_metrics: dict | None = None,
 ) -> dict:
     """Write run.json + REPORT.md and return the run summary dict.
 
@@ -76,6 +77,12 @@ def write_run(
         },
         "report_path": str(run_dir / "REPORT.md"),
     }
+    if usage_metrics is not None:
+        # T3-06R: per-skill usage signal collected alongside the
+        # curator's decisions. Shape: {"top": [...], "never_used":
+        # [...], "stale_30": [...]}, each entry a dict with name +
+        # views + last_used_at.
+        summary["usage"] = usage_metrics
 
     (run_dir / "run.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     (run_dir / "REPORT.md").write_text(_render_markdown(summary), encoding="utf-8")
@@ -124,6 +131,35 @@ def _render_markdown(summary: dict) -> str:
         for umbrella, absorbed in sorted(absorptions.items()):
             for name in sorted(absorbed):
                 lines.append(f"- `{name}` → `{umbrella}`")
+
+    usage = summary.get("usage") or {}
+    if usage:
+        lines.append("")
+        lines.append("## Per-skill usage (T3-06R)")
+        lines.append(
+            "Usage signal informs the decisions above; it does not override the hard rules."
+        )
+        top = usage.get("top") or []
+        never = usage.get("never_used") or []
+        stale_30 = usage.get("stale_30") or []
+        if top:
+            lines.append("")
+            lines.append("### Most-viewed")
+            for row in top:
+                lines.append(
+                    f"- `{row.get('name')}`: {row.get('views', 0)} views, "
+                    f"last used {row.get('last_used_at') or 'never'}"
+                )
+        if never:
+            lines.append("")
+            lines.append(f"### Never viewed ({len(never)})")
+            for n in never:
+                lines.append(f"- `{n}`")
+        if stale_30:
+            lines.append("")
+            lines.append(f"### Stale > 30 days ({len(stale_30)})")
+            for row in stale_30:
+                lines.append(f"- `{row.get('name')}` (last used {row.get('last_used_at')})")
 
     drift = summary.get("drift") or {}
     if any(drift.values()):

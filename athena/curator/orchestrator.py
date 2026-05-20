@@ -77,6 +77,15 @@ def maybe_run_curator(
     if dry_run:
         addendum = prompts.DRY_RUN_BANNER + addendum
 
+    # T3-06R: append a per-skill usage snapshot so the fork's model
+    # can weight never-used / stale skills more aggressively. The
+    # signal informs the curator's existing rules; the hard rules
+    # (untouchable write_origin=foreground / pinned / migration)
+    # still override.
+    usage_section = _build_usage_section_for_prompt(agent)
+    if usage_section:
+        addendum = addendum + "\n\n" + usage_section
+
     # Snapshot the skill landscape before the fork so reconciliation
     # (Retrofit #5) can diff against the post-fork state. On a dry-run
     # we skip the snapshot — nothing should change on disk anyway, and
@@ -162,6 +171,7 @@ def maybe_run_curator(
     # Reports come from a separate module — keep this orchestrator focused.
     from . import reports
 
+    usage_metrics = _gather_usage_metrics_for_report(agent)
     summary = reports.write_run(
         agent,
         result,
@@ -169,6 +179,7 @@ def maybe_run_curator(
         dry_run=dry_run,
         logs_root=_logs_root_for(agent),
         drift=drift,
+        usage_metrics=usage_metrics,
     )
 
     # Persist a one-line human summary + the report path so the next
@@ -235,3 +246,120 @@ def _format_one_line_summary(summary: Any) -> str | None:
     if isinstance(runs, list):
         return f"{len(runs)} decision(s)"
     return None
+
+
+def _gather_usage_metrics_for_report(agent: Any) -> dict | None:
+    """T3-06R: produce the {"top", "never_used", "stale_30"} dict
+    that reports.write_run surfaces in REPORT.md / run.json.
+
+    Returns ``None`` when metrics aren't enabled or the file can't
+    be read. The report path stays clean in those cases (skipping
+    the Usage section entirely)."""
+    from ..config import profile_dir as _profile_dir
+
+    try:
+        from ..skills.discovery import discover_skills
+        from ..skills.metrics import SkillMetricsStore, metrics_path
+    except Exception:  # noqa: BLE001
+        return None
+
+    cfg = getattr(agent, "cfg", None)
+    profile = getattr(cfg, "profile", None) or "default"
+    if not getattr(cfg, "skill_metrics_enabled", True):
+        return None
+    try:
+        store = SkillMetricsStore(metrics_path(_profile_dir(profile)))
+        all_metrics = store.all()
+        catalogue = list(discover_skills(getattr(agent, "workspace", None)).keys())
+    except Exception:  # noqa: BLE001
+        return None
+
+    if not (all_metrics or catalogue):
+        return None
+
+    top = sorted(all_metrics.values(), key=lambda m: m.views, reverse=True)[:10]
+    never = [n for n in catalogue if n not in all_metrics or all_metrics[n].views == 0]
+    stale_30 = [
+        m for m in all_metrics.values() if m.days_stale() is not None and m.days_stale() > 30
+    ]
+    return {
+        "top": [
+            {
+                "name": m.name,
+                "views": m.views,
+                "last_used_at": m.last_used_at,
+                "sessions_used_in": m.sessions_used_in,
+            }
+            for m in top
+        ],
+        "never_used": never,
+        "stale_30": [
+            {"name": m.name, "last_used_at": m.last_used_at, "views": m.views} for m in stale_30
+        ],
+    }
+
+
+def _build_usage_section_for_prompt(agent: Any) -> str:
+    """T3-06R: synthesise a "Recent usage signal" section the
+    curator fork's model sees. Best-effort: returns an empty string
+    when metrics aren't available, when the file is unreadable, or
+    when no skill has any recorded view (a fresh install).
+    """
+    from ..config import profile_dir as _profile_dir
+
+    try:
+        from ..skills.discovery import discover_skills
+        from ..skills.metrics import SkillMetricsStore, metrics_path
+    except Exception:  # noqa: BLE001
+        return ""
+
+    cfg = getattr(agent, "cfg", None)
+    profile = getattr(cfg, "profile", None) or "default"
+    if not getattr(cfg, "skill_metrics_enabled", True):
+        return ""
+    pdir = _profile_dir(profile)
+    try:
+        store = SkillMetricsStore(metrics_path(pdir))
+        all_metrics = store.all()
+    except Exception:  # noqa: BLE001
+        return ""
+
+    try:
+        catalogue = list(discover_skills(getattr(agent, "workspace", None)).keys())
+    except Exception:  # noqa: BLE001
+        catalogue = []
+
+    never = [n for n in catalogue if n not in all_metrics or all_metrics[n].views == 0]
+    stale_30 = [
+        m.name for m in all_metrics.values() if (m.days_stale() is not None and m.days_stale() > 30)
+    ]
+    top = sorted(all_metrics.values(), key=lambda m: m.views, reverse=True)[:10]
+
+    if not (never or stale_30 or top):
+        return ""
+
+    lines = ["## Recent usage signal (T3-06R)"]
+    lines.append(
+        "These usage numbers are *informational* — they refine your "
+        "decisions but don't override the hard rules above. A "
+        "never-used / long-stale skill is a stronger prune candidate; "
+        "a frequently-used skill is protected."
+    )
+    if top:
+        lines.append("")
+        lines.append("Most-viewed (last 30 days included):")
+        for m in top:
+            lines.append(f"  - {m.name}: {m.views} views, last used {m.last_used_at}")
+    if never:
+        lines.append("")
+        lines.append(f"Never viewed ({len(never)} skill(s)):")
+        for n in never[:20]:
+            lines.append(f"  - {n}")
+        if len(never) > 20:
+            lines.append(f"  ... and {len(never) - 20} more")
+    if stale_30:
+        lines.append("")
+        lines.append(f"Stale > 30 days ({len(stale_30)} skill(s)):")
+        for n in stale_30[:20]:
+            lines.append(f"  - {n}")
+    return "\n".join(lines)
