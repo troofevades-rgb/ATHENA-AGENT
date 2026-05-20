@@ -305,11 +305,19 @@ def skill_write_file(
 
 
 def skill_view(name: str, workspace: Path | None = None) -> str | None:
-    """Return the full SKILL.md text (frontmatter + body) for ``name``."""
+    """Return the full SKILL.md text (frontmatter + body) for ``name``.
+
+    Records a view on the active SkillMetricsStore (T3-06R) when one
+    is registered. The hook fires only on successful reads — a
+    missing-skill miss doesn't count as a view."""
     skill_dir = _existing(name, workspace)
     if skill_dir is None:
         return None
-    return (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    from .metrics import record_view_active
+
+    record_view_active(name)
+    return text
 
 
 # -- internal helpers ----------------------------------------------------
