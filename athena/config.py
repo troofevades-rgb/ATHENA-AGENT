@@ -257,6 +257,23 @@ class Config:
     # alongside the numbered options.
     clarify_default_timeout_seconds: int = 300
     clarify_allow_freeform: bool = False
+    # T3-01: athena proxy — local OpenAI-compatible HTTP endpoint.
+    # `proxy_default_provider` is the provider used when neither
+    # X-Athena-Provider nor the model-name match resolves a provider.
+    # `proxy_bind_host` defaults to loopback; --bind-public on the CLI
+    # is required to bind 0.0.0.0 (defense-in-depth: the proxy
+    # forwards using your API keys). `proxy_log_path` /
+    # `proxy_bodies_dir` are the summary JSONL and the optional
+    # full-payload sidecar locations; `proxy_log_bodies` opt-ins
+    # to the latter for deep debugging.
+    proxy_default_provider: str = "anthropic"
+    proxy_bind_host: str = "127.0.0.1"
+    proxy_bind_port: int = 11434
+    proxy_require_auth: bool = False
+    proxy_log_path: str = "~/.athena/proxy.jsonl"
+    proxy_log_bodies: bool = False
+    proxy_bodies_dir: str = "~/.athena/proxy_bodies"
+    proxy_no_translate: bool = False
 
 
 def load_config() -> Config:
