@@ -90,6 +90,16 @@ def test_full_rollback_cycle(setup, monkeypatch) -> None:
 
     file_ops.set_workspace(workspace, max_read=1_000_000)
 
+    # T5-04: the Write tool now invokes the verify hook, which
+    # captures a pre-write checkpoint via the active manager
+    # (resetting the tracked-files set). This test is about the
+    # manual /checkpoint + /rollback-to slash flow, not the
+    # verify wiring — disable verify so the assertions on
+    # _tracked_modified_files reflect only the Write's track call.
+    monkeypatch.setattr(
+        "athena.tools.file_ops._verify_after_write", lambda p: ""
+    )
+
     # ---- Mutate a file via the real Write tool ----
     data_path = workspace / "data.txt"
     data_path.write_text("version A", encoding="utf-8")

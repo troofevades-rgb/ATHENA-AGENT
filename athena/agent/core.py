@@ -484,6 +484,18 @@ class Agent:
         # Build initial system message
         self.messages.append({"role": "system", "content": self._build_system()})
 
+        # T5-06: cross-session prompt cache. Best-effort: a lookup
+        # failure or absent provider must never block session
+        # start. Records on miss so the next session in this
+        # workspace can hit. Reuse mechanics (server cache /
+        # KV reuse) are the provider/backend's job — the index
+        # is athena's observation surface.
+        self.cross_session_cache_entry = None
+        try:
+            self._init_cross_session_cache()
+        except Exception:  # noqa: BLE001
+            logger.debug("cross-session cache init failed", exc_info=True)
+
     def _build_plugin_hooks(self) -> HookDispatcher:
         """Discover + load enabled plugins. Best-effort; a load failure must
         never break agent startup, so the result on error is an empty
@@ -538,6 +550,89 @@ class Agent:
             ).start()
         except Exception as e:
             ui.info(f"curator could not start: {e}")
+
+    def _init_cross_session_cache(self) -> None:
+        """T5-06 — at session start, look up the cross-session
+        cache for the current system prefix; record on miss so a
+        future session in this workspace can hit.
+
+        Reuse mechanics are the provider/backend's job; this is
+        the index half. ``cross_session_cache_entry`` is set to
+        the live :class:`CacheEntry` on hit, None otherwise.
+        """
+        if not getattr(self.cfg, "cross_session_cache_enabled", True):
+            return
+        from ..cache import CrossSessionCache
+
+        provider_name = getattr(self.provider, "name", "")
+        if not provider_name:
+            return
+
+        idx_path = getattr(self.cfg, "cache_index_path", None)
+        if not idx_path:
+            from ..config import profile_dir as _pd
+
+            profile = self.cfg.profile or "default"
+            idx_path = _pd(profile) / "cache_index.json"
+
+        cache = CrossSessionCache(index_path=Path(str(idx_path)), cfg=self.cfg)
+        plan = cache.caching_plan(provider_name)
+        if plan.mode == "none":
+            return
+
+        # The "stable prefix" for cache-key purposes is the
+        # initial system message bytes. Pinned skills + project
+        # context + memory index are already folded into it by
+        # _build_system, so a single hash captures the whole
+        # stable layer.
+        system_msg = self.messages[0]
+        prefix_text = system_msg.get("content", "")
+        if not isinstance(prefix_text, str) or not prefix_text:
+            return
+
+        workspace = str(self.workspace)
+        hit = cache.lookup(
+            workspace=workspace,
+            prefix_text=prefix_text,
+            provider=provider_name,
+        )
+        if hit is not None:
+            self.cross_session_cache_entry = hit
+            import logging as _logging
+
+            _logging.getLogger(__name__).info(
+                "cross-session cache HIT for %s/%s (mode=%s, age=%ds)",
+                workspace,
+                provider_name,
+                plan.mode,
+                int(time.time() - hit.created_at),
+            )
+            return
+
+        # Miss → record the new entry. provider_cache_id is None
+        # because the provider's server-side cache id (if any)
+        # isn't observable from athena's side — that's the
+        # backend's bookkeeping; what we record here is the FACT
+        # that this prefix was sent at this time so a fresh
+        # next-session can deduce reuse from the matching hash.
+        ttl_s = plan.ttl_s or 3600  # kv_reuse has no TTL; pick 1h
+        new_entry = cache.record(
+            workspace=workspace,
+            prefix_text=prefix_text,
+            provider=provider_name,
+            provider_cache_id=None,
+            ttl_s=ttl_s,
+        )
+        self.cross_session_cache_entry = new_entry
+        import logging as _logging
+
+        _logging.getLogger(__name__).info(
+            "cross-session cache MISS for %s/%s — recorded (mode=%s, ttl=%ds)",
+            workspace,
+            provider_name,
+            plan.mode,
+            ttl_s,
+        )
 
     def _build_system(self) -> str:
         # Modelfile SYSTEM (persona); Ollama drops it when we send our own
