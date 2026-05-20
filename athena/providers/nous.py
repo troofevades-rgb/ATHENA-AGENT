@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import register_provider
+from .base import Capabilities
 from .openai import OpenAICompatibleProvider
 
 _DEFAULT_BASE_URL = "https://inference-api.nousresearch.com/v1"
@@ -21,6 +22,21 @@ _DEFAULT_BASE_URL = "https://inference-api.nousresearch.com/v1"
 class NousProvider(OpenAICompatibleProvider):
     name = "nous"
     requires_api_key = True
+
+    @classmethod
+    def static_capabilities(cls) -> Capabilities:
+        """Nous Portal: tool-calls + streaming + prompt caching
+        (compatible with the T2-01 system_and_3 cache strategy).
+        Vision absent; embeddings absent on the portal surface."""
+        return Capabilities(
+            tool_calls=True,
+            streaming=True,
+            prompt_caching=True,
+            cache_ttls_seconds=(),
+            structured_output=True,
+            is_local=False,
+            native_format="openai",
+        )
 
     def __init__(
         self,

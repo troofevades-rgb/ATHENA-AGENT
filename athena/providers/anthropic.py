@@ -47,7 +47,7 @@ def _synth_tool_id() -> str:
 import httpx
 
 from . import register_provider
-from .base import Provider, StreamChunk
+from .base import Capabilities, Provider, StreamChunk
 
 _DEFAULT_VERSION = "2023-06-01"
 _DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
@@ -77,6 +77,25 @@ def _raise_with_body(response: httpx.Response) -> None:
 class AnthropicProvider(Provider):
     name = "anthropic"
     requires_api_key = True
+
+    @classmethod
+    def static_capabilities(cls) -> Capabilities:
+        """Anthropic Messages API: vision (1568px long-edge cap),
+        prompt caching with 5m + 1h TTLs (matches the T2-01 cache
+        strategy ``"system_and_3"``), structured output, 200k
+        context. ``native_format="anthropic"``."""
+        return Capabilities(
+            tool_calls=True,
+            streaming=True,
+            vision=True,
+            max_image_edge_px=1568,
+            prompt_caching=True,
+            cache_ttls_seconds=(300, 3600),
+            structured_output=True,
+            max_context_tokens=200_000,
+            is_local=False,
+            native_format="anthropic",
+        )
 
     def __init__(
         self,

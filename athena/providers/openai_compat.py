@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import register_provider
+from .base import Capabilities
 from .openai import OpenAICompatibleProvider
 
 
@@ -23,6 +24,21 @@ from .openai import OpenAICompatibleProvider
 class OpenAICompatProvider(OpenAICompatibleProvider):
     name = "openai_compat"
     requires_api_key = False  # local servers often don't require one
+
+    @classmethod
+    def static_capabilities(cls) -> Capabilities:
+        """Conservative — the backend is host-defined (vLLM,
+        llama.cpp, etc.). Claim only what's universally true for
+        the OpenAI-compatible /v1/chat/completions surface: tool
+        calls + streaming. Vision, embeddings, caching are
+        host-specific; leave them off so the broker / queries
+        don't over-promise."""
+        return Capabilities(
+            tool_calls=True,
+            streaming=True,
+            is_local=False,  # host-configured; could be local or remote
+            native_format="openai",
+        )
 
     def __init__(
         self,

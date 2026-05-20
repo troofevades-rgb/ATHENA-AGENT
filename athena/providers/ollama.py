@@ -17,6 +17,7 @@ fight with the agent's prompt assembly.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import json
 from collections.abc import Iterator
 from typing import Any
@@ -24,8 +25,22 @@ from typing import Any
 import httpx
 
 from . import register_provider
-from .base import Provider, StreamChunk
+from .base import Capabilities, Provider, StreamChunk
 from .retry_utils import with_retry
+
+# Substring patterns for known vision-capable Ollama model tags.
+# Matching is case-insensitive; users typically pull the tag
+# (``llava:13b`` etc.).
+_VISION_MODELS = (
+    "llava",
+    "llama3.2-vision",
+    "llama-3.2-vision",
+    "bakllava",
+    "moondream",
+    "minicpm-v",
+    "qwen2-vl",
+    "qwen2.5-vl",
+)
 
 
 def _raise_ollama_status(response: httpx.Response) -> None:
@@ -64,6 +79,32 @@ def _raise_ollama_status(response: httpx.Response) -> None:
 class OllamaProvider(Provider):
     name = "ollama"
     requires_api_key = False
+
+    @classmethod
+    def static_capabilities(cls) -> Capabilities:
+        """Maximal Ollama set: SOME model has vision; the
+        per-model :meth:`capabilities` narrows that. Local daemon →
+        ``is_local=True`` (T5-05 broker preference) and
+        ``kv_cache_reuse=True`` (T5-06 prefix-cache key). No
+        server-side prompt cache."""
+        return Capabilities(
+            tool_calls=True,
+            streaming=True,
+            vision=True,
+            kv_cache_reuse=True,
+            structured_output=True,
+            embeddings=True,
+            is_local=True,
+            native_format="ollama",
+        )
+
+    def capabilities(self, model: str | None = None) -> Capabilities:
+        base = type(self).static_capabilities()
+        if model is None:
+            return base
+        lower = model.lower()
+        has_vision = any(v in lower for v in _VISION_MODELS)
+        return dataclasses.replace(base, vision=has_vision)
 
     def __init__(
         self,

@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 
 from . import register_provider
-from .base import Provider, StreamChunk
+from .base import Capabilities, Provider, StreamChunk
 from .rate_limit_tracker import RateLimitTracker
 from .retry_utils import with_retry
 
@@ -320,3 +320,22 @@ class OpenAICompatibleProvider(Provider):
 @register_provider
 class OpenAIProvider(OpenAICompatibleProvider):
     name = "openai"
+
+    @classmethod
+    def static_capabilities(cls) -> Capabilities:
+        """GPT-4o family: vision, embeddings (separate endpoint),
+        prompt caching (automatic since 2024-10), structured output
+        (JSON / strict schema), 128k context."""
+        return Capabilities(
+            tool_calls=True,
+            streaming=True,
+            vision=True,
+            max_image_edge_px=2048,
+            prompt_caching=True,
+            cache_ttls_seconds=(),  # OpenAI cache TTL is implicit ~5min
+            structured_output=True,
+            embeddings=True,
+            max_context_tokens=128_000,
+            is_local=False,
+            native_format="openai",
+        )

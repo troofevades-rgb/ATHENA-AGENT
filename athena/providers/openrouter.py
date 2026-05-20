@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import register_provider
+from .base import Capabilities
 from .openai import OpenAICompatibleProvider
 
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
@@ -31,6 +32,26 @@ _DEFAULT_TITLE = "athena"
 class OpenRouterProvider(OpenAICompatibleProvider):
     name = "openrouter"
     requires_api_key = True
+
+    @classmethod
+    def static_capabilities(cls) -> Capabilities:
+        """Broad multiplexer over many upstreams — claim the union
+        of common capabilities. Vision + prompt-caching depend on
+        which upstream is targeted; we declare the maximal set so
+        cross-provider queries (``providers_with_capability("vision")``)
+        include OpenRouter. The actual usable surface depends on the
+        ``vendor/model`` the caller picks."""
+        return Capabilities(
+            tool_calls=True,
+            streaming=True,
+            vision=True,
+            prompt_caching=True,  # OR passes through underlying caches
+            cache_ttls_seconds=(),
+            structured_output=True,
+            max_context_tokens=200_000,
+            is_local=False,
+            native_format="openai",
+        )
 
     def __init__(
         self,

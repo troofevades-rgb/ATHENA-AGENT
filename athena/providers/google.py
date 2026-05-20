@@ -24,7 +24,7 @@ from typing import Any
 import httpx
 
 from . import register_provider
-from .base import Provider, StreamChunk
+from .base import Capabilities, Provider, StreamChunk
 
 _DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -51,6 +51,23 @@ def _raise_with_body(response: httpx.Response) -> None:
 class GoogleProvider(Provider):
     name = "google"
     requires_api_key = True
+
+    @classmethod
+    def static_capabilities(cls) -> Capabilities:
+        """Gemini family: vision, structured output, 1M context on
+        2.5-pro. No native prompt-caching surface (the API uses
+        cached_content but exposes it as a different endpoint;
+        treated as off until athena wires it)."""
+        return Capabilities(
+            tool_calls=True,
+            streaming=True,
+            vision=True,
+            max_image_edge_px=3072,
+            structured_output=True,
+            max_context_tokens=1_000_000,
+            is_local=False,
+            native_format="google",
+        )
 
     def __init__(
         self,
