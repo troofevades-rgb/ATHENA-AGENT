@@ -325,6 +325,15 @@ class Agent:
         # Configure tools with workspace
         tools.file_ops.set_workspace(self.workspace, max_read=cfg.max_file_read)
         tools.shell.set_max_output(cfg.max_bash_output)
+        # T2-06: out-of-band storage for large tool outputs. Each
+        # Agent owns one ToolResultStorage; the read_tool_result tool
+        # fetches it via get_current_agent() at call time.
+        from ..tools.tool_result_storage import ToolResultStorage
+
+        self.tool_result_storage = ToolResultStorage(
+            Path(getattr(cfg, "tool_result_storage_path", "~/.athena/tool_results")).expanduser(),
+            session_id="pending",  # rebound below once session_id is allocated
+        )
         # Load hooks from user + workspace settings.json
         hooks.load_hooks(self.workspace)
         # Session lineage. Three modes:
@@ -400,6 +409,10 @@ class Agent:
                 ui.warn(f"session store unavailable: {e}")
                 self.session_store = None
                 self.session_id = None
+        # T2-06: rebind tool_result_storage's session_id now that we
+        # know it (storage was eagerly created earlier with "pending"
+        # before the session_id allocation flow ran).
+        self.tool_result_storage.session_id = self.session_id or "no-session"
         # Run lifecycle transitions + (gated) curator at real session starts.
         # Forks skip both: session_store is inherited from parent, parent
         # already ran them, and a fork doing it again would race.
@@ -1018,7 +1031,32 @@ class Agent:
         # Plugin observation; cannot affect control flow.
         self.plugin_hooks.post_tool_call(name, args, result)
 
+        # T2-06: out-of-band storage for large tool outputs. The
+        # original `result` is still passed to the hooks above (so
+        # observers see the raw text); only the message stored in
+        # conversation history is replaced with the handle.
+        result = self._maybe_store_tool_result(name, result)
         self._record_tool_result(call, name, result)
+
+    def _maybe_store_tool_result(self, tool_name: str, result: str) -> str:
+        """T2-06: if the tool result exceeds the configured threshold,
+        persist it to a content-addressed blob and return the short
+        reference handle. Below threshold passes through unchanged.
+        """
+        storage = getattr(self, "tool_result_storage", None)
+        if storage is None:
+            return result
+        threshold = getattr(self.cfg, "tool_result_threshold_bytes", 1_000_000)
+        if not isinstance(result, str):
+            return result
+        from ..tools.tool_result_storage import maybe_store_result
+
+        return maybe_store_result(
+            content=result,
+            tool_name=tool_name,
+            threshold_bytes=threshold,
+            storage=storage,
+        )
 
     def _preview_write(self, args: dict[str, Any]) -> None:
         # Accept both Claude-Code-style file_path/content and athena-style path/content
