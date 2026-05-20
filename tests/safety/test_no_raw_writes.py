@@ -29,6 +29,7 @@ ATHENA_ROOT = REPO_ROOT / "athena"
 ALLOWLIST: frozenset[str] = frozenset(
     {
         "athena/__main__.py",  # CLI entry; doesn't mutate user content
+        "athena/agent/checkpoints.py",  # rollback marker JSONL append + audit log append (T3-03)
         "athena/agent/core.py",  # status snapshot writer (atomic JSON view)
         "athena/cli/train.py",  # trainer dumps datasets to disk
         "athena/config.py",  # atomic config writes
