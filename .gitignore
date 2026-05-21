@@ -51,3 +51,11 @@ stress-home/
 # them in would just be churn on every Pillow upgrade.
 tests/vision/fixtures/*.jpg
 tests/vision/fixtures/*.png
+
+# T4-02 video fixtures — synthesised lazily by
+# tests/video/fixtures/__init__.py when ffmpeg is available
+# (consumer tests skip cleanly when it isn't). Synthesised from
+# ffmpeg's deterministic testsrc filter — same reproducibility
+# story as the vision fixtures.
+tests/video/fixtures/*.mp4
+tests/video/fixtures/*.mov
