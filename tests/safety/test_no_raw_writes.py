@@ -55,6 +55,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/videogen/backends/stub_local.py",  # T6-05 stub backend writes a placeholder MP4 to the outputs dir (synthetic; same provenance trail as a real backend's fetch())
         "athena/update/apply.py",  # T6-07 update_state.json — machine-managed prior-version record for --rollback (operational metadata, not user content)
         "athena/computer/tools.py",  # T6-04.4 follow-up — screenshots written to <profile_dir>/screenshots/<ts>-<sha8>.bmp instead of inlined as base64 (the original inline path blew local model context windows; write-to-disk is the right shape)
+        "athena/vision/hashlog.py",  # T4-01.2 vision_audit.jsonl — append-only provenance log over every image vision_analyze reads (mirrors computer/audit.py shape)
         "athena/mcp/differentiated.py",  # T5-05.3 MCP verified_write — routed through path_security + VerifiedExecution (verified writes are the model the test is protecting)
         "athena/mcp/request_log.py",  # per-request MCP JSONL append (T3-02 audit)
         "athena/plugins/bundled/shell_audit/plugin.py",  # shell audit log (append-only)
