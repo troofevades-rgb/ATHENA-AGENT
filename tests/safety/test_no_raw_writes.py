@@ -52,6 +52,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/recall/vector_store.py",  # T6-01 vectors.json — machine-managed embedding index (operational metadata, not user content)
         "athena/computer/audit.py",  # T6-04 computer_audit.jsonl — append-only audit log of computer-use actions (operational metadata)
         "athena/videogen/job.py",  # T6-05 media_log.jsonl append + writing the fetched video to <video_output_dir> (a generated artifact + provenance log, not an agent-driven mutation of user content)
+        "athena/videogen/backends/stub_local.py",  # T6-05 stub backend writes a placeholder MP4 to the outputs dir (synthetic; same provenance trail as a real backend's fetch())
         "athena/mcp/differentiated.py",  # T5-05.3 MCP verified_write — routed through path_security + VerifiedExecution (verified writes are the model the test is protecting)
         "athena/mcp/request_log.py",  # per-request MCP JSONL append (T3-02 audit)
         "athena/plugins/bundled/shell_audit/plugin.py",  # shell audit log (append-only)

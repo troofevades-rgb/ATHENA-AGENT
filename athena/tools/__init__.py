@@ -37,6 +37,12 @@ from ..delegate import cli as _delegate_register  # noqa: F401
 # "not enabled" payload, no OS contact.
 from ..computer import tools as _computer_register  # noqa: F401
 
+# T6-05: video_generate + animate_image, backed by the T5-05
+# media broker. Every tool checks cfg.video_generation_enabled
+# first — disabled → structured "not enabled" payload, no
+# backend contact.
+from ..videogen import tools as _videogen_register  # noqa: F401
+
 from .registry import all_tools, dispatch, get_tool, ollama_schema, tool
 
 __all__ = ["all_tools", "dispatch", "get_tool", "ollama_schema", "tool"]
