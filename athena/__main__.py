@@ -7,6 +7,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import HTML
@@ -129,6 +130,41 @@ _SUBCOMMANDS = {
 }
 
 
+def _json_invalid_envelope(
+    error: str, args: Any, cfg: Any, workspace: Path,
+) -> str:
+    """Build a status='invalid' RunResult JSON for the early
+    validation paths in main() (before run_headless is called).
+    Keeps the envelope shape consistent so a batch caller
+    parsing --json output always gets a valid envelope, even
+    on failures upstream of the runner.
+    """
+    from .headless.result import RunResult, mint_run_id
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ"
+    )
+    rid = (getattr(args, "run_id", None) or mint_run_id())
+    return RunResult(
+        run_id=rid,
+        status="invalid",
+        started_at=now, finished_at=now, duration_s=0.0,
+        task=(getattr(args, "prompt", None) or "") or (
+            getattr(args, "task", None) or ""
+        ),
+        workspace=str(workspace),
+        model=getattr(args, "model", None) or getattr(cfg, "model", "") or "",
+        profile=getattr(cfg, "profile", "") or "default",
+        session_id=None,
+        tool_calls=[],
+        tokens={"prompt": 0, "completion": 0,
+                "cache_read": 0, "cache_creation": 0},
+        cost_est=0.0,
+        assistant_text="",
+        error=error,
+    ).to_json()
+
+
 def main() -> int:
     # One-time migration of legacy single-profile layout (everything at
     # ~/.athena/<x>) into ~/.athena/profiles/default/<x>. Naturally
@@ -190,6 +226,48 @@ def main() -> int:
         "--profile",
         help="Active profile name (overrides ATHENA_PROFILE / active_profile / config).",
     )
+    # T7-01: headless run primitive flags. Backwards-compatible
+    # — existing `athena -p "<task>"` keeps working the same
+    # way (status=ok → exit 0). Opt-in via --json for machine-
+    # readable output, --timeout for wall-clock cap, --run-id
+    # for batch correlation, --task to read the prompt from a
+    # file instead of inline.
+    ap.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Emit a structured JSON envelope on stdout (one "
+            "line, the full RunResult). Implies -p; routes all "
+            "TTY chatter to stderr so stdout stays clean for "
+            "downstream parsers."
+        ),
+    )
+    ap.add_argument(
+        "--run-id",
+        dest="run_id",
+        help=(
+            "Operator-supplied correlation key for batch / cron "
+            "/ eval drivers. Echoed in the JSON envelope. "
+            "Auto-minted as r-<uuid12> when absent."
+        ),
+    )
+    ap.add_argument(
+        "--timeout",
+        type=float,
+        help=(
+            "Wall-clock timeout in seconds. On expiry, the run "
+            "is interrupted, state captured, and the dispatcher "
+            "exits 124 (matches timeout(1))."
+        ),
+    )
+    ap.add_argument(
+        "--task",
+        help=(
+            "Path to a file containing the prompt. Alternative "
+            "to -p / --prompt for long or shell-unfriendly "
+            "task strings."
+        ),
+    )
     # Rewrite "-foo" -> "--foo" for known long-form flags BEFORE
     # argparse sees argv. Without this, `athena -model NAME` gets
     # parsed as `-m odel NAME` (m's value becomes "odel", NAME lands
@@ -241,13 +319,81 @@ def main() -> int:
         ui.warn("start it with `ollama serve` or set OLLAMA_HOST.")
         return 2
 
-    if args.prompt:
+    # T7-01: resolve task — inline -p / --prompt OR --task FILE.
+    # The two are mutually exclusive; --task wins when both
+    # set so a batch driver can override a default at the
+    # command line.
+    task: str | None = None
+    if args.task:
+        task_path = Path(args.task)
+        if not task_path.exists():
+            _err = f"--task file not found: {task_path}"
+            if args.json:
+                sys.stdout.write(_json_invalid_envelope(_err, args, cfg, workspace) + "\n")
+            else:
+                ui.error(_err)
+            return 2
         try:
-            agent.run_turn(args.prompt)
+            task = task_path.read_text(encoding="utf-8")
+        except OSError as e:
+            _err = f"--task read failed: {e}"
+            if args.json:
+                sys.stdout.write(_json_invalid_envelope(_err, args, cfg, workspace) + "\n")
+            else:
+                ui.error(_err)
+            return 2
+    elif args.prompt:
+        task = args.prompt
+
+    if args.json and not task:
+        # --json without -p / --task can't run anything useful.
+        _err = "--json requires a task (-p / --prompt or --task FILE)"
+        sys.stdout.write(_json_invalid_envelope(_err, args, cfg, workspace) + "\n")
+        return 2
+
+    if task is not None:
+        # Headless path — wraps the existing one-shot via T7-01's
+        # run_headless. JSON mode routes UI chatter to stderr so
+        # stdout stays a single clean envelope. Default (non-JSON)
+        # mode keeps the existing human-readable behavior.
+        from .headless import run_headless
+
+        # UI callback for progress chatter. In JSON mode it goes
+        # to stderr so stdout remains parser-friendly.
+        if args.json:
+            on_info = lambda m: print(m, file=sys.stderr)
+        else:
+            on_info = ui.info
+
+        try:
+            result = run_headless(
+                task=task,
+                cfg=cfg,
+                workspace=workspace,
+                model=args.model,
+                run_id=args.run_id,
+                timeout_s=args.timeout,
+                on_info=on_info,
+                agent=agent,
+            )
         finally:
             shutdown_all()
-            agent.close()
-        return 0
+
+        if args.json:
+            # Single-line envelope. The contract a batch_runner /
+            # cron job / eval harness reads.
+            sys.stdout.write(result.to_json() + "\n")
+            sys.stdout.flush()
+        elif result.status != "ok":
+            # Non-JSON path: surface a short status line to
+            # stderr on non-success so the human sees what
+            # happened. The existing run_turn output already
+            # went to stdout during the run.
+            ui.error(
+                f"run {result.run_id} ended {result.status}"
+                + (f": {result.error}" if result.error else "")
+            )
+        return result.exit_code()
 
     ui.banner(agent.model, agent.workspace)
 
