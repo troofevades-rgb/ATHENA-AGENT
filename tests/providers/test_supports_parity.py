@@ -35,11 +35,13 @@ _CTOR_FACTORIES: dict[str, callable] = {
     # checked separately below — exclude social from the
     # chat-backend parametrize.
     "social": lambda cls: cls(),
+    # T6-05: stub_video_local is also capability-only
+    # (declares video_generation). Same exclusion.
+    "stub_video_local": lambda cls: cls(),
 }
 
-# Chat backends — the parity tests below skip non-chat providers
-# (T6-02's social adapter is the first capability-only provider).
-_NON_CHAT_PROVIDERS: frozenset[str] = frozenset({"social"})
+# Chat backends — the parity tests below skip non-chat providers.
+_NON_CHAT_PROVIDERS: frozenset[str] = frozenset({"social", "stub_video_local"})
 
 
 def _construct_for_test(name: str):

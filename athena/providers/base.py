@@ -84,6 +84,12 @@ class Capabilities:
     is_local: bool = False
     native_format: str = "openai"
     social_search: bool = False
+    # T6-05: native video generation (text→video, image→video).
+    # The broker routes ``video_generate`` / ``animate_image``
+    # sub-tasks to providers declaring this capability. Defaults
+    # False; the in-tree video providers declare it explicitly
+    # in their static_capabilities().
+    video_generation: bool = False
 
     def supports(self, capability: str) -> bool:
         """``True`` when the named field is truthy. Lets callers

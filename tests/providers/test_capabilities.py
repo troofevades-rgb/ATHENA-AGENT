@@ -34,6 +34,9 @@ def test_capabilities_conservative_new_fields() -> None:
     # T6-02: social_search defaults False — conservative-default
     # contract so nothing routes by accident.
     assert c.social_search is False
+    # T6-05: video_generation defaults False — same conservative
+    # default; only providers explicitly declaring it route.
+    assert c.video_generation is False
 
 
 def test_social_search_defaults_false() -> None:

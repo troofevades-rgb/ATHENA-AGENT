@@ -32,9 +32,13 @@ def test_capability_matrix_includes_expected_signals() -> None:
     # Anthropic should declare prompt_caching True; openai_compat shouldn't.
     assert matrix["anthropic"].prompt_caching is True
     assert matrix["openai_compat"].prompt_caching is False
-    # Ollama is the only declared local provider.
+    # Local-declaring providers: ollama (chat) + stub_video_local
+    # (capability-only, T6-05.2). The set grows as more local
+    # capability providers are registered — pin both today's
+    # declarers.
     locals_set = {n for n, c in matrix.items() if c.is_local}
-    assert locals_set == {"ollama"}
+    assert "ollama" in locals_set
+    assert "stub_video_local" in locals_set
 
 
 # ---------------------------------------------------------------------------

@@ -134,3 +134,10 @@ from . import openai as _openai  # noqa: E402,F401
 from . import openai_compat as _openai_compat  # noqa: E402,F401
 from . import openrouter as _openrouter  # noqa: E402,F401
 from . import social as _social  # noqa: E402,F401
+
+# T6-05: stub video-generation backend. Declares
+# video_generation in its manifest so the broker has
+# something to resolve out-of-the-box. Real vendor adapters
+# (runwayml, pika, local diffusion, ...) register themselves
+# the same way at build time.
+from ..videogen.backends import stub_local as _stub_video  # noqa: E402,F401

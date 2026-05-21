@@ -24,6 +24,7 @@ from .job import (
     JobHandle,
     JobStatus,
     VideoGenerationBackend,
+    resolve_backend,
     run_generation,
 )
 
@@ -34,5 +35,6 @@ __all__ = [
     "JobHandle",
     "JobStatus",
     "VideoGenerationBackend",
+    "resolve_backend",
     "run_generation",
 ]

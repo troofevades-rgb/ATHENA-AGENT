@@ -181,6 +181,70 @@ class VideoGenerationBackend(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Broker resolution (T6-05.2)
+# ---------------------------------------------------------------------------
+
+
+def resolve_backend(cfg: Any) -> Optional["VideoGenerationBackend"]:
+    """Pick a video-generation backend via the T5-05 media
+    broker. Returns None when no provider declares the
+    ``video_generation`` capability OR when the chosen class
+    can't be instantiated (hosted providers without
+    credentials fall through to None — callers surface a
+    structured "not configured" payload).
+
+    Local-preference is governed by
+    ``cfg.media_backend_prefer`` (default "local"); a
+    capability-only ``cfg.video_backend_prefer`` override
+    nudges the broker if set.
+    """
+    from ..media import MediaRegistry
+
+    # video_backend_prefer overrides media_backend_prefer for
+    # this specific capability. The broker's preference field
+    # is read off `cfg`, so we temporarily override it via a
+    # shim Namespace — keeps the original cfg untouched.
+    prefer = getattr(cfg, "video_backend_prefer", None) or getattr(
+        cfg, "media_backend_prefer", "local"
+    )
+    cfg_shim = type(
+        "VideoBackendCfg",
+        (),
+        {
+            "media_backend_prefer": prefer,
+        },
+    )()
+    registry = MediaRegistry(cfg=cfg_shim)
+    backend_cls = registry.backend_for("video_generation")
+    if backend_cls is None:
+        logger.info("videogen: no provider declares video_generation")
+        return None
+    try:
+        instance = backend_cls()
+    except Exception as e:  # noqa: BLE001
+        logger.info(
+            "videogen: could not instantiate video-generation backend %r: %s",
+            backend_cls.name,
+            e,
+        )
+        return None
+    # Type-check the instance against our protocol contract.
+    # Loose duck-typing — protocols don't enforce isinstance
+    # at runtime without runtime_checkable, but we want a
+    # clear log when the resolved class doesn't have the
+    # methods we need.
+    for method in ("estimate", "submit", "poll", "fetch"):
+        if not callable(getattr(instance, method, None)):
+            logger.warning(
+                "videogen: provider %r missing %r; not a VideoGenerationBackend",
+                backend_cls.name,
+                method,
+            )
+            return None
+    return instance
+
+
+# ---------------------------------------------------------------------------
 # Confirm callback
 # ---------------------------------------------------------------------------
 
