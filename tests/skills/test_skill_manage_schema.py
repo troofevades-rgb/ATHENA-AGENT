@@ -73,6 +73,42 @@ def test_frontmatter_parameter_description_calls_out_required_keys():
     assert "partial" in fm_desc.lower() or "patch" in fm_desc.lower()
 
 
+def test_frontmatter_schema_validates_description_shape():
+    """The frontmatter parameter's JSONSchema has a typed
+    `properties.description` entry so a model planner can
+    catch a non-string / empty `description` at construction
+    time, not just at tool-call time."""
+    spec = get_tool("skill_manage")
+    fm_schema = spec.parameters["properties"]["frontmatter"]
+    props = fm_schema.get("properties", {})
+    # description is documented + constrained.
+    assert "description" in props
+    desc_schema = props["description"]
+    assert desc_schema["type"] == "string"
+    assert desc_schema["minLength"] == 1
+    # name is documented as optional-inside-frontmatter.
+    assert "name" in props
+    # Additional keys are allowed (frontmatter is open-ended).
+    assert fm_schema.get("additionalProperties") is True
+
+
+def test_tool_description_includes_copy_modify_examples():
+    """The description includes concrete example tool calls
+    a model can copy + modify — most models recover faster
+    from a worked example than from a prose schema."""
+    spec = get_tool("skill_manage")
+    desc = spec.description
+    # Three examples: create, patch, write_file.
+    assert desc.count("skill_manage(") >= 3
+    # Each example shows the right shape for its action.
+    assert 'action="create"' in desc
+    assert 'action="patch"' in desc
+    assert 'action="write_file"' in desc
+    # The create example actually puts description inside
+    # frontmatter — the load-bearing model lesson.
+    assert '"description":' in desc
+
+
 def test_file_path_and_file_content_descriptions_mention_each_other():
     """The file_path and file_content parameter descriptions
     each call out that both are required together — so a

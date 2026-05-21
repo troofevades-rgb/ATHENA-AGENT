@@ -141,7 +141,33 @@ def skill_view(name: str) -> str:
         "  write_file → file_path AND file_content. NOT for SKILL.md "
         "itself — use action='patch' with body=... for the body. "
         "write_file is for references/*.md / templates/*.* / scripts/*.* "
-        "alongside the SKILL.md."
+        "alongside the SKILL.md.\n"
+        "\n"
+        "EXAMPLE — create a skill (copy + modify):\n"
+        '  skill_manage(\n'
+        '      action="create",\n'
+        '      name="osint-research",\n'
+        '      frontmatter={\n'
+        '          "description": "OSINT research framework for "\n'
+        '                         "gathering public information"\n'
+        '      },\n'
+        '      body="# OSINT Research Skill\\n\\nThis skill ..."\n'
+        "  )\n"
+        "\n"
+        "EXAMPLE — patch a skill's body without touching frontmatter:\n"
+        '  skill_manage(\n'
+        '      action="patch",\n'
+        '      name="osint-research",\n'
+        '      body="# OSINT Research Skill\\n\\n(rewritten body)"\n'
+        "  )\n"
+        "\n"
+        "EXAMPLE — add a support file alongside SKILL.md:\n"
+        '  skill_manage(\n'
+        '      action="write_file",\n'
+        '      name="osint-research",\n'
+        '      file_path="references/checklist.md",\n'
+        '      file_content="# Checklist\\n- ..."\n'
+        "  )"
     ),
     parameters={
         "type": "object",
@@ -169,6 +195,33 @@ def skill_view(name: str) -> str:
                     "(omitted keys retain prior values). Ignored for other "
                     "actions."
                 ),
+                # JSONSchema-level constraint: when the dict is
+                # supplied at all, `description` (when present)
+                # must be a non-empty string. The conditional
+                # "required only on create" rule is enforced
+                # by the pre-flight in the handler — JSONSchema
+                # can't express "required when action=='create'"
+                # without if/then/else schemas that not every
+                # planner respects.
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "description": (
+                            "One-line summary of what the skill does. "
+                            "Required for action='create'."
+                        ),
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "Optional inside frontmatter — the top-level "
+                            "`name` kwarg is the source of truth."
+                        ),
+                    },
+                },
+                "additionalProperties": True,
             },
             "body": {
                 "type": "string",
