@@ -1,23 +1,48 @@
-"""Permission-gate tests (T6-04.1).
+"""Permission-gate tests (T6-04, refactored for T6-04R).
 
 The most important tests in the entire computer-use phase. Each
 encodes a load-bearing invariant from the design doc. They run
 without any OS / backend / model — pure decision logic.
+
+T6-04R refactor: the gate no longer takes a bespoke ``confirm``
+callback. Approval routes through
+:mod:`athena.safety.approval_guard` + the active
+:mod:`athena.safety.approval_callback`. Tests bind a recording
+callback via :func:`set_approval_callback` and assert what was
+asked.
+
+Semantic change worth noting: with T6-04R, the input tier
+ALWAYS caches per turn (via approval_guard's ContextVar grant
+dict). The legacy ``per_action`` vs ``per_session`` mode
+distinction is preserved at the config level but no longer
+controls input caching — both modes cache via the same
+approval_guard ``computer_input`` key. The tier-specific
+caching policy is now: input caches; destructive never does
+(per-action resource_id includes a hash of the action
+description). See ``tests/computer/test_gate_tiers.py`` for the
+direct pin.
 """
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
 from athena.computer.contract import Action
 from athena.computer.permission import PermissionGate
+from athena.safety.approval_callback import (
+    reset_approval_callback,
+    set_approval_callback,
+)
+from athena.safety.approval_guard import (
+    clear_grants,
+    current_grants,
+)
 
 
 # ---------------------------------------------------------------------------
-# Cfg helpers
+# Cfg + callback helpers
 # ---------------------------------------------------------------------------
 
 
@@ -26,22 +51,59 @@ def cfg(
     mode: str = "observe_only",
     allowlist: list[str] | None = None,
     denylist: list[str] | None = None,
+    deny_during_goal_loop: bool = False,
 ) -> SimpleNamespace:
     """Tight cfg helper — defaults match the safest production
-    config (observe_only, empty allowlist)."""
+    config (observe_only, empty allowlist). Goal-loop deny is
+    OFF by default in these tests because the legacy invariants
+    target the bare-gate behavior; the goal-loop interaction is
+    tested separately in test_gate_tiers.py."""
     return SimpleNamespace(
         computer_permission_mode=mode,
         computer_app_allowlist=allowlist or [],
         computer_app_denylist=denylist or [],
+        computer_deny_during_goal_loop=deny_during_goal_loop,
+        profile="default",
     )
 
 
-def allow_all(a: Action, t) -> bool:
-    return True
+def _bind(verdict_for=lambda action, tier: True):
+    """Install an approval callback that records every prompt and
+    returns "allow"/"deny" based on ``verdict_for(action, tier)``.
+
+    Returns ``(token, asks)`` — caller passes ``token`` to
+    :func:`reset_approval_callback` in teardown and reads
+    ``asks`` (list of tier strings, in prompt order) to verify
+    the gate's behavior.
+
+    The legacy tests recorded the *tier* string; we keep that
+    shape so the asserts in this file stay readable.
+    """
+    asks: list[str] = []
+
+    def _cb(tool_name: str, args: dict) -> str:
+        tier = args.get("tier", "?")
+        asks.append(tier)
+        # Tests pass a function returning bool; the gate sees
+        # "allow" or "deny".
+        try:
+            ok = bool(verdict_for(args, tier))
+        except Exception:
+            ok = False
+        return "allow" if ok else "deny"
+
+    token = set_approval_callback(_cb)
+    return token, asks
 
 
-def deny_all(a: Action, t) -> bool:
-    return False
+@pytest.fixture(autouse=True)
+def _fresh_grants():
+    """Drop approval grants between tests so a cached grant
+    from one test can't bleed into another (the new design's
+    cache is the ContextVar, not gate state)."""
+    clear_grants()
+    yield
+    clear_grants()
 
 
 # ---------------------------------------------------------------------------
@@ -52,17 +114,24 @@ def deny_all(a: Action, t) -> bool:
 def test_observe_never_confirms():
     """A screenshot / observe action passes without prompting,
     even in the most restrictive mode."""
-    gate = PermissionGate(cfg=cfg(mode="per_action"), confirm=deny_all)
-    assert gate.check(Action(type="screenshot")) is True
+    gate = PermissionGate(cfg=cfg(mode="per_action"))
+    token, asks = _bind(lambda a, t: False)
+    try:
+        assert gate.check(Action(type="screenshot")) is True
+        assert asks == []
+    finally:
+        reset_approval_callback(token)
 
 
 def test_observe_passes_even_with_no_allowlist():
     """Observe-tier doesn't read the allowlist either — looking
     at the screen isn't gated by which app is foreground."""
-    gate = PermissionGate(
-        cfg=cfg(mode="observe_only", allowlist=[]), confirm=deny_all
-    )
-    assert gate.check(Action(type="screenshot")) is True
+    gate = PermissionGate(cfg=cfg(mode="observe_only", allowlist=[]))
+    token, asks = _bind(lambda a, t: False)
+    try:
+        assert gate.check(Action(type="screenshot")) is True
+    finally:
+        reset_approval_callback(token)
 
 
 # ---------------------------------------------------------------------------
@@ -71,63 +140,62 @@ def test_observe_passes_even_with_no_allowlist():
 
 
 def test_denylist_wins_no_prompt():
-    """A denylisted app is never controlled — and the gate doesn't
-    even ask. No confirm callback fires."""
-    asked: list = []
-
-    def _watcher(a: Action, t) -> bool:
-        asked.append((a, t))
-        return True
-
     gate = PermissionGate(
-        cfg=cfg(mode="per_session", allowlist=["bank"], denylist=["bank"]),
-        confirm=_watcher,
+        cfg=cfg(mode="per_session", allowlist=["bank"], denylist=["bank"])
     )
-    allowed = gate.check(
-        Action(type="click", target_desc="OK", app="bank.app")
-    )
-    assert allowed is False
-    assert asked == []  # no prompt fired — denylist short-circuits
+    token, asks = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="OK", app="bank.app"))
+            is False
+        )
+        assert asks == []
+    finally:
+        reset_approval_callback(token)
 
 
 def test_denylist_wins_over_destructive_confirm_path():
-    """Even a destructive action in a denylisted app gets refused
-    without the user being asked. This is the worst-case
-    interaction (model targets a denylisted app for a destructive
-    action) — the gate must refuse silently, not confirm."""
-    asked: list = []
+    """Even a destructive action in a denylisted app is refused
+    without the user being asked."""
     gate = PermissionGate(
         cfg=cfg(
             mode="per_action",
             allowlist=["everything"],
             denylist=["password"],
         ),
-        confirm=lambda a, t: asked.append(t) or True,
     )
-    allowed = gate.check(
-        Action(
-            type="click", target_desc="Delete account", app="password-manager"
+    token, asks = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(
+                Action(
+                    type="click", target_desc="Delete account",
+                    app="password-manager",
+                )
+            )
+            is False
         )
-    )
-    assert allowed is False
-    assert asked == []
+        assert asks == []
+    finally:
+        reset_approval_callback(token)
 
 
 def test_denylist_partial_match_blocks():
-    """The denylist matches substrings (case-insensitive) so a
-    user blocking '1password' also blocks '1Password 7', etc."""
     gate = PermissionGate(
         cfg=cfg(
             mode="per_action",
             allowlist=["1Password 7"],
             denylist=["1password"],
         ),
-        confirm=allow_all,
     )
-    assert (
-        gate.check(Action(type="click", target_desc="OK", app="1Password 7"))
-        is False
-    )
+    token, _ = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="OK", app="1Password 7"))
+            is False
+        )
+    finally:
+        reset_approval_callback(token)
 
 
 # ---------------------------------------------------------------------------
@@ -136,78 +204,71 @@ def test_denylist_partial_match_blocks():
 
 
 def test_not_in_allowlist_blocked():
-    """Input requires an allowlisted app, period. Empty allowlist
-    = no app is approved for control."""
-    gate = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=["editor"]),
-        confirm=allow_all,
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="OK", app="browser"))
-        is False
-    )
+    gate = PermissionGate(cfg=cfg(mode="per_action", allowlist=["editor"]))
+    token, _ = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="OK", app="Slack"))
+            is False
+        )
+    finally:
+        reset_approval_callback(token)
 
 
 def test_empty_allowlist_blocks_all_input():
-    """The default empty allowlist is the safest possible state:
-    even in per_action mode, no input passes because no app is
-    approved for control."""
-    gate = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=[]), confirm=allow_all
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="OK", app="editor"))
-        is False
-    )
+    gate = PermissionGate(cfg=cfg(mode="per_action", allowlist=[]))
+    token, _ = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="OK", app="editor"))
+            is False
+        )
+    finally:
+        reset_approval_callback(token)
 
 
 def test_no_app_name_blocked_under_allowlist():
-    """An action whose app couldn't be detected can't satisfy
-    the allowlist match — refuse. Conservative."""
-    gate = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=["editor"]),
-        confirm=allow_all,
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="OK", app=None))
-        is False
-    )
+    """No app name reported (a11y tree was silent) → can't match
+    any allowlist entry → refuse. Conservative."""
+    gate = PermissionGate(cfg=cfg(mode="per_action", allowlist=["editor"]))
+    token, _ = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="OK", app=None))
+            is False
+        )
+    finally:
+        reset_approval_callback(token)
 
 
 def test_allowlist_substring_match():
-    """The allowlist matches substrings (case-insensitive). An
-    entry "code" matches "VS Code"; an entry "editor" matches
-    "VS Code Editor" / "Sublime Editor" but does NOT match
-    "TextEdit" (substring "editor" isn't in "TextEdit"). The
-    substring semantics are documented; partial-match is
-    convenient but tests pin the actual behaviour."""
-    gate = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=["editor"]),
-        confirm=allow_all,
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="Tab 2", app="VS Code Editor"))
-        is True
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="Tab 2", app="Sublime Editor"))
-        is True
-    )
-    # And the strictly-shorter substring case — "code" matches
-    # "VS Code".
-    gate2 = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=["code"]),
-        confirm=allow_all,
-    )
-    assert (
-        gate2.check(Action(type="click", target_desc="Tab 2", app="VS Code"))
-        is True
-    )
-    # But "editor" does NOT match "TextEdit" — no substring.
-    assert (
-        gate.check(Action(type="click", target_desc="Tab 2", app="TextEdit"))
-        is False
-    )
+    gate = PermissionGate(cfg=cfg(mode="per_action", allowlist=["editor"]))
+    gate2 = PermissionGate(cfg=cfg(mode="per_action", allowlist=["VS Code"]))
+    t1, _ = _bind(lambda a, t: True)
+    try:
+        # "editor" is not a substring of "VS Code" — refuse.
+        assert (
+            gate.check(Action(type="click", target_desc="Tab 2", app="VS Code"))
+            is False
+        )
+    finally:
+        reset_approval_callback(t1)
+    t2, _ = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate2.check(Action(type="click", target_desc="Tab 2", app="VS Code"))
+            is True
+        )
+    finally:
+        reset_approval_callback(t2)
+    t3, _ = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="Tab 2", app="TextEdit"))
+            is False
+        )
+    finally:
+        reset_approval_callback(t3)
 
 
 # ---------------------------------------------------------------------------
@@ -216,163 +277,160 @@ def test_allowlist_substring_match():
 
 
 def test_observe_only_blocks_all_input():
-    """In observe_only mode, EVERY input is refused without a
-    prompt — even when the action would otherwise be plain
-    `input` tier in an allowlisted app."""
-    asked: list = []
     gate = PermissionGate(
         cfg=cfg(mode="observe_only", allowlist=["editor"]),
-        confirm=lambda a, t: asked.append(t) or True,
     )
-    assert (
-        gate.check(
-            Action(type="type", text="hi", target_desc="text field", app="editor")
+    token, asks = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(
+                Action(type="type", text="hi", target_desc="text field", app="editor")
+            )
+            is False
         )
-        is False
-    )
-    assert (
-        gate.check(
-            Action(type="click", target_desc="Tab 2", app="editor")
+        assert (
+            gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
+            is False
         )
-        is False
-    )
-    # Confirm callback never invoked — observe_only short-
-    # circuits before tier-specific branches.
-    assert asked == []
+        # No prompts burned — observe_only short-circuits.
+        assert asks == []
+    finally:
+        reset_approval_callback(token)
 
 
 def test_observe_only_still_allows_observe():
-    """observe_only blocks input but not observe."""
-    gate = PermissionGate(cfg=cfg(mode="observe_only"), confirm=deny_all)
-    assert gate.check(Action(type="screenshot")) is True
+    gate = PermissionGate(cfg=cfg(mode="observe_only"))
+    token, _ = _bind(lambda a, t: False)
+    try:
+        assert gate.check(Action(type="screenshot")) is True
+    finally:
+        reset_approval_callback(token)
 
 
 # ---------------------------------------------------------------------------
-# Destructive always confirms — EVERY mode
+# Destructive always confirms in any non-restrictive mode
 # ---------------------------------------------------------------------------
 
 
 def test_destructive_always_confirms_per_action():
-    asked: list = []
-    gate = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=["editor"]),
-        confirm=lambda a, t: asked.append(t) or True,
-    )
-    gate.check(Action(type="click", target_desc="Delete", app="editor"))
-    assert "destructive" in asked
+    gate = PermissionGate(cfg=cfg(mode="per_action", allowlist=["editor"]))
+    token, asks = _bind(lambda a, t: True)
+    try:
+        gate.check(Action(type="click", target_desc="Delete", app="editor"))
+        assert "destructive" in asks
+    finally:
+        reset_approval_callback(token)
 
 
 def test_destructive_always_confirms_even_per_session():
-    """The load-bearing invariant. per_session grants input
-    control for the task, BUT destructive actions still confirm
-    individually. This is what makes per_session safe to use."""
-    asked: list = []
-    gate = PermissionGate(
-        cfg=cfg(mode="per_session", allowlist=["editor"]),
-        confirm=lambda a, t: asked.append(t) or True,
-    )
-    # First input — grants the session.
-    gate.check(Action(type="click", target_desc="OK", app="editor"))
-    # Second input — covered by the session grant; no prompt.
-    asked.clear()
-    gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
-    assert asked == []
-    # NOW the destructive one — must prompt despite the grant.
-    gate.check(Action(type="click", target_desc="Delete row", app="editor"))
-    assert asked == ["destructive"]
+    """T6-04R behavior: per_session is essentially equivalent to
+    per_action now (input always caches via approval_guard); but
+    DESTRUCTIVE still freshly prompts every time — the cache key
+    encodes the action so it never hits."""
+    gate = PermissionGate(cfg=cfg(mode="per_session", allowlist=["editor"]))
+    token, asks = _bind(lambda a, t: True)
+    try:
+        # First input — prompts and caches.
+        gate.check(Action(type="click", target_desc="OK", app="editor"))
+        # Second input — cached, no new prompt.
+        asks.clear()
+        gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
+        assert asks == []
+        # Destructive — must prompt despite the cached input grant.
+        gate.check(Action(type="click", target_desc="Delete row", app="editor"))
+        assert asks == ["destructive"]
+    finally:
+        reset_approval_callback(token)
 
 
 def test_destructive_in_observe_only_refuses_no_prompt():
-    """observe_only is so restrictive that destructive doesn't
-    even get to the confirm callback — the mode check fires first."""
-    asked: list = []
     gate = PermissionGate(
         cfg=cfg(mode="observe_only", allowlist=["editor"]),
-        confirm=lambda a, t: asked.append(t) or True,
     )
-    allowed = gate.check(
-        Action(type="click", target_desc="Delete", app="editor")
-    )
-    assert allowed is False
-    assert asked == []
+    token, asks = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="Delete", app="editor"))
+            is False
+        )
+        assert asks == []
+    finally:
+        reset_approval_callback(token)
 
 
 # ---------------------------------------------------------------------------
-# Confirm-mode mechanics
+# Caching mechanics — T6-04R semantics
 # ---------------------------------------------------------------------------
 
 
-def test_per_action_confirms_each_input():
-    """In per_action mode each input action gets its own
-    prompt — no session-wide grant."""
-    asked: list = []
-    gate = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=["editor"]),
-        confirm=lambda a, t: (asked.append(t) or True),
-    )
-    gate.check(Action(type="click", target_desc="Tab 1", app="editor"))
-    gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
-    gate.check(Action(type="type", text="hi", target_desc="field", app="editor"))
-    assert asked == ["input", "input", "input"]
-
-
-def test_per_session_grants_input_once_but_not_destructive():
-    """per_session asks for input once (granted), then no more
-    input prompts; destructive still confirms each time."""
-    prompts: list = []
-    gate = PermissionGate(
-        cfg=cfg(mode="per_session", allowlist=["editor"]),
-        confirm=lambda a, t: (prompts.append(t) or True),
-    )
-    gate.check(Action(type="click", target_desc="OK", app="editor"))
-    gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
-    gate.check(Action(type="type", text="hi", target_desc="field", app="editor"))
-    gate.check(Action(type="click", target_desc="Save as", app="editor"))
-    # ONE input prompt for the whole session...
-    assert prompts.count("input") == 1
-    # ...plus each destructive (none yet)
-    assert "destructive" not in prompts
-    # Now a destructive action — confirms individually.
-    gate.check(Action(type="click", target_desc="Discard changes", app="editor"))
-    assert prompts.count("destructive") == 1
-
-
-def test_per_session_denial_persists():
-    """If the user denies the session grant, subsequent inputs
-    in the same session continue to be refused — without
-    re-prompting until reset_session()."""
-    asked: list = []
-    gate = PermissionGate(
-        cfg=cfg(mode="per_session", allowlist=["editor"]),
-        confirm=lambda a, t: (asked.append(t) or False),
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="OK", app="editor"))
-        is False
-    )
-    # Second input also refused, no new prompt.
-    asked.clear()
-    assert (
+def test_input_caches_after_first_grant():
+    """T6-04R: every mode caches input grants via approval_guard's
+    ContextVar. The legacy per_action / per_session distinction
+    no longer drives input caching — both behave like per_session
+    used to."""
+    gate = PermissionGate(cfg=cfg(mode="per_action", allowlist=["editor"]))
+    token, asks = _bind(lambda a, t: True)
+    try:
+        gate.check(Action(type="click", target_desc="Tab 1", app="editor"))
         gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
-        is False
-    )
-    assert asked == []
+        gate.check(Action(type="type", text="hi", target_desc="field", app="editor"))
+        # Only one prompt — the rest hit the cached "computer_input" grant.
+        assert asks == ["input"]
+        assert "computer_input" in current_grants()
+    finally:
+        reset_approval_callback(token)
+
+
+def test_per_session_input_grant_and_destructive_distinction():
+    gate = PermissionGate(cfg=cfg(mode="per_session", allowlist=["editor"]))
+    token, prompts = _bind(lambda a, t: True)
+    try:
+        gate.check(Action(type="click", target_desc="OK", app="editor"))
+        gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
+        gate.check(Action(type="type", text="hi", target_desc="field", app="editor"))
+        gate.check(Action(type="click", target_desc="Save as", app="editor"))
+        assert prompts.count("input") == 1
+        assert "destructive" not in prompts
+        gate.check(Action(type="click", target_desc="Discard changes", app="editor"))
+        assert prompts.count("destructive") == 1
+    finally:
+        reset_approval_callback(token)
+
+
+def test_input_denial_persists_across_calls():
+    """A denied input grant persists — the user isn't re-prompted
+    until reset_session()."""
+    gate = PermissionGate(cfg=cfg(mode="per_session", allowlist=["editor"]))
+    token, asks = _bind(lambda a, t: False)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="OK", app="editor"))
+            is False
+        )
+        asks.clear()
+        assert (
+            gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
+            is False
+        )
+        assert asks == []
+    finally:
+        reset_approval_callback(token)
 
 
 def test_reset_session_re_prompts():
     """reset_session() — called when the loop exits — forces the
-    next per_session task to re-confirm input."""
-    asked: list = []
-    gate = PermissionGate(
-        cfg=cfg(mode="per_session", allowlist=["editor"]),
-        confirm=lambda a, t: (asked.append(t) or True),
-    )
-    gate.check(Action(type="click", target_desc="OK", app="editor"))
-    assert asked == ["input"]
-    gate.reset_session()
-    asked.clear()
-    gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
-    assert asked == ["input"]  # re-prompted
+    next task to re-confirm input."""
+    gate = PermissionGate(cfg=cfg(mode="per_session", allowlist=["editor"]))
+    token, asks = _bind(lambda a, t: True)
+    try:
+        gate.check(Action(type="click", target_desc="OK", app="editor"))
+        assert asks == ["input"]
+        gate.reset_session()
+        asks.clear()
+        gate.check(Action(type="click", target_desc="Tab 2", app="editor"))
+        assert asks == ["input"]
+    finally:
+        reset_approval_callback(token)
 
 
 # ---------------------------------------------------------------------------
@@ -381,54 +439,56 @@ def test_reset_session_re_prompts():
 
 
 def test_unknown_mode_refuses():
-    """A typo'd permission_mode treats as observe_only (refuse).
-    Better than open-failing into an unknown branch."""
-    gate = PermissionGate(
-        cfg=cfg(mode="zarquon", allowlist=["editor"]),
-        confirm=allow_all,
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="OK", app="editor"))
-        is False
-    )
+    """A typo'd permission_mode treats as observe_only (refuse) —
+    open-failing into an unrecognised branch would be unsafe."""
+    gate = PermissionGate(cfg=cfg(mode="zarquon", allowlist=["editor"]))
+    token, _ = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="OK", app="editor"))
+            is False
+        )
+    finally:
+        reset_approval_callback(token)
 
 
 def test_confirm_callback_raises_treated_as_denial():
-    """A buggy confirm callback (UI crashed, user pressed
-    escape, etc.) must NOT open-fail — the gate treats any
-    raised exception as a denial."""
+    """A buggy approval callback (UI crashed, etc.) must NOT
+    open-fail — any raised exception is treated as denial."""
+    gate = PermissionGate(cfg=cfg(mode="per_action", allowlist=["editor"]))
 
-    def _explodes(a: Action, t) -> bool:
+    def _explodes(tool_name: str, args: dict) -> str:
         raise RuntimeError("UI crashed")
 
-    gate = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=["editor"]),
-        confirm=_explodes,
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="OK", app="editor"))
-        is False
-    )
+    token = set_approval_callback(_explodes)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="OK", app="editor"))
+            is False
+        )
+    finally:
+        reset_approval_callback(token)
 
 
 def test_destructive_denial_blocks():
-    """User says no to the destructive confirm → refused."""
-    gate = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=["editor"]),
-        confirm=deny_all,
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="Delete", app="editor"))
-        is False
-    )
+    gate = PermissionGate(cfg=cfg(mode="per_action", allowlist=["editor"]))
+    token, _ = _bind(lambda a, t: False)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="Delete", app="editor"))
+            is False
+        )
+    finally:
+        reset_approval_callback(token)
 
 
 def test_destructive_approval_allows():
-    gate = PermissionGate(
-        cfg=cfg(mode="per_action", allowlist=["editor"]),
-        confirm=allow_all,
-    )
-    assert (
-        gate.check(Action(type="click", target_desc="Delete", app="editor"))
-        is True
-    )
+    gate = PermissionGate(cfg=cfg(mode="per_action", allowlist=["editor"]))
+    token, _ = _bind(lambda a, t: True)
+    try:
+        assert (
+            gate.check(Action(type="click", target_desc="Delete", app="editor"))
+            is True
+        )
+    finally:
+        reset_approval_callback(token)

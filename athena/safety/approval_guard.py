@@ -22,6 +22,8 @@ from collections.abc import Awaitable, Callable
 
 from ..provenance import FOREGROUND, get_current_write_origin
 
+SyncPrompt = Callable[[str], bool]
+
 _approval_grants: contextvars.ContextVar[dict[str, bool]] = contextvars.ContextVar(
     "athena_approval_grants",
     default={},
@@ -76,6 +78,57 @@ async def request_approval(
     return granted
 
 
+def request_approval_sync(
+    resource_id: str,
+    prompt: SyncPrompt,
+    *,
+    auto_approve_in_background: bool = False,
+) -> bool:
+    """Sync sibling of :func:`request_approval`.
+
+    Shares ``_approval_grants`` and the write-origin gate, so a
+    grant cached via either path short-circuits the other.
+    Adopted by the sync side of athena's tool surface (T6-04R)
+    — async code stays on :func:`request_approval`; sync code
+    that needs identical semantics calls this.
+
+    Semantics identical to the async version except the prompt
+    is a sync ``Callable[[str], bool]``:
+
+      - FOREGROUND + cached grant → return cached bool, prompt
+        is NOT called.
+      - FOREGROUND + miss → call ``prompt(resource_id)``, cache
+        + return.
+      - background + ``auto_approve_in_background`` → True,
+        prompt NOT called.
+      - background otherwise → raise
+        :class:`ApprovalDeniedInBackground` BEFORE prompting.
+
+    A consumer that wants destructive "no-cache" semantics should
+    use a resource_id that includes a per-call discriminator
+    (e.g. a hash of the action) so the cache never hits — the
+    grant ends up keyed to one specific action, no bleed.
+    """
+    origin = get_current_write_origin() or FOREGROUND
+    grants = _approval_grants.get()
+
+    if origin == FOREGROUND and resource_id in grants:
+        return grants[resource_id]
+
+    if origin != FOREGROUND:
+        if auto_approve_in_background:
+            return True
+        raise ApprovalDeniedInBackground(
+            f"action on {resource_id!r} requires foreground approval (write_origin={origin!r})"
+        )
+
+    granted = bool(prompt(resource_id))
+    new_grants = dict(grants)
+    new_grants[resource_id] = granted
+    _approval_grants.set(new_grants)
+    return granted
+
+
 def scope_fresh_approvals() -> contextvars.Token[dict[str, bool]]:
     """Reset the approval grant cache for the current context.
 
@@ -90,6 +143,20 @@ def reset_approvals(token: contextvars.Token[dict[str, bool]]) -> None:
     """Restore the grant cache from the token returned by
     :func:`scope_fresh_approvals`."""
     _approval_grants.reset(token)
+
+
+def clear_grants() -> None:
+    """Drop every cached grant in the current ContextVar.
+
+    Unlike ``reset_approvals(scope_fresh_approvals())`` — which
+    is a scope round-trip that immediately restores the prior
+    state — this rebinds the ContextVar to an empty dict
+    permanently for the current context. Used by the T6-04R
+    panic kill switch (every approval cleared, gate now refuses
+    until the operator disengages panic) and by per-turn
+    cleanup paths that want a clean slate without unwinding a
+    scope token."""
+    _approval_grants.set({})
 
 
 def current_grants() -> dict[str, bool]:

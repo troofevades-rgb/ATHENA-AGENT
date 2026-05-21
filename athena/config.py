@@ -480,6 +480,14 @@ class Config:
     # local-model context windows). Default location is
     # <profile_dir>/screenshots/<ts>-<sha8>.bmp.
     computer_screenshots_dir: str | None = None
+    # T6-04R: refuse input + destructive when the autonomous
+    # /goal continuation loop is driving turns. The goal loop
+    # runs in FOREGROUND origin (not BACKGROUND_REVIEW), so
+    # approval_guard's background-deny alone wouldn't catch it;
+    # this is the computer-use-specific extra check. Default
+    # True — the autonomous loop never gets to drive the
+    # desktop unless the operator deliberately disables this.
+    computer_deny_during_goal_loop: bool = True
     # T6-05: native video generation. video_generate +
     # animate_image tools backed by the T5-05 media broker
     # (video_generation capability). Cost / latency guard

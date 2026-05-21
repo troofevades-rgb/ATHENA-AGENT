@@ -228,8 +228,13 @@ def test_observe_no_vision_backend(monkeypatch, tmp_path: Path):
         tools_mod, "select_backend", lambda cfg: _StubBackend()
     )
 
-    # Empty vision capability set.
+    # Empty vision capability set. Two patch sites needed: the
+    # source-of-truth registry AND the imported alias inside
+    # media/registry.py — monkeypatch.setattr on the module
+    # attribute doesn't propagate to a name that was already
+    # bound via `from .. import _REGISTRY`.
     monkeypatch.setattr("athena.providers._REGISTRY", {})
+    monkeypatch.setattr("athena.media.registry._REGISTRY", {})
 
     out = json.loads(tools_mod.computer_observe(question="what's on screen?"))
     assert out["available"] is True

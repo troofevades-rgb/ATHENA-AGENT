@@ -354,22 +354,18 @@ def _persist_screenshot(shot: Screenshot, *, cfg: Any) -> str:
 
 
 def _gate_for(cfg: Any):
-    """Build a PermissionGate with a default-deny confirm
-    callback. The agent runtime overrides ``confirm`` to plug
-    in the REPL / ACP confirmation UI; the bare-tool path
-    defaults to refusing destructive + input prompts because
-    there's no live UI to ask. The user wires a confirm
-    callback via /computer mode (T6-04.6 docs)."""
+    """Build a PermissionGate. T6-04R: the gate routes through
+    :mod:`athena.safety.approval_guard` directly — there is no
+    longer a bespoke confirm callback here. Prompts surface via
+    whatever is bound to
+    :func:`athena.safety.approval_callback.get_approval_callback`,
+    which is the interactive ``ui.confirm`` in REPL sessions,
+    the ACP ``permission_request`` in IDE sessions, and
+    ``AUTO_DENY`` inside forks.
+    """
     from .permission import PermissionGate
 
-    def _no_ui_default(action: Action, tier) -> bool:
-        logger.info(
-            "computer tool: no confirm UI registered; refusing %s tier",
-            tier,
-        )
-        return False
-
-    return PermissionGate(cfg=cfg, confirm=_no_ui_default)
+    return PermissionGate(cfg=cfg)
 
 
 def _single_action_path(action: Action) -> str:

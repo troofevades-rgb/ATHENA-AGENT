@@ -216,9 +216,12 @@ def test_denylisted_app_refused_no_prompt(monkeypatch, tmp_path: Path):
     )
 
     # Build the gate manually so we can plant the confirm spy.
-    gate = PermissionGate(
-        cfg=cfg, confirm=lambda a, t: confirmed.append(t) or True
+    from athena.safety.approval_callback import set_approval_callback
+    set_approval_callback(
+        lambda _tool, args: (confirmed.append(args.get("tier")) or "allow")
     )
+    cfg.computer_deny_during_goal_loop = False
+    gate = PermissionGate(cfg=cfg)
     allowed = gate.check(
         Action(type="click", target_desc="OK", app="1Password 7")
     )
@@ -241,9 +244,14 @@ def test_per_action_destructive_always_prompts():
         computer_app_allowlist=["editor"],
         computer_app_denylist=[],
     )
-    gate = PermissionGate(
-        cfg=cfg, confirm=lambda a, t: prompts.append((a.target_desc, t)) or True
+    from athena.safety.approval_callback import set_approval_callback
+    set_approval_callback(
+        lambda _tool, args: (
+            prompts.append((args.get("target_desc"), args.get("tier"))) or "allow"
+        )
     )
+    cfg.computer_deny_during_goal_loop = False
+    gate = PermissionGate(cfg=cfg)
     gate.check(Action(type="click", target_desc="Delete row", app="editor"))
     gate.check(Action(type="click", target_desc="Delete column", app="editor"))
     gate.check(Action(type="click", target_desc="Discard changes", app="editor"))
@@ -272,7 +280,10 @@ def test_kill_switch_halts_end_to_end(tmp_path: Path):
         computer_kill_hotkey=None,
         profile="default",
     )
-    gate = PermissionGate(cfg=cfg, confirm=lambda a, t: True)
+    from athena.safety.approval_callback import set_approval_callback
+    set_approval_callback(lambda _tool, _args: "allow")
+    cfg.computer_deny_during_goal_loop = False
+    gate = PermissionGate(cfg=cfg)
     audit = ActionAuditLog(tmp_path / "audit.jsonl")
 
     propose_calls = {"n": 0}
@@ -336,7 +347,10 @@ def test_dry_run_end_to_end_never_performs(tmp_path: Path):
         computer_kill_hotkey=None,
         profile="default",
     )
-    gate = PermissionGate(cfg=cfg, confirm=lambda a, t: True)
+    from athena.safety.approval_callback import set_approval_callback
+    set_approval_callback(lambda _tool, _args: "allow")
+    cfg.computer_deny_during_goal_loop = False
+    gate = PermissionGate(cfg=cfg)
     audit = ActionAuditLog(tmp_path / "audit.jsonl")
 
     seq = [f"frame-{i}".encode() for i in range(20)]

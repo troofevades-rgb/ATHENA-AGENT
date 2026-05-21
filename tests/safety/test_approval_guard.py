@@ -273,3 +273,74 @@ async def test_current_grants_returns_a_copy_not_the_live_dict() -> None:
         assert "forged" not in current_grants()
     finally:
         reset_current_write_origin(origin)
+
+
+# ---------------------------------------------------------------
+# T6-04R additions: request_approval_sync + clear_grants
+# ---------------------------------------------------------------
+
+
+def test_request_approval_sync_foreground_prompts_and_caches():
+    """Sync sibling — same ContextVar, same semantics."""
+    from athena.safety.approval_guard import request_approval_sync
+
+    asks = []
+
+    def yes(rid):
+        asks.append(rid)
+        return True
+
+    origin = set_current_write_origin(FOREGROUND)
+    try:
+        assert request_approval_sync("file:/x", yes) is True
+        # Second call hits the cache; no second prompt.
+        assert request_approval_sync("file:/x", yes) is True
+        assert asks == ["file:/x"]
+    finally:
+        reset_current_write_origin(origin)
+
+
+def test_request_approval_sync_background_raises():
+    from athena.safety.approval_guard import request_approval_sync
+
+    def yes(_rid):
+        return True
+
+    origin = set_current_write_origin(BACKGROUND_REVIEW)
+    try:
+        with pytest.raises(ApprovalDeniedInBackground):
+            request_approval_sync("file:/x", yes)
+    finally:
+        reset_current_write_origin(origin)
+
+
+def test_request_approval_sync_auto_approve_in_background():
+    from athena.safety.approval_guard import request_approval_sync
+
+    def never_called(_rid):
+        raise AssertionError("prompt should not fire under auto-approve")
+
+    origin = set_current_write_origin(BACKGROUND_REVIEW)
+    try:
+        assert request_approval_sync(
+            "file:/x", never_called, auto_approve_in_background=True
+        ) is True
+    finally:
+        reset_current_write_origin(origin)
+
+
+def test_clear_grants_drops_everything():
+    from athena.safety.approval_guard import clear_grants, request_approval_sync
+
+    def yes(_rid):
+        return True
+
+    origin = set_current_write_origin(FOREGROUND)
+    try:
+        request_approval_sync("a", yes)
+        request_approval_sync("b", yes)
+        assert set(current_grants()) == {"a", "b"}
+        clear_grants()
+        assert current_grants() == {}
+    finally:
+        reset_current_write_origin(origin)

@@ -95,9 +95,21 @@ def _cfg(tmp_path: Path, **overrides) -> SimpleNamespace:
 
 
 def _gate(cfg: Any, *, confirm_returns: bool = True) -> PermissionGate:
-    return PermissionGate(
-        cfg=cfg, confirm=lambda a, t: confirm_returns
-    )
+    """T6-04R: PermissionGate no longer takes a confirm callback.
+    Instead we bind an approval callback into the ContextVar
+    that returns "allow"/"deny" based on ``confirm_returns``;
+    test teardown drops it via the autouse fixture."""
+    from athena.safety.approval_callback import set_approval_callback
+
+    def _cb(_tool: str, _args: dict) -> str:
+        return "allow" if confirm_returns else "deny"
+
+    set_approval_callback(_cb)
+    # Disable the goal-loop gate during loop tests — the loop
+    # invariants pre-date T6-04R and don't care about that
+    # extra check.
+    cfg.computer_deny_during_goal_loop = False
+    return PermissionGate(cfg=cfg)
 
 
 @pytest.fixture(autouse=True)
@@ -321,9 +333,10 @@ def test_loop_observe_only_blocks_input_entirely(tmp_path: Path):
         computer_app_allowlist=["TestApp"],
         computer_max_actions_per_task=2,
     )
-    # observe_only refuses without prompting; gate's confirm is
-    # irrelevant.
-    gate = PermissionGate(cfg=cfg, confirm=lambda a, t: True)
+    # observe_only refuses without prompting; gate's approval
+    # callback is irrelevant in this branch.
+    cfg.computer_deny_during_goal_loop = False
+    gate = PermissionGate(cfg=cfg)
     audit = ActionAuditLog(tmp_path / "audit.jsonl")
 
     def _propose(task, shot, history):
