@@ -88,28 +88,32 @@ def _instantiate_adapter(
     settings: dict[str, Any],
 ):
     """Construct one adapter by name. Raises ``ValueError`` for
-    missing required settings; ``ImportError`` for missing SDKs."""
+    missing required settings; ``ImportError`` for missing SDKs.
+
+    Long-lived secrets (bot_token / app_token / password /
+    access_token / IMAP+SMTP passwords) all go through
+    :func:`athena.gateway.credentials.resolve_credential` so an
+    operator can EITHER point at a 0o600 file via
+    ``<key>_path`` (preferred) OR keep the cleartext value at
+    ``<key>`` (still works but logs a one-shot deprecation
+    nudge per ``(platform, key)`` pair)."""
+    from ..gateway.credentials import resolve_credential
+
     if name == "telegram":
         from ..gateway.platforms.telegram import TelegramAdapter
 
-        token = settings.get("bot_token")
-        if not token:
-            raise ValueError("telegram requires bot_token")
+        token = resolve_credential(settings, "bot_token", platform="telegram")
         return TelegramAdapter(daemon, bot_token=token)
     if name == "slack":
         from ..gateway.platforms.slack import SlackAdapter
 
-        bot = settings.get("bot_token")
-        app = settings.get("app_token")
-        if not bot or not app:
-            raise ValueError("slack requires bot_token and app_token")
+        bot = resolve_credential(settings, "bot_token", platform="slack")
+        app = resolve_credential(settings, "app_token", platform="slack")
         return SlackAdapter(daemon, bot_token=bot, app_token=app)
     if name == "discord":
         from ..gateway.platforms.discord import DiscordAdapter
 
-        token = settings.get("bot_token")
-        if not token:
-            raise ValueError("discord requires bot_token")
+        token = resolve_credential(settings, "bot_token", platform="discord")
         return DiscordAdapter(daemon, bot_token=token)
     if name == "signal":
         from ..gateway.platforms.signal import SignalAdapter
@@ -129,11 +133,9 @@ def _instantiate_adapter(
         from ..gateway.platforms.imessage import IMessageAdapter
 
         server = settings.get("server_url")
-        password = settings.get("password")
-        if not server or not password:
-            raise ValueError(
-                "imessage requires server_url and password",
-            )
+        if not server:
+            raise ValueError("imessage requires server_url")
+        password = resolve_credential(settings, "password", platform="imessage")
         return IMessageAdapter(
             daemon,
             server_url=server,
@@ -144,14 +146,12 @@ def _instantiate_adapter(
 
         homeserver = settings.get("homeserver")
         user_id = settings.get("user_id")
-        access_token = settings.get("access_token")
         device_id = settings.get("device_id")
         missing = [
             k
             for k, v in {
                 "homeserver": homeserver,
                 "user_id": user_id,
-                "access_token": access_token,
                 "device_id": device_id,
             }.items()
             if not v
@@ -160,6 +160,9 @@ def _instantiate_adapter(
             raise ValueError(
                 f"matrix requires {', '.join(missing)}",
             )
+        access_token = resolve_credential(
+            settings, "access_token", platform="matrix",
+        )
         store_path_raw = settings.get("store_path")
         store_path = Path(store_path_raw).expanduser() if store_path_raw else None
         return MatrixAdapter(
@@ -173,28 +176,30 @@ def _instantiate_adapter(
     if name == "email":
         from ..gateway.platforms.email import EmailAdapter
 
-        required = (
-            "imap_host",
-            "imap_user",
-            "imap_password",
-            "smtp_host",
-            "smtp_user",
-            "smtp_password",
-            "from_address",
+        # Non-secret fields stay on settings.get; the two
+        # password fields go through resolve_credential.
+        non_secret_required = (
+            "imap_host", "imap_user", "smtp_host", "smtp_user", "from_address",
         )
-        missing = [k for k in required if not settings.get(k)]
+        missing = [k for k in non_secret_required if not settings.get(k)]
         if missing:
             raise ValueError(
                 f"email requires {', '.join(missing)}",
             )
+        imap_password = resolve_credential(
+            settings, "imap_password", platform="email",
+        )
+        smtp_password = resolve_credential(
+            settings, "smtp_password", platform="email",
+        )
         return EmailAdapter(
             daemon,
             imap_host=settings["imap_host"],
             imap_user=settings["imap_user"],
-            imap_password=settings["imap_password"],
+            imap_password=imap_password,
             smtp_host=settings["smtp_host"],
             smtp_user=settings["smtp_user"],
-            smtp_password=settings["smtp_password"],
+            smtp_password=smtp_password,
             from_address=settings["from_address"],
             imap_port=int(settings.get("imap_port", 993)),
             smtp_port=int(settings.get("smtp_port", 587)),
