@@ -124,6 +124,7 @@ _SUBCOMMANDS = {
     "cache": "athena.cli.cache",
     "recall": "athena.cli.recall",
     "computer": "athena.commands.computer",
+    "board": "athena.commands.board",
 }
 
 

@@ -43,6 +43,10 @@ from ..computer import tools as _computer_register  # noqa: F401
 # backend contact.
 from ..videogen import tools as _videogen_register  # noqa: F401
 
+# T6-06: board_show — kanban projection over the persisted task
+# store. Reads the same store TaskCreate/Update/List use.
+from ..tasks import board as _board_register  # noqa: F401
+
 from .registry import all_tools, dispatch, get_tool, ollama_schema, tool
 
 __all__ = ["all_tools", "dispatch", "get_tool", "ollama_schema", "tool"]

@@ -12,6 +12,15 @@ The board (:mod:`athena.tasks.board`) is a column projection
 over the store. The store is the truth; the board is a view.
 """
 
+from .board import board_show, column_counts, project_board
 from .model import Status, Task, TaskStore, default_task_store_path
 
-__all__ = ["Status", "Task", "TaskStore", "default_task_store_path"]
+__all__ = [
+    "Status",
+    "Task",
+    "TaskStore",
+    "board_show",
+    "column_counts",
+    "default_task_store_path",
+    "project_board",
+]
