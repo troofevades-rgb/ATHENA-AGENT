@@ -30,6 +30,13 @@ from ..social import search as _social_search_register  # noqa: F401
 # T6-03: delegate_to_cli lives under athena.delegate.
 from ..delegate import cli as _delegate_register  # noqa: F401
 
+# T6-04: computer-use observe tools (computer_screenshot,
+# computer_observe). Input tools land in T6-04.5 and import
+# from the same module. Every tool checks
+# cfg.computer_use_enabled first — disabled → structured
+# "not enabled" payload, no OS contact.
+from ..computer import tools as _computer_register  # noqa: F401
+
 from .registry import all_tools, dispatch, get_tool, ollama_schema, tool
 
 __all__ = ["all_tools", "dispatch", "get_tool", "ollama_schema", "tool"]

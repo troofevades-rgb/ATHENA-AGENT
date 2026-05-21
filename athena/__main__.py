@@ -123,6 +123,7 @@ _SUBCOMMANDS = {
     "verify": "athena.cli.verify",
     "cache": "athena.cli.cache",
     "recall": "athena.cli.recall",
+    "computer": "athena.commands.computer",
 }
 
 
