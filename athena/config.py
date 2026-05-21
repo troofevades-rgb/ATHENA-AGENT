@@ -542,6 +542,19 @@ class Config:
     vision_long_edge_cap: int | None = None
     # Output dirs (None → resolved at runtime under <profile_dir>).
     vision_crop_dir: str | None = None  # default <profile_dir>/vision/crops
+    # T4-02: video_analyze. Two-layer discipline (container atom
+    # ordering / encoder signals + elementary-stream codec / GOP)
+    # reported separately. Frame extraction routes through ffmpeg;
+    # ffprobe drives the codec / encoder / GOP modes. Atoms parser
+    # is pure Python — the most useful container-tampering signal
+    # remains available even on a host without ffmpeg.
+    video_enabled: bool = True
+    video_ffmpeg_path: str = "ffmpeg"
+    video_ffprobe_path: str = "ffprobe"
+    video_frames_dir: str | None = None  # default <profile_dir>/video/frames
+    video_max_frames: int = 200
+    video_default_extract: str = "keyframes"  # keyframes | sampled | range
+    video_sampled_interval_s: float = 5.0
 
 
 def load_config() -> Config:

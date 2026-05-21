@@ -52,6 +52,11 @@ from ..tasks import board as _board_register  # noqa: F401
 # read is hash-logged to <profile>/vision_audit.jsonl.
 from ..vision import analyze as _vision_register  # noqa: F401
 
+# T4-02: video_analyze — ffmpeg/ffprobe-backed inspection + frame
+# extraction with optional per-frame describe via T4-01. Atoms
+# mode is pure-Python so it works without ffmpeg.
+from ..video import analyze as _video_register  # noqa: F401
+
 from .registry import all_tools, dispatch, get_tool, ollama_schema, tool
 
 __all__ = ["all_tools", "dispatch", "get_tool", "ollama_schema", "tool"]
