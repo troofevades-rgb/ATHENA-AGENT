@@ -722,6 +722,12 @@ class Agent:
             goal=self.goal,
             goal_state=self.goal_state,
             board_auto_maintain=bool(getattr(self.cfg, "board_auto_maintain", False)),
+            computer_use_status={
+                "enabled": bool(getattr(self.cfg, "computer_use_enabled", False)),
+                "mode": getattr(self.cfg, "computer_permission_mode", "observe_only"),
+                "allowlist": list(getattr(self.cfg, "computer_app_allowlist", []) or []),
+                "denylist": list(getattr(self.cfg, "computer_app_denylist", []) or []),
+            },
             lean=self.cfg.lean_prompt,
             disabled_sections=self.cfg.disabled_prompt_sections,
         )

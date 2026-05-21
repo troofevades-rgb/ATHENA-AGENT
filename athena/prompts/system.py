@@ -427,6 +427,7 @@ def build_system_prompt(
     goal: str | None = None,
     goal_state: Any = None,  # T5-07 GoalState; Any to avoid circular import
     board_auto_maintain: bool = False,
+    computer_use_status: dict | None = None,  # T6-04 live state
     lean: bool = False,
     disabled_sections: list[str] | None = None,
 ) -> str:
@@ -493,4 +494,88 @@ def build_system_prompt(
             "/subgoal also project onto the board automatically."
         )
 
+    if computer_use_status:
+        # T6-04 follow-up: surface the LIVE computer-use config
+        # so the model doesn't guess "off by default" from tool
+        # descriptions. The model now knows exactly which
+        # tools will fire and which will refuse before it
+        # tries.
+        parts.append(_render_computer_use_status(computer_use_status))
+
     return "\n\n".join(parts)
+
+
+def _render_computer_use_status(status: dict) -> str:
+    """Render the live computer-use feature state as a system-
+    prompt section. ``status`` is the dict the Agent passes —
+    {"enabled": bool, "mode": str, "allowlist": list, "denylist": list}."""
+    enabled = bool(status.get("enabled"))
+    if not enabled:
+        # When disabled, keep the section concise. The tool
+        # descriptions already say "off by default"; we just
+        # confirm the live state so the model doesn't have
+        # to guess.
+        return (
+            "# Computer use\n"
+            "Status: DISABLED (`computer_use_enabled=False`). The "
+            "`computer_screenshot`, `computer_observe`, `computer_click`, "
+            "`computer_type`, `computer_key`, and `computer_scroll` tools "
+            "all return a structured `not_enabled` payload until the user "
+            "opts in via `~/.athena/config.toml`."
+        )
+
+    mode = str(status.get("mode", "observe_only"))
+    allowlist = list(status.get("allowlist", []) or [])
+    denylist = list(status.get("denylist", []) or [])
+
+    lines = [
+        "# Computer use",
+        "Status: **ENABLED**.",
+        "",
+        f"Permission mode: `{mode}`.",
+    ]
+    if mode == "observe_only":
+        lines.append(
+            "  → `computer_screenshot` + `computer_observe` work. "
+            "Every input tool (`computer_click` / `computer_type` / "
+            "`computer_key` / `computer_scroll`) REFUSES — no action "
+            "will reach the OS."
+        )
+    elif mode == "per_action":
+        lines.append(
+            "  → Every input action prompts the user for confirmation. "
+            "Destructive-tier actions (Delete / Send / Pay / etc.) ALWAYS "
+            "prompt; routine input prompts each call."
+        )
+    elif mode == "per_session":
+        lines.append(
+            "  → Input is granted once per task (the first prompt "
+            "covers the rest of routine input). Destructive-tier actions "
+            "STILL prompt individually, every time, no exception."
+        )
+
+    if allowlist:
+        lines.append(f"Allowlisted apps: {allowlist}")
+    else:
+        lines.append(
+            "Allowlist: **empty** — no app is approved for control. Even "
+            "in per_action / per_session mode, input refuses until the "
+            "user sets `computer_app_allowlist`. The observe tools still "
+            "work."
+        )
+    if denylist:
+        lines.append(
+            f"Denylist: {denylist} — these apps are NEVER controlled, "
+            "no confirmation, no exception. Denylist always wins over "
+            "allowlist + mode."
+        )
+
+    lines.append("")
+    lines.append(
+        "When the user asks about computer use, check this status block "
+        "FIRST instead of guessing from tool descriptions. Tools that "
+        "won't fire (refused by mode / allowlist) return a structured "
+        "payload — the agent should report what the live config allows, "
+        "not what the tool's default-off description says."
+    )
+    return "\n".join(lines)
