@@ -85,6 +85,7 @@ def run_headless(
     run_id: str | None = None,
     timeout_s: float | None = None,
     on_info: UIFn = lambda _m: None,
+    agent: Any | None = None,
     _agent_factory: Callable[..., Any] | None = None,
 ) -> RunResult:
     """Execute one task headlessly and return its outcome.
@@ -106,8 +107,14 @@ def run_headless(
       ``on_info`` — UI callback for progress chatter (no-op
         default). The CLI passes a stderr writer when
         ``--json`` is set.
+      ``agent`` — pre-built :class:`Agent` to reuse instead of
+        constructing a new one. The CLI dispatcher passes the
+        agent it already built (so MCP loading + the Ollama
+        reachability check happen once). The runner still
+        calls ``agent.close()`` at teardown.
       ``_agent_factory`` — test seam for injecting a fake
-        Agent. Defaults to constructing the real one.
+        Agent. Defaults to constructing the real one when
+        ``agent`` is None.
     """
     rid = run_id or mint_run_id()
     started_iso = _now_iso()
@@ -141,12 +148,13 @@ def run_headless(
     # ----- construct the agent + arm the timeout -----
 
     on_info(f"[run_id={rid}] starting headless run")
-    if _agent_factory is None:
-        from ..agent.core import Agent
+    if agent is None:
+        if _agent_factory is None:
+            from ..agent.core import Agent
 
-        agent = Agent(cfg, workspace, model=model)
-    else:
-        agent = _agent_factory(cfg=cfg, workspace=workspace, model=model)
+            agent = Agent(cfg, workspace, model=model)
+        else:
+            agent = _agent_factory(cfg=cfg, workspace=workspace, model=model)
 
     timed_out = {"flag": False}
     timer: threading.Timer | None = None
