@@ -474,6 +474,12 @@ class Config:
     computer_backend: str = "auto"
     computer_dry_run: bool = False
     computer_audit_path: str | None = None  # default <profile_dir>/computer_audit.jsonl
+    # T6-04.4 follow-up: screenshots are written to disk
+    # (NOT inlined as base64 in the tool result — a 4K screen
+    # would be ~30 MB of base64 → ~10M tokens, way beyond
+    # local-model context windows). Default location is
+    # <profile_dir>/screenshots/<ts>-<sha8>.bmp.
+    computer_screenshots_dir: str | None = None
     # T6-05: native video generation. video_generate +
     # animate_image tools backed by the T5-05 media broker
     # (video_generation capability). Cost / latency guard
