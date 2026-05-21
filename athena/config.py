@@ -412,6 +412,23 @@ class Config:
     social_oauth_client_secret_path: str | None = None
     social_oauth_scopes: list[str] = field(default_factory=list)
     social_oauth_redirect_uri: str | None = None
+    # T6-03: external coding-CLI delegation. delegate_to_cli runs
+    # the configured external CLI on a scoped task in an isolated
+    # git worktree, captures the diff, surfaces it for review.
+    # NEVER auto-merges. cli_delegate_sandbox=True wraps the
+    # delegate invocation in the T5-02 bwrap sandbox.
+    #
+    # cli_delegate_command is the invocation template — vendor-
+    # specific. Use {task} as the placeholder; the task text is
+    # substituted in after shlex.split so quotes / spaces stay
+    # one argv element. Example:
+    #   "codex exec --quiet {task}"
+    #   "aider --message {task} --yes"
+    cli_delegate_enabled: bool = False
+    cli_delegate_command: str | None = None
+    cli_delegate_timeout_s: float = 600.0
+    cli_delegate_worktree_root: str | None = None
+    cli_delegate_sandbox: bool = True
 
 
 def load_config() -> Config:
