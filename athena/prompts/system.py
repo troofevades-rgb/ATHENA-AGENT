@@ -426,6 +426,7 @@ def build_system_prompt(
     model_modelfile_system: str | None = None,
     goal: str | None = None,
     goal_state: Any = None,  # T5-07 GoalState; Any to avoid circular import
+    board_auto_maintain: bool = False,
     lean: bool = False,
     disabled_sections: list[str] | None = None,
 ) -> str:
@@ -474,5 +475,22 @@ def build_system_prompt(
         from ..goal.invariant import format_for_system_prompt
 
         parts.append(format_for_system_prompt(goal, state=goal_state))
+
+    if board_auto_maintain:
+        # T6-06.4: nudge the agent to keep the kanban current as
+        # a side effect of working. TaskCreate / TaskUpdate are
+        # already in the toolset; this just makes the workflow
+        # explicit so it actually happens during long autonomous
+        # runs (when the user isn't watching).
+        parts.append(
+            "# Task board (auto-maintained)\n"
+            "Use TaskCreate when you decide on a multi-step plan. "
+            "Move tasks to in_progress when you start working on them, and to "
+            "completed as soon as the work is FULLY done — don't batch. The "
+            "same tasks render on the kanban board (`athena board`) and "
+            "`board_show` gives you a structured snapshot when you need to "
+            "see what's left. During a /goal run, the subgoals you set via "
+            "/subgoal also project onto the board automatically."
+        )
 
     return "\n\n".join(parts)

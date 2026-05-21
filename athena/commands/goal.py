@@ -74,11 +74,27 @@ def _max_turns(agent) -> int:
 
 def _set_goal_and_state(agent, text: str) -> None:
     """Persist a fresh goal + reset its state to active. The
-    state's max_turns comes from cfg; turns_taken starts at 0."""
+    state's max_turns comes from cfg; turns_taken starts at 0.
+
+    T6-06.4: mints a stable ``goal_id`` so the T6-06.1 task
+    store can tag subgoal-cards. The id is short + URL-safe so
+    it shows up cleanly in audit logs / board filters.
+    """
+    import uuid
+
     pdir = _profile_dir(agent)
     set_goal(pdir, text)
     max_turns = _max_turns(agent)
-    state = GoalState(text=text, status="active", turns_taken=0, max_turns=max_turns)
+    # T6-06.4: clear any pre-existing subgoal-cards for the
+    # previous goal_id (a new goal replaces the old subgoals).
+    _clear_store_subgoals_for_previous_goal(agent)
+    state = GoalState(
+        text=text,
+        status="active",
+        turns_taken=0,
+        max_turns=max_turns,
+        goal_id=f"g-{uuid.uuid4().hex[:12]}",
+    )
     save_state(pdir, state)
     agent.reload_goal()
     ui.info(f"goal set: {text}  (status=active, max_turns={max_turns})")
@@ -125,6 +141,8 @@ def _resume(agent) -> None:
 
 def _clear(agent) -> None:
     pdir = _profile_dir(agent)
+    # T6-06.4: drop any subgoal-cards in the task store too.
+    _clear_store_subgoals_for_previous_goal(agent)
     had_text = clear_goal(pdir)
     had_state = clear_state(pdir)
     agent.reload_goal()
@@ -184,14 +202,114 @@ def cmd_subgoal(agent, arg: str = "") -> str:
             ui.info("no pending subgoal to mark done")
             return ""
         pending.done = True
+        # T6-06.4 — project to the task store too: flip the
+        # matching task's status to done. Best-effort; a store
+        # failure shouldn't block the in-state update (which
+        # is what drives the system-prompt rendering).
+        _project_subgoal_done(agent, state, pending)
         save_state(pdir, state)
         agent.reload_goal()
         ui.info(f"subgoal done: {pending.text}")
         return ""
 
-    # Anything else is a new subgoal text — append.
-    state.subgoals.append(Subgoal(text=arg))
+    # Anything else is a new subgoal text — append AND
+    # project to the task store as a card with goal_id set.
+    subgoal = Subgoal(text=arg)
+    subgoal.task_id = _project_subgoal_create(agent, state, subgoal)
+    state.subgoals.append(subgoal)
     save_state(pdir, state)
     agent.reload_goal()
     ui.info(f"subgoal added: {arg}")
     return ""
+
+
+# ---------------------------------------------------------------------------
+# T6-06.4 — goal-loop ↔ task store projection
+# ---------------------------------------------------------------------------
+
+
+def _resolve_workspace_str(agent) -> str | None:
+    """Best-effort workspace path for board scoping. Tries the
+    agent's own workspace attribute first; falls back to
+    file_ops's bound workspace; None if neither is set
+    (subgoal still works — it just won't filter by workspace
+    on the board)."""
+    ws = getattr(agent, "workspace", None)
+    if ws:
+        return str(ws)
+    try:
+        from ..tools import file_ops
+
+        return str(file_ops._WORKSPACE) if file_ops._WORKSPACE else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _project_subgoal_create(agent, state, subgoal) -> str | None:
+    """Create a card in the task store tagged with
+    ``goal_id=state.goal_id``. Returns the task id (so the
+    Subgoal can persist a pointer back), or None when the
+    projection fails — the in-state subgoal still works, the
+    board just won't show that one."""
+    if not state.goal_id:
+        return None
+    try:
+        from ..tools.task import _resolve_store
+
+        store = _resolve_store()
+        task = store.create(
+            title=subgoal.text,
+            status="todo",
+            goal_id=state.goal_id,
+            workspace=_resolve_workspace_str(agent),
+            note="subgoal",
+        )
+        return task.id
+    except Exception as e:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            "could not project subgoal to task store: %s", e
+        )
+        return None
+
+
+def _project_subgoal_done(agent, state, subgoal) -> None:
+    """Flip the matching store task to done. Best-effort: a
+    failure logs + returns without disturbing the in-state
+    update."""
+    if not state.goal_id or not subgoal.task_id:
+        return
+    try:
+        from ..tools.task import _resolve_store
+
+        store = _resolve_store()
+        store.update(subgoal.task_id, status="done")
+    except Exception as e:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            "could not project subgoal done to task store: %s", e
+        )
+
+
+def _clear_store_subgoals_for_previous_goal(agent) -> None:
+    """When a new /goal replaces an active one OR /goal clear
+    runs, drop any subgoal-cards belonging to the prior goal_id
+    so the board doesn't show stale subgoals indefinitely."""
+    pdir = _profile_dir(agent)
+    prior = load_state(pdir)
+    if prior is None or not prior.goal_id:
+        return
+    try:
+        from ..tools.task import _resolve_store
+
+        store = _resolve_store()
+        for t in store.list(goal_id=prior.goal_id):
+            store.delete(t.id)
+    except Exception as e:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger(__name__).debug(
+            "could not clear prior goal's subgoal cards: %s", e
+        )

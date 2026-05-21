@@ -721,6 +721,7 @@ class Agent:
             model_modelfile_system=model_system,
             goal=self.goal,
             goal_state=self.goal_state,
+            board_auto_maintain=bool(getattr(self.cfg, "board_auto_maintain", False)),
             lean=self.cfg.lean_prompt,
             disabled_sections=self.cfg.disabled_prompt_sections,
         )
