@@ -72,6 +72,7 @@ def _cfg(tmp_path: Path, **overrides) -> SimpleNamespace:
     base = dict(
         computer_use_enabled=True,
         computer_audit_path=str(tmp_path / "audit.jsonl"),
+        computer_screenshots_dir=str(tmp_path / "screenshots"),
         profile="default",
     )
     base.update(overrides)
@@ -163,9 +164,16 @@ def test_screenshot_returns_image_and_logs(monkeypatch, tmp_path: Path):
     assert out["backend"] == "stub"
     assert out["width"] == 200
     assert out["height"] == 100
-    # base64 of the stub payload.
-    decoded = base64.b64decode(out["image_b64"])
-    assert decoded == b"stub-pixels"
+    # T6-04.4 follow-up: payload is a PATH on disk, not
+    # inline base64 (a 4K screen would blow the local model's
+    # context window otherwise).
+    assert "path" in out
+    assert "image_b64" not in out
+    persisted = Path(out["path"])
+    assert persisted.exists()
+    assert persisted.read_bytes() == b"stub-pixels"
+    assert out["sha256"]
+    assert out["bytes"] == len(b"stub-pixels")
 
     # Audit log line written.
     audit_file = tmp_path / "audit.jsonl"
@@ -255,5 +263,8 @@ def test_observe_resolves_vision_backend(monkeypatch, tmp_path: Path):
     assert out["vision_backend"] == "stub_vision"
     assert out["question"] == "what app is this?"
     assert out["width"] == 200
-    assert "image_b64" in out
-    assert "screenshot_sha256" in out
+    # Path-on-disk shape, not inline base64.
+    assert "image_b64" not in out
+    assert "path" in out
+    assert Path(out["path"]).exists()
+    assert out["screenshot_sha256"]

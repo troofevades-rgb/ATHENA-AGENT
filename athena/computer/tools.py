@@ -97,10 +97,13 @@ def _disabled_payload(reason: str) -> str:
     name="computer_screenshot",
     toolset="computer",
     description=(
-        "Capture the user's screen and return the image. Observe-tier "
-        "action — no confirmation needed, no input performed. Returns a "
-        "JSON payload with the image as base64-encoded bytes plus width "
-        "and height. Off by default (computer_use_enabled=False)."
+        "Capture the user's screen and write the image to disk. Observe-"
+        "tier action — no confirmation needed, no input performed. "
+        "Returns a JSON payload with the FILE PATH (not inline bytes — "
+        "a 4K screen is ~30 MB and would blow the model's context "
+        "window). To describe what's on screen, use `computer_observe` "
+        "instead; to act on the file, the path is on disk. Off by "
+        "default (computer_use_enabled=False)."
     ),
     parameters={"type": "object", "properties": {}},
 )
@@ -142,6 +145,18 @@ def computer_screenshot(**_kwargs: Any) -> str:
         result="ok",
     )
 
+    try:
+        path = _persist_screenshot(shot, cfg=cfg)
+    except OSError as e:
+        logger.warning("computer_screenshot: write-to-disk failed: %s", e)
+        return json.dumps(
+            {
+                "available": False,
+                "reason": f"could not persist screenshot: {e}",
+                "backend": backend.name,
+            }
+        )
+
     return json.dumps(
         {
             "available": True,
@@ -150,7 +165,9 @@ def computer_screenshot(**_kwargs: Any) -> str:
             "height": shot.height,
             "scale": shot.scale,
             "format": "image/bmp",  # T6-04.3 ships BMP on Windows
-            "image_b64": base64.b64encode(shot.png_bytes).decode("ascii"),
+            "path": path,
+            "sha256": _sha(shot),
+            "bytes": len(shot.png_bytes),
         }
     )
 
@@ -226,9 +243,23 @@ def computer_observe(question: str = "", **_kwargs: Any) -> str:
     # narrow: the broker resolves the backend; the actual
     # multimodal call is the agent-runtime's job (the same
     # pattern as the T5-05 differentiated MCP analyze_image
-    # tool). The tool surfaces the routing decision + a small
-    # base64 payload the agent can pass on to the provider.
+    # tool). The tool surfaces the routing decision + the
+    # screenshot path; the agent runtime reads the file when
+    # dispatching to the vision provider.
     from ..media import MediaRegistry
+
+    # Persist FIRST so even the no-vision-backend branch can
+    # return a path the caller can act on (open in viewer, pass
+    # to a different tool, etc).
+    try:
+        path = _persist_screenshot(shot, cfg=cfg)
+    except OSError as e:
+        return json.dumps(
+            {
+                "available": False,
+                "reason": f"could not persist screenshot: {e}",
+            }
+        )
 
     media = MediaRegistry(cfg=cfg)
     vision_cls = media.backend_for("vision")
@@ -242,6 +273,9 @@ def computer_observe(question: str = "", **_kwargs: Any) -> str:
                     "screenshot captured but cannot be described"
                 ),
                 "screenshot_sha256": _sha(shot),
+                "path": path,
+                "width": shot.width,
+                "height": shot.height,
                 "question": question,
             }
         )
@@ -254,10 +288,12 @@ def computer_observe(question: str = "", **_kwargs: Any) -> str:
             "question": question,
             "width": shot.width,
             "height": shot.height,
-            "image_b64": base64.b64encode(shot.png_bytes).decode("ascii"),
+            "path": path,
+            "bytes": len(shot.png_bytes),
             "note": (
                 "vision backend resolved via the capability broker; "
-                "the agent runtime performs the multimodal dispatch"
+                "the screenshot is on disk at `path`. The agent runtime "
+                "reads the file when dispatching the multimodal call."
             ),
         }
     )
@@ -267,6 +303,49 @@ def _sha(shot: Screenshot) -> str:
     from .audit import hash_screenshot
 
     return hash_screenshot(shot)
+
+
+def _persist_screenshot(shot: Screenshot, *, cfg: Any) -> str:
+    """Write the screenshot bytes to disk + return the absolute
+    path. The path goes into the tool result instead of inline
+    base64 — a 4K screen is ~30 MB base64 which blows local
+    model context windows (the original T6-04.4 bug).
+
+    Location: ``<profile_dir>/screenshots/<isoTs>-<sha8>.bmp``
+    (or ``cfg.computer_screenshots_dir`` when set). The
+    parent dir is created at 0o700 mode where the OS honours
+    it — these are user screen captures, treat as sensitive.
+    """
+    import datetime
+    import os
+
+    from .audit import hash_screenshot
+
+    explicit = getattr(cfg, "computer_screenshots_dir", None)
+    if explicit:
+        base = Path(str(explicit)).expanduser()
+    else:
+        from ..config import profile_dir as _pd
+
+        profile = getattr(cfg, "profile", None) or "default"
+        base = _pd(profile) / "screenshots"
+    base.mkdir(parents=True, exist_ok=True)
+    # Best-effort restrictive perms on POSIX; Windows ACLs
+    # differ and a chmod is a no-op there.
+    try:
+        if os.name != "nt":
+            os.chmod(base, 0o700)
+    except OSError:
+        pass
+
+    sha = hash_screenshot(shot)
+    ts = (
+        datetime.datetime.now(datetime.timezone.utc)
+        .strftime("%Y%m%dT%H%M%SZ")
+    )
+    target = base / f"{ts}-{sha[:8]}.bmp"
+    target.write_bytes(shot.png_bytes)
+    return str(target)
 
 
 # ---------------------------------------------------------------------------
