@@ -62,6 +62,10 @@ from ..video import analyze as _video_register  # noqa: F401
 # (faster-whisper local backend in-tree).
 from ..audio import tools as _audio_register  # noqa: F401
 
+# T4-06: ocr — read text from images / scanned pages via the
+# ocr capability (tesseract local backend in-tree).
+from ..ocr import tools as _ocr_register  # noqa: F401
+
 # T4-03: persistent CDP browser tools (Playwright). One browser
 # context per athena session; cookies/storage survive across
 # tool calls. Lazy-launch — an unused browser pays no chromium

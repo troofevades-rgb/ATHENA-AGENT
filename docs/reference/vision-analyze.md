@@ -176,9 +176,12 @@ in the EXIF section above.
 
 ## Non-goals
 
-- **OCR.** Not in T4-01. The describe mode can read visible text
-  via the multimodal model when one is configured, but there's
-  no dedicated text-extraction backend.
+- ~~**OCR.** Not in T4-01.~~ **Closed by T4-06** — the `ocr`
+  tool reads text from images via a dedicated OCR engine
+  (tesseract-class, local-preferred). Use `ocr` when the
+  question is "what does the text in this image say"; use
+  `vision_analyze describe` when the question is "what is in
+  this picture". See `docs/reference/ocr.md`.
 - **C2PA / Content Credentials.** Not in T4-01. A separate phase
   would add C2PA verification on top of the existing EXIF +
   pHash + strip-check signal set.
