@@ -96,6 +96,14 @@ class Capabilities:
     # with ``is_local=True`` for on-device STT (the privacy win
     # — recordings stay on the machine).
     audio_transcription: bool = False
+    # T4-06: optical character recognition. The broker routes
+    # the ``ocr`` tool to providers declaring this capability.
+    # Defaults False; the in-tree tesseract backend declares
+    # it explicitly. Pair with ``is_local=True`` for on-device
+    # OCR. Fills the OCR non-goal T4-01 vision explicitly
+    # declared; consumed by T4-05 document_analyze for scanned
+    # PDF pages.
+    ocr: bool = False
 
     def supports(self, capability: str) -> bool:
         """``True`` when the named field is truthy. Lets callers

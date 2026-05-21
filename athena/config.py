@@ -618,6 +618,45 @@ class Config:
     audio_whisper_device: str = "auto"  # auto | cpu | cuda
     audio_whisper_compute_type: str = "auto"  # auto | int8 | float16 | float32
     audio_output_dir: str | None = None  # default <profile_dir>/audio
+    # T4-05: document_analyze (PDF / DOCX). Extracts clean text +
+    # heading outline + tables + metadata. Scanned PDF pages (no
+    # text layer) route to OCR (T4-06) when available; degrades
+    # cleanly when not — pages return empty with a flagged note.
+    # Embedded figures can be described via vision_analyze (T4-01)
+    # when extract=full and describe_figures is on.
+    document_analyze_enabled: bool = True
+    document_default_extract: str = "structure"  # text|structure|tables|metadata|full
+    document_ocr_fallback: bool = True
+    document_describe_figures: bool = False
+    # Page rasterization DPI when rendering scanned pages for OCR
+    # or figures for vision. 200 is the OCR sweet spot for most
+    # documents; bump to 300 for fine print, 150 for big batches.
+    document_rasterize_dpi: int = 200
+    document_output_dir: str | None = None  # default <profile_dir>/documents
+    # T4-06: OCR — read text from images / scanned pages. The
+    # broker routes the `ocr` tool to providers declaring the
+    # `ocr` capability (local-preferred by default — text in
+    # images stays on the machine). Consumed by T4-05
+    # document_analyze for scanned PDF pages and callable from
+    # T4-01 vision when "what does the text in this image say"
+    # is the question (OCR reads; vision describes).
+    ocr_enabled: bool = True
+    ocr_backend_prefer: str = "local"
+    # Languages passed to tesseract: ISO 639-2/T codes, one or
+    # more (tesseract joins with '+'). "eng" is the default;
+    # "eng+fra" recognises both English and French in the same
+    # image. Each non-default language requires the matching
+    # tessdata file installed.
+    ocr_languages: list[str] = field(default_factory=lambda: ["eng"])
+    # Drop blocks below this OCR-engine-reported confidence
+    # (0-100). 0 keeps everything (default); 60+ is a good
+    # filter for "treat noisy recognitions as 'unreadable'".
+    ocr_min_confidence: int = 0
+    # Path override to the tesseract binary. None → use the
+    # system PATH lookup (default; works when tesseract is
+    # installed via scoop / brew / apt). Set explicitly when
+    # the binary isn't on PATH.
+    ocr_tesseract_cmd: str | None = None
 
 
 def load_config() -> Config:
