@@ -70,3 +70,146 @@ def tirith_check(command: str = "", **_kw: Any) -> str:
         "summary": v.summary,
         "available": v.available,
     })
+
+
+# ---------------------------------------------------------------
+# url_safety_check — explicit pre-fetch verdict for URLs
+# ---------------------------------------------------------------
+
+
+@tool(
+    name="url_safety_check",
+    toolset="safety",
+    description=(
+        "Check whether a URL is safe to fetch BEFORE issuing the "
+        "request. Returns {safe: bool, reason: '...', resolved_ip: "
+        "<str or null>}. Validates scheme (http/https only), "
+        "resolves DNS, and rejects URLs that resolve to private / "
+        "loopback / link-local / cloud-metadata / CGNAT / IPv6 ULA "
+        "addresses (SSRF defense). Athena's WebFetch already "
+        "validates internally; this exposes the verdict so the "
+        "model can decide BEFORE invoking the fetch."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "The URL to validate.",
+            },
+        },
+        "required": ["url"],
+    },
+)
+def url_safety_check(url: str = "", **_kw: Any) -> str:
+    if not url:
+        return json.dumps({
+            "safe": False,
+            "reason": "no URL provided",
+            "resolved_ip": None,
+        })
+    cfg = load_config()
+    if not getattr(cfg, "url_safety_enabled", True):
+        return json.dumps({
+            "safe": True,
+            "reason": "url_safety_enabled=False; check skipped",
+            "resolved_ip": None,
+        })
+    from ..safety.url_safety import URLSecurityDenied, validate_url
+
+    try:
+        v = validate_url(url)
+    except URLSecurityDenied as e:
+        return json.dumps({
+            "safe": False,
+            "reason": str(e),
+            "resolved_ip": None,
+        })
+    except Exception as e:  # noqa: BLE001
+        # validate_url raises URLSecurityDenied + ValueError; catch
+        # broadly so a future change doesn't crash this advisory.
+        return json.dumps({
+            "safe": False,
+            "reason": f"validation error: {type(e).__name__}: {e}",
+            "resolved_ip": None,
+        })
+    return json.dumps({
+        "safe": True,
+        "reason": "validated",
+        "resolved_ip": v.resolved_ip,
+    })
+
+
+# ---------------------------------------------------------------
+# osv_check — look up vulnerabilities for package@version
+# ---------------------------------------------------------------
+
+
+@tool(
+    name="osv_check",
+    toolset="safety",
+    description=(
+        "Query the Open Source Vulnerabilities database "
+        "(osv.dev) for CVEs affecting a specific package "
+        "version. Returns {available: bool, package, version, "
+        "ecosystem, vulns: [{id, summary, severity, aliases, "
+        "references}], error?}. Use BEFORE recommending a dep "
+        "or running an install. Supported ecosystems include "
+        "PyPI, npm, crates.io, Go, Maven, NuGet, RubyGems, "
+        "Packagist, Hex, Pub, Debian, Ubuntu, Alpine, etc. "
+        "Read-only HTTP — no credentials needed."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "package": {
+                "type": "string",
+                "description": "Package name (e.g. 'requests', '@types/node', 'serde').",
+            },
+            "version": {
+                "type": "string",
+                "description": "Exact version string (e.g. '2.31.0').",
+            },
+            "ecosystem": {
+                "type": "string",
+                "description": (
+                    "Package ecosystem: PyPI, npm, crates.io, Go, "
+                    "Maven, NuGet, RubyGems, Packagist, Hex, Pub, "
+                    "Debian, Ubuntu, Alpine, etc."
+                ),
+            },
+        },
+        "required": ["package", "version", "ecosystem"],
+    },
+)
+def osv_check(
+    package: str = "",
+    version: str = "",
+    ecosystem: str = "",
+    **_kw: Any,
+) -> str:
+    cfg = load_config()
+    if not getattr(cfg, "osv_enabled", True):
+        return json.dumps({
+            "available": False,
+            "error": "osv_enabled=False; check skipped",
+        })
+    if not package or not version or not ecosystem:
+        return json.dumps({
+            "available": False,
+            "error": "package + version + ecosystem all required",
+        })
+
+    from ..safety.osv import query
+
+    vulns, error = query(
+        package, version, ecosystem=ecosystem, cfg=cfg,
+    )
+    return json.dumps({
+        "available": error is None,
+        "package": package,
+        "version": version,
+        "ecosystem": ecosystem,
+        "vulns": [v.to_dict() for v in vulns],
+        "error": error,
+    })
