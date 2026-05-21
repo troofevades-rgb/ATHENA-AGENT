@@ -267,3 +267,258 @@ def _sha(shot: Screenshot) -> str:
     from .audit import hash_screenshot
 
     return hash_screenshot(shot)
+
+
+# ---------------------------------------------------------------------------
+# T6-04.5 input tools — every one routes through the gate.
+# ---------------------------------------------------------------------------
+
+
+def _gate_for(cfg: Any):
+    """Build a PermissionGate with a default-deny confirm
+    callback. The agent runtime overrides ``confirm`` to plug
+    in the REPL / ACP confirmation UI; the bare-tool path
+    defaults to refusing destructive + input prompts because
+    there's no live UI to ask. The user wires a confirm
+    callback via /computer mode (T6-04.6 docs)."""
+    from .permission import PermissionGate
+
+    def _no_ui_default(action: Action, tier) -> bool:
+        logger.info(
+            "computer tool: no confirm UI registered; refusing %s tier",
+            tier,
+        )
+        return False
+
+    return PermissionGate(cfg=cfg, confirm=_no_ui_default)
+
+
+def _single_action_path(action: Action) -> str:
+    """Common preamble for the one-shot input tools: enable
+    check → backend resolve → screenshot for context →
+    classify → gate → perform → audit.
+
+    The single-action tools are mostly for testing + scripted
+    use; the real path is computer_do which runs the loop. We
+    still expose them — the gate semantics are identical."""
+    cfg = _load_cfg()
+    if not getattr(cfg, "computer_use_enabled", False):
+        return _disabled_payload("computer_use_enabled is False")
+
+    backend = _resolve_backend(cfg)
+    if not backend.is_available():
+        return json.dumps(
+            {
+                "available": False,
+                "reason": f"backend {backend.name!r} not available",
+                "backend": backend.name,
+            }
+        )
+
+    audit = _resolve_audit(cfg)
+    shot = None
+    try:
+        if "screenshot" in backend.supports():
+            shot = backend.screenshot()
+    except Exception:  # noqa: BLE001
+        shot = None
+    if action.app is None:
+        try:
+            action.app = backend.active_app()
+        except Exception:  # noqa: BLE001
+            action.app = None
+
+    from .permission import classify
+
+    gate = _gate_for(cfg)
+    tier = classify(action)
+    allowed = gate.check(action)
+
+    if not allowed:
+        audit.log(
+            action=action,
+            tier=tier,
+            confirmed=False,
+            executed=False,
+            screenshot=shot,
+            result="denied",
+        )
+        return json.dumps(
+            {
+                "available": True,
+                "performed": False,
+                "tier": tier,
+                "reason": "denied by permission gate",
+            }
+        )
+
+    try:
+        backend.perform(action)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("computer tool: backend.perform failed: %s", e)
+        audit.log(
+            action=action,
+            tier=tier,
+            confirmed=True,
+            executed=False,
+            screenshot=shot,
+            result=f"error: {e}",
+        )
+        return json.dumps(
+            {
+                "available": True,
+                "performed": False,
+                "tier": tier,
+                "reason": f"perform failed: {e}",
+            }
+        )
+    audit.log(
+        action=action,
+        tier=tier,
+        confirmed=True,
+        executed=True,
+        screenshot=shot,
+        result="ok",
+    )
+    return json.dumps(
+        {
+            "available": True,
+            "performed": True,
+            "tier": tier,
+            "action": action.describe(),
+        }
+    )
+
+
+@tool(
+    name="computer_click",
+    toolset="computer",
+    description=(
+        "Click at the given screen coordinates. The action is "
+        "classified (destructive when target_desc names 'Delete' / "
+        "'Send' / 'Pay' / similar; destructive when target_desc is "
+        "missing — conservative default) and runs through the "
+        "permission gate."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "x": {"type": "integer"},
+            "y": {"type": "integer"},
+            "target_desc": {
+                "type": "string",
+                "description": (
+                    "What's at (x, y) — button label / role. Used by "
+                    "the destructive-tier classifier; a missing "
+                    "target_desc forces destructive tier."
+                ),
+            },
+            "button": {
+                "type": "string",
+                "enum": ["left", "right", "double"],
+            },
+        },
+        "required": ["x", "y"],
+    },
+)
+def computer_click(
+    x: int = 0,
+    y: int = 0,
+    target_desc: str | None = None,
+    button: str = "left",
+    **_kwargs: Any,
+) -> str:
+    button = (button or "left").lower()
+    action_type = (
+        "double_click" if button == "double"
+        else "right_click" if button == "right"
+        else "click"
+    )
+    return _single_action_path(
+        Action(
+            type=action_type,
+            coords=(int(x), int(y)),
+            target_desc=target_desc,
+        )
+    )
+
+
+@tool(
+    name="computer_type",
+    toolset="computer",
+    description=(
+        "Type the given text into the active focus. Goes through the "
+        "permission gate; text payloads containing destructive verbs "
+        "(e.g. 'rm -rf /', 'sudo') are classified destructive."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "text": {"type": "string"},
+            "target_desc": {"type": "string"},
+        },
+        "required": ["text"],
+    },
+)
+def computer_type(
+    text: str = "",
+    target_desc: str | None = None,
+    **_kwargs: Any,
+) -> str:
+    if not text:
+        return json.dumps({"available": False, "reason": "text required"})
+    return _single_action_path(
+        Action(type="type", text=text, target_desc=target_desc)
+    )
+
+
+@tool(
+    name="computer_key",
+    toolset="computer",
+    description=(
+        "Press a single key or chord (e.g. 'Return', 'ctrl+c', "
+        "'alt+f4'). Sensitive keys (Alt+F4, Cmd+W, Ctrl+Alt+Delete, "
+        "Delete, F5) are classified destructive."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "key": {"type": "string"},
+            "target_desc": {"type": "string"},
+        },
+        "required": ["key"],
+    },
+)
+def computer_key(
+    key: str = "",
+    target_desc: str | None = None,
+    **_kwargs: Any,
+) -> str:
+    if not key:
+        return json.dumps({"available": False, "reason": "key required"})
+    return _single_action_path(
+        Action(type="key", key=key, target_desc=target_desc)
+    )
+
+
+@tool(
+    name="computer_scroll",
+    toolset="computer",
+    description="Scroll the active window. direction is 'up' or 'down'.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "direction": {"type": "string", "enum": ["up", "down"]},
+            "target_desc": {"type": "string"},
+        },
+        "required": ["direction"],
+    },
+)
+def computer_scroll(
+    direction: str = "down",
+    target_desc: str | None = None,
+    **_kwargs: Any,
+) -> str:
+    return _single_action_path(
+        Action(type="scroll", text=direction, target_desc=target_desc)
+    )

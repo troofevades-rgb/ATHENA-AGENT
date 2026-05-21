@@ -41,6 +41,16 @@ logger = logging.getLogger(__name__)
 
 
 _SUPPORTED_OBSERVE: list[ActionType] = ["screenshot"]
+# T6-04.5 input verbs wired below via SendInput.
+_SUPPORTED_INPUT: list[ActionType] = [
+    "move",
+    "click",
+    "double_click",
+    "right_click",
+    "type",
+    "key",
+    "scroll",
+]
 
 
 class WindowsBackend:
@@ -61,7 +71,7 @@ class WindowsBackend:
         return True
 
     def supports(self) -> list[ActionType]:
-        return list(_SUPPORTED_OBSERVE)
+        return list(_SUPPORTED_OBSERVE) + list(_SUPPORTED_INPUT)
 
     # ------------------------------------------------------------------
     # Observe surface
@@ -169,13 +179,45 @@ class WindowsBackend:
     # ------------------------------------------------------------------
 
     def perform(self, action: Action) -> None:
-        """Input is intentionally unimplemented in T6-04.3. The
-        kill switch (T6-04.2) and permission gate (T6-04.1)
-        must land first; T6-04.5 wires SendInput here."""
-        raise NotImplementedError(
-            "Windows backend input is gated until T6-04.5 lands "
-            "(observe-first by design)"
-        )
+        """Perform an input action via Win32 SendInput (T6-04.5).
+
+        The caller MUST go through the loop's
+        :class:`PermissionGate` first — this method assumes the
+        action was already approved. The loop is the only call
+        site in athena.
+
+        Coordinates here are SCREEN PIXELS (not normalised);
+        the loop's :func:`map_coords` already clamped them.
+
+        Unsupported verbs raise ``NotImplementedError`` so the
+        caller surfaces the gap rather than silently no-oping.
+        """
+        if not self.is_available():
+            raise RuntimeError("windows backend unavailable on this host")
+
+        if action.type == "move":
+            _send_mouse_move(*_require_coords(action))
+        elif action.type == "click":
+            _send_mouse_click(*_require_coords(action), button="left")
+        elif action.type == "double_click":
+            _send_mouse_click(*_require_coords(action), button="left")
+            _send_mouse_click(*_require_coords(action), button="left")
+        elif action.type == "right_click":
+            _send_mouse_click(*_require_coords(action), button="right")
+        elif action.type == "type":
+            _send_text(action.text or "")
+        elif action.type == "key":
+            _send_key(action.key or "")
+        elif action.type == "scroll":
+            # text is "up"/"down" + optional amount; default 3
+            # wheel clicks per scroll.
+            direction = (action.text or "down").lower()
+            _send_scroll(direction)
+        else:
+            raise NotImplementedError(
+                f"windows backend does not implement {action.type!r} "
+                "(drag is intentionally composed from primitives)"
+            )
 
     # ------------------------------------------------------------------
     # Internals
@@ -267,3 +309,185 @@ def _hbitmap_to_bmp(hbm: int, width: int, height: int, gdi32) -> bytes:
     )
     bmp += pixel_array
     return bmp
+
+
+# ---------------------------------------------------------------------------
+# Input helpers (T6-04.5) — ONLY called from perform(), which is
+# only called from the loop after gate.check returned True.
+# ---------------------------------------------------------------------------
+
+
+_INPUT_MOUSE = 0
+_INPUT_KEYBOARD = 1
+
+_MOUSEEVENTF_MOVE = 0x0001
+_MOUSEEVENTF_LEFTDOWN = 0x0002
+_MOUSEEVENTF_LEFTUP = 0x0004
+_MOUSEEVENTF_RIGHTDOWN = 0x0008
+_MOUSEEVENTF_RIGHTUP = 0x0010
+_MOUSEEVENTF_ABSOLUTE = 0x8000
+_MOUSEEVENTF_WHEEL = 0x0800
+
+_WHEEL_DELTA = 120
+
+_KEYEVENTF_KEYUP = 0x0002
+_KEYEVENTF_UNICODE = 0x0004
+
+# Virtual-Key codes for the small set the spec calls out. The
+# typed-text path uses UNICODE keystrokes so we don't need a
+# full VK table.
+_VK = {
+    "return": 0x0D, "enter": 0x0D,
+    "escape": 0x1B, "esc": 0x1B,
+    "tab": 0x09, "space": 0x20, "backspace": 0x08,
+    "delete": 0x2E, "del": 0x2E,
+    "home": 0x24, "end": 0x23,
+    "pageup": 0x21, "pagedown": 0x22,
+    "left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
+    "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73, "f5": 0x74,
+    "f6": 0x75, "f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79,
+    "f11": 0x7A, "f12": 0x7B,
+    "ctrl": 0x11, "control": 0x11,
+    "alt": 0x12, "shift": 0x10,
+    "win": 0x5B, "meta": 0x5B, "cmd": 0x5B,
+}
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx", wintypes.LONG),
+        ("dy", wintypes.LONG),
+        ("mouseData", wintypes.DWORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
+    ]
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", wintypes.WORD),
+        ("wScan", wintypes.WORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
+    ]
+
+
+class _INPUT_UNION(ctypes.Union):
+    _fields_ = [("mi", _MOUSEINPUT), ("ki", _KEYBDINPUT)]
+
+
+class _INPUT(ctypes.Structure):
+    _fields_ = [("type", wintypes.DWORD), ("ii", _INPUT_UNION)]
+
+
+def _send_input(*inputs) -> int:
+    """SendInput wrapper. Returns the number of events sent."""
+    user32 = ctypes.windll.user32
+    n = len(inputs)
+    arr = (_INPUT * n)(*inputs)
+    sent = user32.SendInput(n, arr, ctypes.sizeof(_INPUT))
+    return int(sent)
+
+
+def _require_coords(action: Action) -> tuple[int, int]:
+    if action.coords is None:
+        raise ValueError(f"{action.type!r} requires coords")
+    return action.coords
+
+
+def _mouse_input(*, flags: int, x: int = 0, y: int = 0, data: int = 0) -> _INPUT:
+    inp = _INPUT()
+    inp.type = _INPUT_MOUSE
+    inp.ii.mi = _MOUSEINPUT(
+        dx=x, dy=y, mouseData=data, dwFlags=flags, time=0, dwExtraInfo=None
+    )
+    return inp
+
+
+def _keyboard_input(*, vk: int = 0, scan: int = 0, flags: int = 0) -> _INPUT:
+    inp = _INPUT()
+    inp.type = _INPUT_KEYBOARD
+    inp.ii.ki = _KEYBDINPUT(
+        wVk=vk, wScan=scan, dwFlags=flags, time=0, dwExtraInfo=None
+    )
+    return inp
+
+
+def _send_mouse_move(x: int, y: int) -> None:
+    """Move the cursor to absolute screen coords via
+    SetCursorPos — sidesteps the SendInput-absolute-coord
+    normalisation gotcha that bites every Windows automation
+    library."""
+    user32 = ctypes.windll.user32
+    user32.SetCursorPos(int(x), int(y))
+
+
+def _send_mouse_click(x: int, y: int, *, button: str) -> None:
+    """Move + press + release. The button events fire AT the
+    new cursor position thanks to the move."""
+    _send_mouse_move(x, y)
+    if button == "left":
+        down, up = _MOUSEEVENTF_LEFTDOWN, _MOUSEEVENTF_LEFTUP
+    elif button == "right":
+        down, up = _MOUSEEVENTF_RIGHTDOWN, _MOUSEEVENTF_RIGHTUP
+    else:
+        raise ValueError(f"unsupported button: {button!r}")
+    _send_input(_mouse_input(flags=down), _mouse_input(flags=up))
+
+
+def _send_text(text: str) -> None:
+    """Type each character via UNICODE keystrokes — works for
+    arbitrary text without a per-layout VK lookup."""
+    if not text:
+        return
+    inputs: list[_INPUT] = []
+    for ch in text:
+        code = ord(ch)
+        inputs.append(_keyboard_input(scan=code, flags=_KEYEVENTF_UNICODE))
+        inputs.append(
+            _keyboard_input(
+                scan=code, flags=_KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP
+            )
+        )
+    if inputs:
+        _send_input(*inputs)
+
+
+def _send_key(key: str) -> None:
+    """Press a single named key or chord like ``ctrl+c`` or
+    ``alt+f4``. Modifiers are held while the final key fires."""
+    if not key:
+        return
+    parts = [p.strip().lower() for p in key.split("+") if p.strip()]
+    if not parts:
+        return
+    *modifiers, main = parts
+    vks: list[int] = []
+    for mod in modifiers:
+        vk = _VK.get(mod)
+        if vk is None:
+            raise ValueError(f"unknown modifier in key chord: {mod!r}")
+        vks.append(vk)
+    main_vk = _VK.get(main)
+    if main_vk is None:
+        if len(main) == 1:
+            main_vk = ord(main.upper())
+        else:
+            raise ValueError(f"unknown key: {main!r}")
+    events: list[_INPUT] = []
+    for vk in vks:
+        events.append(_keyboard_input(vk=vk))
+    events.append(_keyboard_input(vk=main_vk))
+    events.append(_keyboard_input(vk=main_vk, flags=_KEYEVENTF_KEYUP))
+    for vk in reversed(vks):
+        events.append(_keyboard_input(vk=vk, flags=_KEYEVENTF_KEYUP))
+    _send_input(*events)
+
+
+def _send_scroll(direction: str) -> None:
+    """Vertical wheel scroll. Positive mouseData scrolls up;
+    negative scrolls down. Default 3 wheel-clicks per call."""
+    sign = +1 if direction.lower() == "up" else -1
+    _send_input(_mouse_input(flags=_MOUSEEVENTF_WHEEL, data=sign * _WHEEL_DELTA * 3))
