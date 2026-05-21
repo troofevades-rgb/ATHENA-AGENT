@@ -98,6 +98,15 @@ observability = [
     "opentelemetry-exporter-otlp-proto-http>=1.27",
     "python-json-logger>=2.0",
 ]
+# Persistent CDP browser tools (T4-03) — Playwright for the
+# Chrome DevTools Protocol session that survives across tool
+# calls within one athena session. Optional because a headless
+# install doesn't need it; install with
+# ``pip install -e ".[browser]"`` and ``playwright install
+# chromium`` to fetch the browser binary.
+browser = [
+    "playwright>=1.40",
+]
 # Vision analysis (T4-01) — Pillow for pixel ops (EXIF / ELA /
 # crop / histogram), imagehash for pHash/dHash perceptual
 # fingerprints. Optional because a headless install (text-only
