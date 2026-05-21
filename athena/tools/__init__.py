@@ -57,6 +57,11 @@ from ..vision import analyze as _vision_register  # noqa: F401
 # mode is pure-Python so it works without ffmpeg.
 from ..video import analyze as _video_register  # noqa: F401
 
+# T4-04: audio_analyze — transcription + optional diarization +
+# content classification via the audio_transcription capability
+# (faster-whisper local backend in-tree).
+from ..audio import tools as _audio_register  # noqa: F401
+
 # T4-03: persistent CDP browser tools (Playwright). One browser
 # context per athena session; cookies/storage survive across
 # tool calls. Lazy-launch — an unused browser pays no chromium
