@@ -45,3 +45,9 @@ tests/fixtures/benchmarks/results/*.json
 
 # Phase 17 stress harness — synthesizes a profile root, never commit
 stress-home/
+
+# T4-01 vision fixtures — synthesised deterministically at test
+# collection time by tests/vision/fixtures/__init__.py; checking
+# them in would just be churn on every Pillow upgrade.
+tests/vision/fixtures/*.jpg
+tests/vision/fixtures/*.png
