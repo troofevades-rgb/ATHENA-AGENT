@@ -127,7 +127,21 @@ def skill_view(name: str) -> str:
     description=(
         "Create, modify, archive, pin, or write support files to a skill. "
         "Actions: create | patch | delete | unarchive | pin | unpin | write_file. "
-        "delete archives (moves to .archive/) — true deletion is out of band."
+        "delete archives (moves to .archive/) — true deletion is out of band. "
+        "\n\n"
+        "PER-ACTION REQUIRED ARGS (in addition to action + name):\n"
+        "  create     → frontmatter MUST contain a non-empty `description` "
+        "key (frontmatter['description']); body is the SKILL.md content.\n"
+        "  patch      → frontmatter (partial updates dict) and/or body. "
+        "Whatever you pass replaces; whatever you omit stays.\n"
+        "  delete     → absorbed_into (optional but required for curator-"
+        "origin deletes; empty string = no forwarding target).\n"
+        "  unarchive  → no extra args.\n"
+        "  pin / unpin → no extra args.\n"
+        "  write_file → file_path AND file_content. NOT for SKILL.md "
+        "itself — use action='patch' with body=... for the body. "
+        "write_file is for references/*.md / templates/*.* / scripts/*.* "
+        "alongside the SKILL.md."
     ),
     parameters={
         "type": "object",
@@ -135,21 +149,57 @@ def skill_view(name: str) -> str:
             "action": {
                 "type": "string",
                 "enum": ["create", "patch", "delete", "unarchive", "pin", "unpin", "write_file"],
+                "description": (
+                    "What to do. Each action has its own required args — see "
+                    "the tool description for the per-action checklist."
+                ),
             },
-            "name": {"type": "string"},
-            "frontmatter": {"type": "object"},
-            "body": {"type": "string"},
+            "name": {
+                "type": "string",
+                "description": "Skill name (slug). Top-level kwarg, not inside frontmatter.",
+            },
+            "frontmatter": {
+                "type": "object",
+                "description": (
+                    "Skill frontmatter dict. For action='create' this MUST "
+                    "include a non-empty `description` key (the skill's one-line "
+                    "summary, ≤ 1024 chars); the `name` key is optional inside "
+                    "frontmatter — the top-level `name` kwarg is the source of "
+                    "truth. For action='patch' this is a PARTIAL updates dict "
+                    "(omitted keys retain prior values). Ignored for other "
+                    "actions."
+                ),
+            },
+            "body": {
+                "type": "string",
+                "description": (
+                    "The skill body (SKILL.md content) — markdown, freeform. "
+                    "Used by action='create' (initial body) and "
+                    "action='patch' (replaces existing body). NOT for support "
+                    "files (use action='write_file' for those)."
+                ),
+            },
             "file_path": {
                 "type": "string",
-                "description": "For write_file: relative path under skill dir (references/foo.md, templates/x.py, scripts/y.sh).",
+                "description": (
+                    "For action='write_file' ONLY: relative path under the "
+                    "skill dir (references/foo.md, templates/x.py, "
+                    "scripts/y.sh). Required together with file_content."
+                ),
             },
-            "file_content": {"type": "string"},
+            "file_content": {
+                "type": "string",
+                "description": (
+                    "For action='write_file' ONLY: file contents. Required "
+                    "together with file_path (passing file_path alone errors)."
+                ),
+            },
             "absorbed_into": {
                 "type": "string",
                 "description": (
-                    "For delete: name of umbrella skill that absorbed this one's "
-                    "content. Empty string = pruned with no forwarding target. "
-                    "Required for curator-origin deletes."
+                    "For action='delete': name of umbrella skill that absorbed "
+                    "this one's content. Empty string = pruned with no "
+                    "forwarding target. Required for curator-origin deletes."
                 ),
             },
         },
@@ -167,6 +217,33 @@ def skill_manage(
     absorbed_into: str | None = None,
 ) -> str:
     workspace = _workspace()
+    # Pre-flight check for create: surface the most common
+    # mistake (`description` passed as a top-level kwarg or
+    # missing from frontmatter) with a fix hint INSTEAD of
+    # the generic FrontmatterError. The agent's first call
+    # is much more likely to land correctly.
+    if action == "create":
+        fm = frontmatter or {}
+        if not isinstance(fm, dict) or not str(fm.get("description", "")).strip():
+            return _err(
+                "create",
+                name,
+                "create requires frontmatter={'description': '...', ...}. "
+                "Pass `description` as a key INSIDE frontmatter (not as a "
+                "top-level kwarg).",
+            )
+    # Same for write_file: surface the file_path+file_content
+    # pair requirement explicitly when only one is passed.
+    if action == "write_file":
+        if not file_path or file_content is None:
+            return _err(
+                action,
+                name,
+                "write_file requires BOTH file_path and file_content. "
+                "(For the SKILL.md body, use action='patch' with body=...; "
+                "write_file is for support files like references/foo.md.)",
+            )
+
     try:
         if action == "create":
             manager.skill_create(name, frontmatter or {}, body or "", workspace)
@@ -198,8 +275,8 @@ def skill_manage(
             return _ok("unpin", name, "skill unpinned")
 
         if action == "write_file":
-            if not file_path or file_content is None:
-                return _err(action, name, "write_file requires file_path and file_content")
+            # Pre-flight above already checked file_path +
+            # file_content are both present.
             manager.skill_write_file(name, file_path, file_content, workspace)
             return _ok(action, name, f"wrote {file_path}")
 
