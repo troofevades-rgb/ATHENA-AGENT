@@ -93,7 +93,23 @@ class SocialProvider(Provider):
     def is_available(self) -> bool:
         """Cheap "has the user authorised this provider yet"
         check the differentiated MCP surface + the search tool's
-        graceful-when-absent path consult."""
+        graceful-when-absent path consult.
+
+        Two paths considered, in this order:
+
+          1. ``cfg.social_bearer_token_path`` — app-only bearer
+             token (X / Twitter v2 style). Single string in a
+             0o600 file; skip OAuth entirely.
+          2. OAuth 2.0 user-context token persisted via
+             :class:`SocialOAuth`.
+
+        Either path satisfies — the provider doesn't care which
+        one ended up loading the token. Defensive: any
+        exception in either path returns False (the search tool
+        surfaces "no provider configured" rather than crashing
+        a turn)."""
+        if _read_bearer_token(self._cfg()):
+            return True
         try:
             return self._get_oauth().has_valid_token()
         except Exception:  # noqa: BLE001
@@ -130,13 +146,21 @@ class SocialProvider(Provider):
         """
         if not query.strip():
             return []
-        try:
-            access_token = self._get_oauth().access_token()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("social search: no token available: %s", e)
-            return []
 
+        # Try the bearer-token path first — it's the simplest
+        # auth model and X / Twitter v2 ships one out of the
+        # box. OAuth fallback below stays for vendors that
+        # require user-context (or for athena adding posting
+        # capability later).
         cfg = self._cfg()
+        access_token = _read_bearer_token(cfg)
+        if access_token is None:
+            try:
+                access_token = self._get_oauth().access_token()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("social search: no token available: %s", e)
+                return []
+
         url_base = getattr(cfg, "social_search_url", None)
         if not url_base:
             logger.warning(
@@ -202,10 +226,17 @@ class SocialProvider(Provider):
         return load_config()
 
     def _get(self, url: str, *, access_token: str) -> dict[str, Any] | None:
-        """HTTP GET with the OAuth bearer token. Returns the parsed
-        JSON body, or None on transport / decode failure.
+        """HTTP GET with the OAuth / bearer token. Returns the
+        parsed JSON body, or None on transport / decode failure.
         Injectable transport for tests (cfg-aware fallback to
-        ``urllib`` in production)."""
+        ``urllib`` in production).
+
+        On HTTPError (4xx/5xx) the response body is read +
+        included in the warning log so an operator can see the
+        vendor's structured reason (e.g. X's CreditsDepleted /
+        UsageCapExceeded payloads) without having to bump
+        logging to DEBUG.
+        """
         if self._transport is not None:
             return self._transport(url, access_token)
         try:
@@ -218,6 +249,16 @@ class SocialProvider(Provider):
             )
             with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310
                 raw = resp.read().decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8", errors="replace")[:500]
+            except Exception:  # noqa: BLE001
+                err_body = ""
+            logger.warning(
+                "social search HTTP %s on %s: %s",
+                e.code, url, err_body or "(no body)",
+            )
+            return None
         except Exception as e:  # noqa: BLE001
             logger.warning("social search transport failed: %s", e)
             return None
@@ -313,3 +354,57 @@ class SocialProvider(Provider):
                 normalised["metrics"] = metrics
             out.append(normalised)
         return out
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+
+def _read_bearer_token(cfg: Any) -> str | None:
+    """Read the app-only bearer token from the configured path.
+
+    The path lives in ``cfg.social_bearer_token_path``. The file
+    is expected to contain just the token (no quoting, no JSON
+    wrapping, no Bearer prefix); trailing whitespace / newlines
+    are stripped.
+
+    Returns ``None`` (silently) when:
+      - the cfg field is unset or empty
+      - the file doesn't exist
+      - the file is empty / whitespace-only
+      - the file isn't readable (OSError)
+
+    Never raises into the caller — the search tool's graceful-
+    degradation path expects None-or-token semantics.
+
+    Security note: this function is the only place that touches
+    token-shaped bytes outside the OAuth adapter. It does NOT
+    log the token (length-only at DEBUG so an operator can
+    confirm "the file was read" without leaking material). The
+    return value flows into an Authorization header in
+    :meth:`SocialProvider._get` and otherwise never appears in
+    a string formatter.
+    """
+    path = getattr(cfg, "social_bearer_token_path", None)
+    if not path:
+        return None
+    from pathlib import Path
+
+    p = Path(str(path)).expanduser()
+    if not p.exists():
+        return None
+    try:
+        raw = p.read_text(encoding="utf-8")
+    except OSError as e:
+        logger.warning(
+            "social bearer token unreadable at %s: %s", p, e
+        )
+        return None
+    tok = raw.strip()
+    if not tok:
+        return None
+    logger.debug(
+        "social bearer token loaded from %s (len=%d)", p, len(tok)
+    )
+    return tok

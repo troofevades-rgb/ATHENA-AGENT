@@ -412,6 +412,15 @@ class Config:
     social_oauth_client_secret_path: str | None = None
     social_oauth_scopes: list[str] = field(default_factory=list)
     social_oauth_redirect_uri: str | None = None
+    # Alternate auth: app-only Bearer token (X v2 / Twitter API
+    # gives you one out of the dev portal). Skip OAuth entirely
+    # — the token is the single credential. Stored at the path
+    # below as plain text, 0o600 (atomic-replace via
+    # secure_files when athena writes it). NEVER paste the
+    # token into config.toml directly — the file-on-disk model
+    # is what keeps it out of cleartext config and out of any
+    # backup that picks up your dotfiles.
+    social_bearer_token_path: str | None = None
     # T6-03: external coding-CLI delegation. delegate_to_cli runs
     # the configured external CLI on a scoped task in an isolated
     # git worktree, captures the diff, surfaces it for review.

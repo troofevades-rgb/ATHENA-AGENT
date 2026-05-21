@@ -53,7 +53,87 @@ Normalised post shape — what the primary model sees:
 }
 ```
 
-## OAuth
+## Auth path A — app-only Bearer token (the simple one)
+
+X / Twitter v2 (and several other social vendors) ship an
+**app-only Bearer token** from their developer portal —
+single string, no OAuth flow, no callback URL to register.
+For read-only `search_x` use this is the right shape; the
+provider prefers it when configured and skips OAuth entirely.
+
+```toml
+social_provider_enabled    = true
+social_bearer_token_path   = "~/.athena/social/bearer_token.txt"
+social_search_url          = "https://api.x.com/2/tweets/search/recent"
+social_search_query_param  = "query"
+social_search_extra_params = { "expansions" = "author_id", "tweet.fields" = "created_at,public_metrics", "user.fields" = "username,name" }
+social_post_url_template   = "https://x.com/{author}/status/{id}"
+```
+
+The bearer-token file is **just the token** — no quoting, no
+JSON wrapping, no `Bearer ` prefix, trailing whitespace
+stripped. Write it via:
+
+```powershell
+# Windows / PowerShell — token NEVER appears in this transcript
+$tok = Read-Host "Paste bearer token" -AsSecureString
+$plain = [System.Net.NetworkCredential]::new("", $tok).Password
+$path = "$env:USERPROFILE\.athena\social\bearer_token.txt"
+New-Item -ItemType Directory -Force -Path (Split-Path $path) | Out-Null
+[IO.File]::WriteAllText($path, $plain)
+```
+
+```bash
+# macOS / Linux
+mkdir -p ~/.athena/social
+read -rs -p "Paste bearer token: " tok && echo
+printf '%s' "$tok" > ~/.athena/social/bearer_token.txt
+chmod 600 ~/.athena/social/bearer_token.txt
+```
+
+### Token safety — same load-bearing properties
+
+- `_read_bearer_token` is the only function in the provider
+  that touches token-shaped bytes outside the OAuth adapter.
+  It logs only the file path + length at DEBUG; never the
+  token material.
+- `test_bearer_token_never_in_logs` captures a full DEBUG log
+  across a search call and asserts the token never appears.
+- Empty / missing / unreadable file → silently None; the
+  provider falls back to OAuth (and if that's not configured
+  either, `is_available()` returns False and the search tool
+  surfaces "no provider configured" instead of crashing).
+
+### Rotate immediately on suspected leak
+
+If a bearer token ends up anywhere it shouldn't (pasted into
+chat, committed accidentally, screen-shared during a demo),
+the rule is **regenerate first, ask questions later**. X's
+developer portal → your app → "Keys and tokens" → click
+**Regenerate** on the Bearer Token. The old value stops
+working the moment regeneration completes. Update the
+`bearer_token.txt` file with the new value via the same
+PowerShell / shell recipe above; no athena restart needed
+(the file is read per call).
+
+### X-specific notes
+
+- **Endpoint**: `/2/tweets/search/recent` (recent search). Full
+  archive search is a different endpoint + tier.
+- **Tier requirement**: as of 2024, X requires the **Basic
+  tier ($100/mo minimum)** for `/2/tweets/search/recent`. Free
+  tier accounts get a 402 `CreditsDepleted` response on the
+  search endpoint. Athena handles this gracefully — the search
+  returns `[]` and the operator-visible warning log includes
+  X's structured error body so the cause is obvious.
+- **Response shape**: athena's `_normalise_response` already
+  matches X v2's `{data: [...], includes: {users: [...]}}` so
+  no normaliser changes are needed for X.
+- **Rate limits**: app-only bearer auth on `/2/tweets/search/recent`
+  is rate-limited per app. Athena does not currently throttle;
+  back-off when X returns 429.
+
+## Auth path B — OAuth 2.0 user-context
 
 `athena.social.oauth.SocialOAuth` handles the
 authorization-code + refresh flow. Tokens persist via
