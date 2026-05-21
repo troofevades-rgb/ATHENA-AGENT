@@ -28,6 +28,74 @@ from . import register_provider
 from .base import Capabilities, Provider, StreamChunk
 from .retry_utils import with_retry
 
+
+def _normalize_vision_messages(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Translate vision_analyze's content-list shape into Ollama's
+    native chat shape (T4-01.7).
+
+    ``athena.vision.passthrough.passthrough_blocks(provider="ollama")``
+    produces message content of the form::
+
+        [{"type":"text","text":"What's in this image?"},
+         {"type":"image","media_type":"image/png","data":"<b64>",
+          "label":"tile_0_0"}]
+
+    Ollama's ``/api/chat`` endpoint, however, expects each message
+    to be ``{"role":..., "content":"<text>", "images":["<b64>",...]}``
+    with a top-level ``images`` list of bare base64 strings (no
+    data: prefix, no media-type wrapping). This function walks the
+    message list and rewrites any list-content message into that
+    shape, preserving every existing text+role property of the
+    original.
+
+    Tile labels are inlined into the text so the model can still
+    refer to them in multi-turn discussion ("the magenta region in
+    tile_0_1"). Non-list content (a plain string) is passed
+    through untouched — chat-only turns aren't reshaped.
+
+    Returns a fresh list; the input is never mutated.
+    """
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            out.append(msg)
+            continue
+
+        text_parts: list[str] = []
+        images: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                # Unknown shape — fall back to its string form so
+                # at least something reaches the model.
+                text_parts.append(str(block))
+                continue
+            btype = block.get("type")
+            if btype == "text":
+                text_parts.append(str(block.get("text", "")))
+            elif btype == "image":
+                data = block.get("data")
+                label = block.get("label")
+                if isinstance(data, str) and data:
+                    images.append(data)
+                    if label:
+                        # Stable handle for the model to reference
+                        # this image in follow-ups.
+                        text_parts.append(f"[image: {label}]")
+            # Other block types (image_url Anthropic-shape, etc.)
+            # don't belong in an Ollama call; we ignore them
+            # rather than crash — the vision_analyze layer already
+            # picks the right shape based on cfg.provider.
+
+        new_msg = dict(msg)
+        new_msg["content"] = "\n".join(p for p in text_parts if p)
+        if images:
+            new_msg["images"] = images
+        out.append(new_msg)
+    return out
+
 # Substring patterns for known vision-capable Ollama model tags.
 # Matching is case-insensitive; users typically pull the tag
 # (``llava:13b`` etc.).
@@ -149,7 +217,7 @@ class OllamaProvider(Provider):
         """
         payload: dict[str, Any] = {
             "model": model,
-            "messages": messages,
+            "messages": _normalize_vision_messages(messages),
             "stream": True,
             "options": {"temperature": temperature},
         }
