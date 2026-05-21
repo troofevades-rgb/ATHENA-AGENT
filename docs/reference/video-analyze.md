@@ -162,8 +162,11 @@ The `atoms` mode is pure Python and runs without either binary.
 
 ## Non-goals
 
-- **Audio inspection.** Out of scope for T4-02. A separate
-  surface would handle audio-track analysis.
+- ~~**Audio inspection.** Out of scope for T4-02.~~ **Closed
+  by T4-04** — `video_analyze mode=analyze` now extracts the
+  audio track via ffmpeg and runs `audio_analyze.transcribe_track`
+  on it; the transcript lands in the result under the
+  `transcript` field. See `docs/reference/audio-analyze.md`.
 - **DRM-protected streams.** Out of scope; this is a forensic
   tool for unprotected inputs.
 - **Live streams.** The tool assumes a complete, on-disk file.
