@@ -555,6 +555,23 @@ class Config:
     video_max_frames: int = 200
     video_default_extract: str = "keyframes"  # keyframes | sampled | range
     video_sampled_interval_s: float = 5.0
+    # T4-03: persistent CDP browser tools (Playwright). One
+    # browser context per athena session — cookies/storage
+    # survive across tool calls within the session. Lazy
+    # launch: ensure_started() runs on first browser tool call;
+    # an unused browser pays no chromium cost. Realistic
+    # desktop UA by default for legitimate public-target
+    # research; capture log is the accountability surface.
+    browser_enabled: bool = True
+    browser_engine: str = "chromium"
+    browser_headless: bool = True
+    browser_user_data_root: str | None = None  # default ~/.athena/browser
+    browser_capture_path: str | None = None    # default <profile_dir>/browser_capture.jsonl
+    browser_screenshots_dir: str | None = None  # default <profile_dir>/browser/shots
+    browser_nav_timeout_s: float = 30.0
+    browser_min_interval_s: float = 1.0
+    browser_block_downloads: bool = True
+    browser_user_agent: str | None = None  # None → realistic desktop Chrome UA
 
 
 def load_config() -> Config:

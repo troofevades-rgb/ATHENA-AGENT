@@ -57,6 +57,13 @@ from ..vision import analyze as _vision_register  # noqa: F401
 # mode is pure-Python so it works without ffmpeg.
 from ..video import analyze as _video_register  # noqa: F401
 
+# T4-03: persistent CDP browser tools (Playwright). One browser
+# context per athena session; cookies/storage survive across
+# tool calls. Lazy-launch — an unused browser pays no chromium
+# cost. The agent runtime binds a BrowserSession to the
+# ContextVar in core.py before the first tool call.
+from ..browser import tools as _browser_register  # noqa: F401
+
 from .registry import all_tools, dispatch, get_tool, ollama_schema, tool
 
 __all__ = ["all_tools", "dispatch", "get_tool", "ollama_schema", "tool"]
