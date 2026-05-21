@@ -516,6 +516,32 @@ class Config:
     update_channel: str = "stable"
     update_auto_check: bool = False
     update_state_path: str | None = None  # default <CONFIG_DIR>/update_state.json
+    # T4-01: vision_analyze. Local pixel ops (EXIF / ELA / pHash /
+    # histogram / crop / metadata-strip) are gated; the
+    # `describe` mode is a passthrough to the active provider's
+    # vision capability and tiles the input rather than
+    # downsampling it (preserves detail for forensic reads).
+    # Every read is hash-logged to <profile_dir>/vision_audit.jsonl
+    # (provenance trail) and crops land under vision_crop_dir.
+    vision_enabled: bool = True
+    # Max input pixels for local ops — bombs above this size are
+    # refused before Pillow decodes them. 80 Mpx covers typical
+    # camera RAW / large screenshot inputs and rejects crafted
+    # 1 GB PNGs.
+    vision_max_input_pixels: int = 80_000_000
+    # Default ELA parameters — surfaceable via vision_analyze
+    # args; per-call values override.
+    vision_ela_quality: int = 80
+    vision_ela_threshold: int = 15
+    # Default perceptual-hash algorithm + size. phash is the
+    # imagehash library's general-purpose default.
+    vision_phash_algorithm: str = "phash"
+    vision_phash_size: int = 8
+    # Default tile cap per provider — None means "use the
+    # built-in per-provider value from athena.vision.passthrough".
+    vision_long_edge_cap: int | None = None
+    # Output dirs (None → resolved at runtime under <profile_dir>).
+    vision_crop_dir: str | None = None  # default <profile_dir>/vision/crops
 
 
 def load_config() -> Config:

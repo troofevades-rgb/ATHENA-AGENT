@@ -47,6 +47,11 @@ from ..videogen import tools as _videogen_register  # noqa: F401
 # store. Reads the same store TaskCreate/Update/List use.
 from ..tasks import board as _board_register  # noqa: F401
 
+# T4-01: vision_analyze — local image ops + provider-passthrough
+# describe. Gated by cfg.vision_enabled (default True); every
+# read is hash-logged to <profile>/vision_audit.jsonl.
+from ..vision import analyze as _vision_register  # noqa: F401
+
 from .registry import all_tools, dispatch, get_tool, ollama_schema, tool
 
 __all__ = ["all_tools", "dispatch", "get_tool", "ollama_schema", "tool"]
