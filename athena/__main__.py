@@ -125,6 +125,7 @@ _SUBCOMMANDS = {
     "recall": "athena.cli.recall",
     "computer": "athena.commands.computer",
     "board": "athena.commands.board",
+    "update": "athena.commands.update",
 }
 
 
@@ -148,6 +149,18 @@ def main() -> int:
 
         mod = importlib.import_module(_SUBCOMMANDS[sys.argv[1]])
         return mod.main(sys.argv[2:])
+
+    # T6-07: optional one-line "update available" notice at
+    # startup. cfg.update_auto_check defaults to False so
+    # this is OFF by default; when on, the lookup has its
+    # own 3s timeout so a slow PyPI never blocks the REPL.
+    try:
+        from .commands.update import startup_notice
+        from .config import load_config
+
+        startup_notice(load_config())
+    except Exception:  # noqa: BLE001
+        pass
 
     ap = argparse.ArgumentParser(prog="athena", description="Local Claude Code on Ollama")
     # Distribution name (athena-coder) differs from the Python import
