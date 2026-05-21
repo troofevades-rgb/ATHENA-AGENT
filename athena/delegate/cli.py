@@ -28,6 +28,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ..tools.registry import tool
+
 logger = logging.getLogger(__name__)
 
 
@@ -225,16 +227,63 @@ def _is_git_dir(p: Path) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# delegate_to_cli — registered in T6-03.2 (tool decorator there)
+# delegate_to_cli (T6-03.2)
 # ---------------------------------------------------------------------------
 
 
-# Symbol placeholder — the actual @tool-decorated entry point
-# lives below T6-03.2 patch. Importing this module now should
-# expose only the worktree helpers; the tool gets attached in
-# the next sub-prompt.
+_NEXT_STEP_TEMPLATE = (
+    "review the diff; `git merge {branch}` from the main checkout to "
+    "land the change, or `git worktree remove --force {worktree} && "
+    "git branch -D {branch}` to discard. Athena never auto-merges; "
+    "the delegate's output is untrusted until reviewed."
+)
 
 
+@tool(
+    name="delegate_to_cli",
+    toolset="delegate",
+    description=(
+        "Delegate a SCOPED coding task to the configured external "
+        "agentic CLI. Runs in an isolated git worktree on a fresh "
+        "branch; the delegate's writes never touch the main checkout. "
+        "Captures the resulting diff for review and returns it as part "
+        "of the response. NEVER merges. Requires an explicit, "
+        "self-contained task (the scope is the safety mechanism)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "task": {
+                "type": "string",
+                "description": (
+                    "Self-contained task with acceptance criteria. "
+                    "Vague delegations are rejected. Example: "
+                    "'add a --json flag to the `export` command, with "
+                    "a test that asserts the output is valid JSON.'"
+                ),
+            },
+            "repo_path": {
+                "type": "string",
+                "description": "Absolute path to the git repository.",
+            },
+            "base_ref": {
+                "type": "string",
+                "description": (
+                    "Git ref the worktree branches from + the diff is "
+                    "taken against. Default 'HEAD'."
+                ),
+            },
+            "timeout_s": {
+                "type": "integer",
+                "description": (
+                    "Wall-clock timeout in seconds. Default "
+                    "cfg.cli_delegate_timeout_s (600)."
+                ),
+            },
+        },
+        "required": ["task", "repo_path"],
+    },
+)
 def delegate_to_cli(
     task: str = "",
     repo_path: str = "",
@@ -242,5 +291,169 @@ def delegate_to_cli(
     timeout_s: int | None = None,
     **_kwargs: Any,
 ) -> str:
-    """Placeholder — implemented in T6-03.2."""
-    raise NotImplementedError("T6-03.2 implements this tool")
+    """The model-callable delegation tool.
+
+    Returns a JSON-formatted text payload the model parses:
+
+      ``status``      done | timeout | error | rejected
+      ``branch``      the fresh delegate branch, or empty
+      ``worktree``    absolute worktree path, or empty
+      ``diff``        captured diff against ``base_ref``
+      ``exit_code``   the delegate's exit code (or -1 on
+                      pre-flight failure)
+      ``next_step``   human-readable instruction for review +
+                      either merge or discard
+      ``stdout`` / ``stderr``  delegate's captured output
+
+    Hard invariants enforced here:
+
+      * Scope required — empty / whitespace task → rejected
+      * Worktree isolation — `prepare_worktree` is the only
+        write surface; delegate runs in the fresh worktree
+      * Never auto-merges — no `git merge` / `git push` / `git
+        commit` against the main checkout anywhere in this
+        function
+      * Sandboxed when ``cfg.cli_delegate_sandbox`` is True —
+        delegate command goes through the T5-02 sandbox runner
+      * Timeout-bounded — overrun → status=timeout
+      * Diff is surfaced, NOT applied — the caller reviews +
+        decides
+    """
+    # ---- Scope guard --------------------------------------------------
+    if not task or not task.strip():
+        return _payload(
+            status="rejected",
+            reason="scope required: pass a self-contained task description",
+        )
+    if not repo_path or not str(repo_path).strip():
+        return _payload(
+            status="rejected",
+            reason="repo_path required",
+        )
+
+    # ---- Config + cfg-driven defaults --------------------------------
+    cfg = _load_cfg()
+    if not getattr(cfg, "cli_delegate_enabled", False):
+        return _payload(
+            status="rejected",
+            reason=(
+                "cli_delegate_enabled is False — opt in by setting it + "
+                "cli_delegate_command in athena config"
+            ),
+        )
+    if not getattr(cfg, "cli_delegate_command", None):
+        return _payload(
+            status="rejected",
+            reason="cli_delegate_command not configured",
+        )
+
+    effective_timeout = float(
+        timeout_s
+        if timeout_s is not None
+        else getattr(cfg, "cli_delegate_timeout_s", 600.0)
+    )
+    worktree_root_cfg = getattr(cfg, "cli_delegate_worktree_root", None)
+    worktree_root = Path(worktree_root_cfg) if worktree_root_cfg else None
+
+    # ---- Worktree prep -----------------------------------------------
+    repo = Path(repo_path).expanduser()
+    try:
+        handle = prepare_worktree(
+            repo,
+            base_ref=base_ref,
+            worktree_root=worktree_root,
+        )
+    except DelegateError as e:
+        logger.warning("delegate: worktree prep failed: %s", e)
+        return _payload(status="error", reason=str(e))
+
+    # ---- Adapter run -------------------------------------------------
+    from .adapter import DelegateAdapter
+
+    sandbox_run = None
+    if bool(getattr(cfg, "cli_delegate_sandbox", True)):
+        from ..sandbox.runner import run as _sandbox_run
+
+        sandbox_run = _sandbox_run
+
+    adapter = DelegateAdapter(cfg=cfg, sandbox_run=sandbox_run)
+    logger.info(
+        "delegate: running task in worktree=%s branch=%s timeout=%.0fs sandbox=%s",
+        handle.worktree,
+        handle.branch,
+        effective_timeout,
+        sandbox_run is not None,
+    )
+    result = adapter.run(
+        task=task,
+        cwd=handle.worktree,
+        timeout_s=effective_timeout,
+    )
+
+    # ---- Diff capture ------------------------------------------------
+    try:
+        diff = capture_diff(handle)
+    except DelegateError as e:
+        logger.warning("delegate: diff capture failed: %s", e)
+        diff = ""
+
+    next_step = _NEXT_STEP_TEMPLATE.format(
+        branch=handle.branch,
+        worktree=handle.worktree,
+    )
+
+    return _payload(
+        status=result.status,
+        branch=handle.branch,
+        worktree=str(handle.worktree),
+        diff=diff,
+        exit_code=result.exit_code,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        sandboxed=result.sandboxed,
+        next_step=next_step,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _payload(
+    *,
+    status: str,
+    branch: str = "",
+    worktree: str = "",
+    diff: str = "",
+    exit_code: int = -1,
+    stdout: str = "",
+    stderr: str = "",
+    sandboxed: bool = False,
+    next_step: str = "",
+    reason: str | None = None,
+) -> str:
+    """Render the tool result payload. JSON-formatted text so the
+    model sees a structured surface; identical key shape across
+    every status branch."""
+    body: dict[str, Any] = {
+        "status": status,
+        "branch": branch,
+        "worktree": worktree,
+        "diff": diff,
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "sandboxed": sandboxed,
+        "next_step": next_step,
+    }
+    if reason is not None:
+        body["reason"] = reason
+    return json.dumps(body, ensure_ascii=False)
+
+
+def _load_cfg() -> Any:
+    """Indirection so tests can monkey-patch."""
+    from ..config import load_config
+
+    return load_config()
