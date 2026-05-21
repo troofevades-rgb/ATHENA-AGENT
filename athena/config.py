@@ -474,6 +474,19 @@ class Config:
     computer_backend: str = "auto"
     computer_dry_run: bool = False
     computer_audit_path: str | None = None  # default <profile_dir>/computer_audit.jsonl
+    # T6-05: native video generation. video_generate +
+    # animate_image tools backed by the T5-05 media broker
+    # (video_generation capability). Cost / latency guard
+    # confirms before submitting any job exceeding the
+    # configured thresholds — never silently spend. Outputs
+    # land under video_output_dir + are hash-logged in
+    # media_log.jsonl alongside.
+    video_generation_enabled: bool = False
+    video_backend_prefer: str = "local"
+    video_confirm_over_seconds: float = 60.0
+    video_confirm_over_cost: float = 1.0
+    video_output_dir: str | None = None  # default <profile_dir>/videos
+    video_poll_interval_s: float = 5.0
 
 
 def load_config() -> Config:
