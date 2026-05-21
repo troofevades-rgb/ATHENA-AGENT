@@ -51,6 +51,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/goal/state.py",  # T5-07 goal_state.json — machine-managed bookkeeping for the active /goal loop (status/turns/subgoals), not user content
         "athena/recall/vector_store.py",  # T6-01 vectors.json — machine-managed embedding index (operational metadata, not user content)
         "athena/computer/audit.py",  # T6-04 computer_audit.jsonl — append-only audit log of computer-use actions (operational metadata)
+        "athena/videogen/job.py",  # T6-05 media_log.jsonl append + writing the fetched video to <video_output_dir> (a generated artifact + provenance log, not an agent-driven mutation of user content)
         "athena/mcp/differentiated.py",  # T5-05.3 MCP verified_write — routed through path_security + VerifiedExecution (verified writes are the model the test is protecting)
         "athena/mcp/request_log.py",  # per-request MCP JSONL append (T3-02 audit)
         "athena/plugins/bundled/shell_audit/plugin.py",  # shell audit log (append-only)
