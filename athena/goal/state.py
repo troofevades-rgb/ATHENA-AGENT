@@ -49,17 +49,31 @@ class Subgoal:
     them. They're rendered into the goal block so the model knows
     "here are the steps I've broken this into; I marked these ones
     done."
+
+    T6-06.4: each subgoal carries an optional ``task_id`` pointing
+    at the matching row in the T6-06.1 task store. When set, the
+    board shows the subgoal as a card; flipping done updates both
+    sides. None for legacy / fresh subgoals before the projection
+    fires.
     """
 
     text: str
     done: bool = False
+    task_id: str | None = None
 
     def to_dict(self) -> dict:
-        return {"text": self.text, "done": bool(self.done)}
+        d: dict = {"text": self.text, "done": bool(self.done)}
+        if self.task_id is not None:
+            d["task_id"] = self.task_id
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> Subgoal:
-        return cls(text=str(d.get("text", "")), done=bool(d.get("done", False)))
+        return cls(
+            text=str(d.get("text", "")),
+            done=bool(d.get("done", False)),
+            task_id=d.get("task_id") or None,
+        )
 
 
 @dataclasses.dataclass
@@ -88,6 +102,12 @@ class GoalState:
     subgoals: list[Subgoal] = dataclasses.field(default_factory=list)
     created_at: float = dataclasses.field(default_factory=time.time)
     updated_at: float = dataclasses.field(default_factory=time.time)
+    # T6-06.4: stable identifier so the T6-06.1 task store can
+    # tag subgoal-cards with goal_id=goal_id. Generated at
+    # /goal <text> time (cmd_goal._set_goal_and_state). Empty
+    # string for legacy state files; the projection short-
+    # circuits when goal_id is empty.
+    goal_id: str = ""
 
     def can_continue(self) -> bool:
         """``True`` iff the continuation loop should keep firing.
@@ -116,6 +136,7 @@ class GoalState:
             "subgoals": [sg.to_dict() for sg in self.subgoals],
             "created_at": float(self.created_at),
             "updated_at": float(self.updated_at),
+            "goal_id": self.goal_id,
         }
 
     def to_json(self) -> str:
@@ -138,6 +159,7 @@ class GoalState:
             subgoals=[Subgoal.from_dict(sg) for sg in d.get("subgoals", [])],
             created_at=float(d.get("created_at", time.time())),
             updated_at=float(d.get("updated_at", time.time())),
+            goal_id=str(d.get("goal_id", "") or ""),
         )
 
     @classmethod
