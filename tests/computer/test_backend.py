@@ -156,23 +156,32 @@ def test_windows_backend_perform_unimplemented_until_t6_04_5():
     from athena.computer.contract import Action
 
     backend = WindowsBackend()
-    with pytest.raises(NotImplementedError, match="T6-04.5"):
-        backend.perform(Action(type="click", coords=(0, 0)))
+    # T6-04.5 unlocks input; drag stays unimplemented (composed
+    # from primitives) so it's still the canonical raises-on-
+    # unsupported sentinel.
+    with pytest.raises(NotImplementedError):
+        backend.perform(Action(type="drag", coords=(0, 0)))
 
 
 @_windows_only
-def test_windows_backend_supports_observe_only():
-    """The supports list in T6-04.3 includes only the observe
-    actions — no input verbs yet."""
+def test_windows_backend_supports_includes_input_after_t6_04_5():
+    """After T6-04.5 wires SendInput, supports() includes the
+    full input set EXCEPT drag (composed from primitives, not
+    exposed as one verb — drag-and-drop safety is its own
+    design)."""
     from athena.computer.backends.windows import WindowsBackend
 
     backend = WindowsBackend()
     supports = backend.supports()
     assert "screenshot" in supports
-    for input_verb in ("click", "double_click", "type", "key", "scroll", "drag", "move"):
-        assert input_verb not in supports, (
-            f"input verb {input_verb!r} appeared in supports — must wait for T6-04.5"
+    for input_verb in (
+        "move", "click", "double_click", "right_click", "type", "key", "scroll"
+    ):
+        assert input_verb in supports, (
+            f"input verb {input_verb!r} missing from supports — "
+            "T6-04.5 should have wired it"
         )
+    assert "drag" not in supports
 
 
 # ---------------------------------------------------------------------------
