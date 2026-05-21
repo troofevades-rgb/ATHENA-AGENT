@@ -487,6 +487,18 @@ class Config:
     video_confirm_over_cost: float = 1.0
     video_output_dir: str | None = None  # default <profile_dir>/videos
     video_poll_interval_s: float = 5.0
+    # T6-06: auto kanban. Promotes the in-memory TaskCreate /
+    # TaskUpdate / TaskList tracker to a persisted store + a
+    # board view. Single backing store also receives goal-loop
+    # subgoals (T5-07) as cards with goal_id set — no parallel
+    # lists. task_store_path defaults to <profile_dir>/tasks/
+    # tasks.json at resolve time. board_auto_maintain nudges
+    # the agent in the system prompt to keep the board current;
+    # off → the board is manual.
+    task_persist: bool = True
+    task_store_path: str | None = None
+    board_auto_maintain: bool = True
+    task_archive_done_after_days: float = 30.0
 
 
 def load_config() -> Config:
