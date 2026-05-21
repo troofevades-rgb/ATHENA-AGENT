@@ -22,6 +22,14 @@ from . import (
     task,  # TaskCreate, TaskUpdate, TaskList
     web,  # WebFetch, WebSearch
 )
+
+# T6-02: search_x lives under athena.social — importing it
+# here is what registers the tool on agent startup.
+from ..social import search as _social_search_register  # noqa: F401
+
+# T6-03: delegate_to_cli lives under athena.delegate.
+from ..delegate import cli as _delegate_register  # noqa: F401
+
 from .registry import all_tools, dispatch, get_tool, ollama_schema, tool
 
 __all__ = ["all_tools", "dispatch", "get_tool", "ollama_schema", "tool"]
