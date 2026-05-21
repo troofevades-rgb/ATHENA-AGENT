@@ -618,6 +618,44 @@ class Config:
     audio_whisper_device: str = "auto"  # auto | cpu | cuda
     audio_whisper_compute_type: str = "auto"  # auto | int8 | float16 | float32
     audio_output_dir: str | None = None  # default <profile_dir>/audio
+    # T-MIG (hermes migration): tirith pre-Bash security scanner.
+    # Wraps the external `tirith` binary (Linux / macOS) which
+    # inspects shell commands for content-level threats
+    # (homograph URLs, pipe-to-interpreter, terminal injection
+    # via ANSI escapes, etc.) BEFORE bash runs them — defense
+    # in depth on top of the approval gate. fail_open=True
+    # treats unavailable / timed-out tirith as "allow" rather
+    # than blocking (don't make a missing binary a hard error).
+    tirith_enabled: bool = True
+    tirith_binary_path: str | None = None  # default: PATH lookup
+    bash_tirith_precheck: bool = False
+    tirith_fail_open: bool = True
+    tirith_timeout_s: float = 5.0
+    tirith_shell: str = "posix"  # or "powershell"
+    # T-MIG: URL safety check. Local heuristic blocklist + an
+    # optional online classifier. Advisory — the tools that
+    # use it ask for a verdict but don't auto-block; the
+    # operator decides.
+    url_safety_enabled: bool = True
+    url_safety_blocklist_path: str | None = None  # newline hosts
+    url_safety_fail_open: bool = True
+    # T-MIG: OSV (Open Source Vulnerabilities) database lookup.
+    # Read-only HTTP query to https://api.osv.dev. Rate-limited
+    # by OSV's free tier but generous for typical use.
+    osv_enabled: bool = True
+    osv_api_url: str = "https://api.osv.dev/v1/query"
+    osv_timeout_s: float = 10.0
+    # T-MIG: website policy checker. Parses robots.txt + cheap
+    # ToS heuristic for the T4-03 browser. Surfaces the site's
+    # stated stance so the operator decides knowingly.
+    website_policy_enabled: bool = True
+    website_policy_user_agent: str = "athena-policy-checker/1.0"
+    website_policy_timeout_s: float = 10.0
+    # T-MIG: cross-platform send_message tool. Routes outbound
+    # messages through whichever gateway adapter is already
+    # configured. Off by default so a model can't accidentally
+    # spam anyone.
+    send_message_enabled: bool = False
     # T4-05: document_analyze (PDF / DOCX). Extracts clean text +
     # heading outline + tables + metadata. Scanned PDF pages (no
     # text layer) route to OCR (T4-06) when available; degrades

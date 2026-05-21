@@ -78,6 +78,11 @@ from ..document import tools as _document_register  # noqa: F401
 # ContextVar in core.py before the first tool call.
 from ..browser import tools as _browser_register  # noqa: F401
 
+# T-MIG (hermes migration): security advisory tools — tirith
+# pre-Bash scanner + (T-MIG.2/3) URL safety + OSV vuln lookup.
+# All advisory; the model decides what to do with the verdict.
+from . import security as _security_register  # noqa: F401
+
 from .registry import all_tools, dispatch, get_tool, ollama_schema, tool
 
 __all__ = ["all_tools", "dispatch", "get_tool", "ollama_schema", "tool"]
