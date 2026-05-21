@@ -429,6 +429,51 @@ class Config:
     cli_delegate_timeout_s: float = 600.0
     cli_delegate_worktree_root: str | None = None
     cli_delegate_sandbox: bool = True
+    # T6-04: computer use (desktop control). CRITICAL safety
+    # surface — the permission model is the entire boundary.
+    # Computer use is the INVERSE of T5-02's sandbox: it points
+    # the agent at the real machine on purpose. There is no
+    # isolation; the gate + kill switch are all there is.
+    #
+    # Every default is SAFE:
+    #   computer_use_enabled=False         opt-in per machine
+    #   computer_permission_mode="observe_only"  no input by default
+    #   computer_app_allowlist=[]          control requires explicit
+    #                                       opt-in of specific apps
+    #   computer_app_denylist=[...]        sensitive apps never touched;
+    #                                       denylist always wins over
+    #                                       allowlist and mode
+    #
+    # Modes:
+    #   "observe_only"  athena watches + advises, never inputs (default)
+    #   "per_action"    confirm every input event (safest active mode)
+    #   "per_session"   confirm input once per task; destructive STILL
+    #                   confirms individually in every mode
+    computer_use_enabled: bool = False
+    computer_permission_mode: str = "observe_only"
+    computer_app_allowlist: list[str] = field(default_factory=list)
+    computer_app_denylist: list[str] = field(
+        default_factory=lambda: [
+            # Sensible defaults — denylist wins, so even when the
+            # user opts in to control they must explicitly REMOVE
+            # one of these to touch it.
+            "1password",
+            "bitwarden",
+            "lastpass",
+            "keychain",
+            "keepass",
+            "banking",
+            "wallet",
+            "ledger live",
+            "metamask",
+        ]
+    )
+    computer_kill_hotkey: str = "ctrl+alt+k"
+    computer_max_actions_per_task: int = 40
+    computer_max_actions_per_sec: float = 2.0
+    computer_backend: str = "auto"
+    computer_dry_run: bool = False
+    computer_audit_path: str | None = None  # default <profile_dir>/computer_audit.jsonl
 
 
 def load_config() -> Config:
