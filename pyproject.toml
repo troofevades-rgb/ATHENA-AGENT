@@ -98,6 +98,17 @@ observability = [
     "opentelemetry-exporter-otlp-proto-http>=1.27",
     "python-json-logger>=2.0",
 ]
+# Vision analysis (T4-01) — Pillow for pixel ops (EXIF / ELA /
+# crop / histogram), imagehash for pHash/dHash perceptual
+# fingerprints. Optional because a headless install (text-only
+# chat) doesn't need image deps. piexif is a Pillow fallback for
+# EXIF reads on legacy formats — documented in
+# docs/reference/vision-analyze.md. `exiftool` is an external
+# binary (perl); also documented as optional.
+vision = [
+    "Pillow>=10",
+    "imagehash>=4.3",
+]
 # Heavy GPU-only deps for the closed training loop. Install with
 # ``pip install -e ".[train]"`` only on a workstation with CUDA.
 train = [
