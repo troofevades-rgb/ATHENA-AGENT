@@ -66,6 +66,11 @@ from ..audio import tools as _audio_register  # noqa: F401
 # ocr capability (tesseract local backend in-tree).
 from ..ocr import tools as _ocr_register  # noqa: F401
 
+# T4-05: document_analyze — PDF + DOCX extraction with OCR
+# fallback for scanned PDF pages via T4-06; optional figure
+# description via T4-01 vision.
+from ..document import tools as _document_register  # noqa: F401
+
 # T4-03: persistent CDP browser tools (Playwright). One browser
 # context per athena session; cookies/storage survive across
 # tool calls. Lazy-launch — an unused browser pays no chromium

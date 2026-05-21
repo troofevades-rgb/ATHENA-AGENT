@@ -58,6 +58,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/vision/hashlog.py",  # T4-01.2 vision_audit.jsonl — append-only provenance log over every image vision_analyze reads (mirrors computer/audit.py shape)
         "athena/browser/capture.py",  # T4-03.3 browser_capture.jsonl — append-only capture log over every browser_navigate (URL/status/title/content hash; same append shape as computer/audit.py and vision/hashlog.py)
         "athena/audio/tools.py",  # T4-04 transcript artifacts under <profile>/audio/ (transcribe_track output JSON + sidecar plaintext; same provenance shape as video frame artifacts in T4-02)
+        "athena/document/tools.py",  # T4-05 parsed document artifacts under <profile>/documents/ (document_analyze output JSON; same provenance shape as audio/video artifacts)
         "athena/mcp/differentiated.py",  # T5-05.3 MCP verified_write — routed through path_security + VerifiedExecution (verified writes are the model the test is protecting)
         "athena/mcp/request_log.py",  # per-request MCP JSONL append (T3-02 audit)
         "athena/plugins/bundled/shell_audit/plugin.py",  # shell audit log (append-only)
