@@ -508,6 +508,24 @@ class Agent:
         except Exception:  # noqa: BLE001
             logger.debug("cross-session cache init failed", exc_info=True)
 
+        # T4-03: bind a persistent BrowserSession for this athena
+        # session. Lazy — construction does NOT launch chromium;
+        # only the first browser_* tool call triggers
+        # ensure_started(). An unused browser costs nothing.
+        # Forks inherit via ContextVar so a fork uses the parent's
+        # browser; this happens automatically via the ContextVar
+        # copy at thread/task spawn.
+        self.browser_session = None
+        try:
+            from ..browser.session import BrowserSession, set_active_browser
+            if self.session_id is not None and getattr(cfg, "browser_enabled", True):
+                self.browser_session = BrowserSession(
+                    session_id=self.session_id, cfg=cfg,
+                )
+                set_active_browser(self.browser_session)
+        except Exception:  # noqa: BLE001
+            logger.debug("browser session init failed", exc_info=True)
+
     def _build_plugin_hooks(self) -> HookDispatcher:
         """Discover + load enabled plugins. Best-effort; a load failure must
         never break agent startup, so the result on error is an empty
@@ -1664,6 +1682,21 @@ class Agent:
                     self.session_store.close()
                 except Exception:
                     pass
+        # T4-03: tear down the persistent browser session.
+        # Idempotent — close() is safe to call even when
+        # ensure_started never fired (no chromium to tear down).
+        # The user_data_dir on disk persists for a future
+        # resume; only the live process is released here.
+        if getattr(self, "browser_session", None) is not None:
+            try:
+                self.browser_session.close()
+            except Exception:
+                pass
+            try:
+                from ..browser.session import set_active_browser
+                set_active_browser(None)
+            except Exception:
+                pass
 
 
 # Bind fork() as an Agent method. Done at module load so `Agent(...).fork(...)`
