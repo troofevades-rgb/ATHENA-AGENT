@@ -132,6 +132,8 @@ _SUBCOMMANDS = {
     # T6-03 admin: verify the cli_delegate_command config + a
     # one-shot codex setup helper.
     "delegate": "athena.cli.delegate",
+    # T7-03: eval-battery composing batch + scoring + baseline diff.
+    "eval": "athena.cli.eval",
 }
 
 
