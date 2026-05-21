@@ -67,6 +67,13 @@ def video_audit_path(profile_dir_path: Path | str) -> Path:
 # production wires through T4-01's vision_analyze describe mode.
 ProviderFn = Callable[[Path, str], str]
 
+# AudioTranscribeFn: closes the gap T4-02 originally punted on.
+# T4-04 wires this — given a video path, return a dict matching
+# the TranscribeResult shape (segments + language + duration)
+# OR None when audio analysis can't run on this host. Tests
+# inject a stub; production routes via athena.audio.tools.transcribe_track.
+AudioTranscribeFn = Callable[[Path], dict[str, Any] | None]
+
 
 def _default_provider_fn(cfg: Any) -> ProviderFn | None:
     """Build a ProviderFn that routes each frame through
@@ -90,6 +97,88 @@ def _default_provider_fn(cfg: Any) -> ProviderFn | None:
         return str(data.get("answer", ""))
 
     return _fn
+
+
+def _default_audio_transcribe_fn(cfg: Any) -> AudioTranscribeFn | None:
+    """Build an AudioTranscribeFn that extracts the audio
+    stream from the source video into a temp WAV, runs
+    athena.audio.tools.transcribe_track on it, returns the
+    TranscribeResult as a dict. Closes the T4-02 audio gap.
+
+    Returns None when cfg.audio_analyze_enabled is False or
+    ffmpeg isn't on PATH (we use ffmpeg to demux the audio
+    track; without it audio analysis can't run on a video
+    input).
+    """
+    if not getattr(cfg, "audio_analyze_enabled", True):
+        return None
+    import shutil as _shutil
+    if not _shutil.which(getattr(cfg, "video_ffmpeg_path", "ffmpeg")):
+        return None
+
+    def _fn(video_path: Path) -> dict[str, Any] | None:
+        wav_path = _extract_audio_track(video_path, cfg=cfg)
+        if wav_path is None:
+            return None
+        try:
+            from ..audio.tools import transcribe_track
+            result = transcribe_track(wav_path, cfg=cfg)
+            return result.to_dict()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("video.audio transcribe failed: %s", e)
+            return None
+        finally:
+            try:
+                wav_path.unlink()
+            except OSError:
+                pass
+
+    return _fn
+
+
+def _extract_audio_track(
+    video_path: Path,
+    *,
+    cfg: Any,
+    timeout_s: float = 60.0,
+) -> Path | None:
+    """Demux the video's audio stream to a mono 16 kHz WAV in
+    a temp location. Returns the WAV path on success, None on
+    failure (no audio stream, ffmpeg error, etc.). Mono +
+    16 kHz matches what whisper-class models want; smaller
+    files = faster transcription."""
+    import subprocess
+    import tempfile
+
+    ffmpeg = getattr(cfg, "video_ffmpeg_path", "ffmpeg")
+    tmp = (
+        Path(tempfile.gettempdir())
+        / f"athena_audio_{video_path.stem}_{video_path.stat().st_size}.wav"
+    )
+    try:
+        proc = subprocess.run(
+            [
+                ffmpeg, "-y",
+                "-i", str(video_path),
+                "-vn",                  # no video
+                "-ac", "1",             # mono
+                "-ar", "16000",         # 16 kHz
+                "-acodec", "pcm_s16le",
+                str(tmp),
+            ],
+            capture_output=True, timeout=timeout_s, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("ffmpeg audio demux timed out for %s", video_path)
+        return None
+
+    if proc.returncode != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+        logger.info(
+            "ffmpeg audio demux skipped (no audio stream or error) for %s",
+            video_path,
+        )
+        return None
+    return tmp
 
 
 def _resolve_paths(cfg: Any) -> dict[str, Path]:
@@ -321,10 +410,18 @@ def _handle_analyze(
     end: str | None,
     prompt: str,
     provider_fn: ProviderFn | None,
+    audio_fn: AudioTranscribeFn | None,
     paths: dict[str, Path],
 ) -> dict[str, Any]:
     """Extract frames + run vision_analyze describe over each
-    one. Composed mode — the frame set + per-frame answers."""
+    one. Composed mode — the frame set + per-frame answers.
+
+    T4-04: also extracts the audio track and transcribes it
+    via athena.audio.tools.transcribe_track when an audio_fn
+    is available (closes the gap T4-02 originally punted on).
+    The transcript lands in the result under ``transcript``
+    so the model reasoning over the frames + the transcript
+    can align them by timestamp."""
     sha = sha256_file(path)
     out_dir = paths["frames_root"] / sha[:16]
     try:
@@ -364,7 +461,8 @@ def _handle_analyze(
             logger.warning("vision describe failed on %s: %s", fr, e)
             answer = f"<error: {type(e).__name__}: {e}>"
         analyses.append({"frame": str(fr), "answer": answer})
-    return {
+
+    result: dict[str, Any] = {
         "mode": "analyze",
         "path": str(path),
         "sha256": sha,
@@ -373,6 +471,21 @@ def _handle_analyze(
         "frames_out_dir": str(out_dir),
         "analyses": analyses,
     }
+
+    # T4-04: transcribe the audio track when an audio_fn is
+    # available. Defensive — exceptions in the audio path don't
+    # break the analyze return; the frames + per-frame describes
+    # are still useful on their own.
+    if audio_fn is not None:
+        try:
+            transcript = audio_fn(path)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("video.analyze: audio transcription raised: %s", e)
+            transcript = None
+        if transcript is not None:
+            result["transcript"] = transcript
+
+    return result
 
 
 # ---------------------------------------------------------------
@@ -391,6 +504,7 @@ def _run(
     prompt: str = "Describe what is happening in this frame.",
     _cfg: Any = None,
     _provider_fn: ProviderFn | None = None,
+    _audio_fn: AudioTranscribeFn | None = None,
 ) -> str:
     """Body of the video_analyze tool, factored out so tests
     call it directly with stubs without going through @tool."""
@@ -445,11 +559,16 @@ def _run(
             ))
         if mode == "analyze":
             fn = _provider_fn or _default_provider_fn(cfg)
+            afn = (
+                _audio_fn if _audio_fn is not None
+                else _default_audio_transcribe_fn(cfg)
+            )
             return json.dumps(_handle_analyze(
                 p, cfg, log,
                 extract=chosen_extract, interval_s=interval,
                 start=start, end=end, prompt=prompt,
-                provider_fn=fn, paths=paths_resolved,
+                provider_fn=fn, audio_fn=afn,
+                paths=paths_resolved,
             ))
     except ValueError as e:
         return json.dumps({"error": str(e), "mode": mode})
