@@ -21,11 +21,7 @@ import argparse
 import json
 import logging
 import sys
-from concurrent.futures import (
-    FIRST_EXCEPTION,
-    ThreadPoolExecutor,
-    wait,
-)
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Any
 

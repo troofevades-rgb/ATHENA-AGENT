@@ -82,12 +82,12 @@ def _enabled(manifest: PluginManifest, config: dict[str, Any]) -> bool:
 def _import_plugin_module(manifest: PluginManifest):
     """Import ``plugin.py`` from the manifest's directory.
 
-    Uses a unique module name (``ocode_plugin__<plugin_name>``) so multiple
+    Uses a unique module name (``athena_plugin__<plugin_name>``) so multiple
     plugins don't clobber each other's modules in ``sys.modules``.
     """
     assert manifest.path is not None
     module_path = manifest.path / "plugin.py"
-    mod_name = f"ocode_plugin__{manifest.name}"
+    mod_name = f"athena_plugin__{manifest.name}"
     spec = importlib.util.spec_from_file_location(mod_name, module_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"could not load plugin {manifest.name} from {module_path}")
@@ -140,7 +140,13 @@ def _mark_installed(plugin_name: str, marker_path: Path) -> bool:
                 for line in marker_path.read_text(encoding="utf-8").splitlines()
                 if line.strip()
             }
-        except OSError:
+        except (OSError, UnicodeDecodeError):
+            # Corrupt marker (partial write, manual edit, non-UTF-8
+            # bytes) → treat as empty. Worst case, on_install
+            # re-fires for already-installed plugins, which is
+            # recoverable. The alternative — propagating
+            # UnicodeDecodeError — would crash the loader and take
+            # the agent down on startup.
             existing = set()
     if plugin_name in existing:
         return False

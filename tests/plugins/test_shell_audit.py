@@ -19,7 +19,7 @@ def _load_shell_audit_class():
         / "shell_audit"
         / "plugin.py"
     )
-    spec = importlib.util.spec_from_file_location("ocode_plugin__shell_audit_test", plugin_py)
+    spec = importlib.util.spec_from_file_location("athena_plugin__shell_audit_test", plugin_py)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

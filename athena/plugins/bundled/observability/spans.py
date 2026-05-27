@@ -17,12 +17,10 @@ from typing import Any
 
 try:
     from opentelemetry import trace as _otel_trace
-    from opentelemetry.trace import Span
 
     _HAVE_OTEL = True
 except ImportError:  # pragma: no cover — exercised only without the extras
     _otel_trace = None
-    Span = None  # type: ignore[misc,assignment]
     _HAVE_OTEL = False
 
 

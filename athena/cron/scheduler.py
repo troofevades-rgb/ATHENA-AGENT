@@ -70,9 +70,23 @@ class CronScheduler:
         self._sched.start()
         self._started = True
         # Re-register every persisted job into the APScheduler instance.
+        # Per-job try/except so ONE corrupt cron_expr can't take down
+        # every OTHER scheduled job at startup — the prior behavior
+        # was "any bad job = no jobs run." Now bad jobs log + skip
+        # and remain inspectable via the CLI for the user to fix.
         for job in self.store.list_jobs():
-            if job.enabled:
+            if not job.enabled:
+                continue
+            try:
                 self._register(job)
+            except Exception:
+                logger.exception(
+                    "cron %s: failed to register at startup; skipping. "
+                    "Other jobs continue normally. Fix or delete via "
+                    "`athena cron remove %s`.",
+                    job.id,
+                    job.id,
+                )
 
     def stop(self) -> None:
         if not self._started:

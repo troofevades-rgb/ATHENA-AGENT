@@ -107,9 +107,9 @@ class _FakeAgent:
 def test_goal_command_sets(tmp_path: Path):
     cmd = get_command("goal")
     agent = _FakeAgent(tmp_path)
-    cmd(agent, "write tests")
-    assert get_goal(tmp_path) == "write tests"
-    assert agent.goal == "write tests"
+    cmd(agent, "write tests for the goal invariant module")
+    assert get_goal(tmp_path) == "write tests for the goal invariant module"
+    assert agent.goal == "write tests for the goal invariant module"
     assert agent.reloaded == 1
 
 

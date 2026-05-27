@@ -1,6 +1,6 @@
 """Word-boundary allowlist + explicit denylist for the Bash tool.
 
-ocode v1's allowlist used Python's ``in`` operator against a list
+athena v1's allowlist used Python's ``in`` operator against a list
 of strings, which collapses two distinct categories of bug:
 
 - Prefix shadowing: an allowlist containing ``git`` matches

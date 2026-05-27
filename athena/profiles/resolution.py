@@ -4,7 +4,7 @@ The single source of truth for "which profile am I running as right
 now". Five-level precedence, highest first:
 
 1. CLI flag ``--profile <name>``
-2. Env var ``ATHENA_PROFILE`` (legacy ``OCODE_PROFILE`` honored too)
+2. Env var ``ATHENA_PROFILE``
 3. The contents of ``~/.athena/active_profile`` (set by
    ``athena profile switch``)
 4. The ``profile`` field of the loaded ``config.toml``
@@ -106,7 +106,7 @@ def resolve_active_profile(
     """
     candidates = (
         ("cli", cli_arg),
-        ("env", os.environ.get("ATHENA_PROFILE") or os.environ.get("OCODE_PROFILE")),
+        ("env", os.environ.get("ATHENA_PROFILE")),
         ("active_file", _read_active_file()),
         ("config", config_default),
     )

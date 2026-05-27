@@ -61,6 +61,24 @@ def unregister(name: str) -> None:
     _REGISTRY.pop(name, None)
 
 
+# Providers that run on the user's machine — no per-token billing, no
+# rate limits sized for cost-recovery. Safety nets calibrated for hosted
+# API pricing (the 25-turn goal cap, the 200k-token loop cap) can relax
+# meaningfully for these. ``openai_compat`` is included because it's
+# typically pointed at a local llama-server / vLLM / LM Studio instance;
+# users running it against a hosted OpenAI-compat provider should set
+# their caps explicitly.
+_LOCAL_PROVIDERS: frozenset[str] = frozenset({"ollama", "openai_compat"})
+
+
+def is_local_provider(name: str) -> bool:
+    """True when ``name`` refers to a provider that runs locally.
+
+    Used to relax cost-shaped safety limits when there's no cost.
+    """
+    return name in _LOCAL_PROVIDERS
+
+
 # ---------------------------------------------------------------------------
 # Capability queries over _REGISTRY (T5-01R.4)
 # ---------------------------------------------------------------------------
@@ -115,6 +133,7 @@ __all__ = [
     "best_provider_for",
     "capability_matrix",
     "get_provider_class",
+    "is_local_provider",
     "list_providers",
     "providers_with_capability",
     "register_provider",
@@ -127,6 +146,7 @@ __all__ = [
 # calls ``get_provider_class``. Order doesn't matter — registration is
 # idempotent and keyed by ``name``.
 from . import anthropic as _anthropic  # noqa: E402,F401
+from . import codex as _codex  # noqa: E402,F401
 from . import google as _google  # noqa: E402,F401
 from . import nous as _nous  # noqa: E402,F401
 from . import ollama as _ollama  # noqa: E402,F401
@@ -141,3 +161,8 @@ from . import social as _social  # noqa: E402,F401
 # (runwayml, pika, local diffusion, ...) register themselves
 # the same way at build time.
 from ..videogen.backends import stub_local as _stub_video  # noqa: E402,F401
+
+# xAI Grok Imagine video — submit/poll/fetch against api.x.ai.
+# Auth: ATHENA_XAI_API_KEY in ~/.athena/.env. Selected via
+# ``/video set xai_video`` or cfg.video_backend = "xai_video".
+from ..videogen.backends import xai as _xai_video  # noqa: E402,F401

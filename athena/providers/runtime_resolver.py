@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 _PREFIX_TO_PROVIDER: dict[str, str] = {
     "anthropic/": "anthropic",
+    "codex/": "codex",
     "openai/": "openai",
     "google/": "google",
     "openrouter/": "openrouter",
@@ -63,6 +64,7 @@ _PREFIX_TO_PROVIDER: dict[str, str] = {
 _STRIP_PREFIX_FOR: frozenset[str] = frozenset(
     {
         "anthropic",
+        "codex",
         "openai",
         "google",
         "nous",
@@ -93,6 +95,9 @@ def _route(model: str, cfg: Config) -> str:
 
     if model.startswith("gemini-"):
         return "google"
+
+    if model.startswith("codex-"):
+        return "codex"
 
     # <host:port>/<model> form — the leading segment looks like a host.
     if "/" in model:
@@ -145,14 +150,17 @@ def _build_provider(
             )
         cred = pool.get(name)
         api_key = cred.key if cred is not None else None
-        return cls(host=host, api_key=api_key), bare
+        return cls(host=host, api_key=api_key, credential_pool=pool), bare
 
     # Hosted providers: anthropic / openai / google / openrouter / nous.
     cred = pool.get(name)
     if cred is None and getattr(cls, "requires_api_key", True):
         raise _CredentialUnavailable(f"no credentials available for provider {name!r}")
     api_key = cred.key if cred is not None else None
-    kwargs: dict = {"api_key": api_key}
+    # Pass the pool so providers can rotate credentials on repeated
+    # 429s. Providers that don't accept ``credential_pool=`` will
+    # raise — every hosted provider added by Phase 17.6 does.
+    kwargs: dict = {"api_key": api_key, "credential_pool": pool}
     if "base_url" in provider_cfg:
         kwargs["base_url"] = provider_cfg["base_url"]
     return cls(**kwargs), bare

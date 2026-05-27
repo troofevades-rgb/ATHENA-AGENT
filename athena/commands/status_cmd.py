@@ -19,9 +19,13 @@ from . import command
 
 @command("status")
 def cmd_status(agent, arg: str = "") -> str:
-    if arg.strip() in ("live", "--live"):
-        ui.live_status(agent)
-        return ""
+    # ``/status live`` used to render a Rich.Live dashboard via
+    # ``ui.live_status``. That function was removed during the
+    # UI cleanup — the same live data (model, profile, elapsed,
+    # tokens, tool histogram) is already pinned to the bottom
+    # of the Ink TUI by the StatusBar component, so a duplicate
+    # dashboard added no information. ``/status`` now always
+    # renders the one-shot static snapshot.
     from ..cli.status import render_status
 
     snapshot = agent.stats.to_snapshot(

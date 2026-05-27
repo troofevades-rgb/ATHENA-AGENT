@@ -262,3 +262,65 @@ def test_file_ops_write_outside_denied(isolated_workspace: Path) -> None:
             file_ops.Write("/tmp/should-not-write-T1-07.txt", "x")
     finally:
         reset_approval_callback(token)
+
+
+# ----------------------------------------------------------------------
+# MSYS / Git-Bash style absolute paths on Windows
+# ----------------------------------------------------------------------
+
+
+def test_normalize_msys_path_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    r"""On Windows, /c/Users/foo should normalize to C:/Users/foo.
+
+    The model's bash-trained instincts produce these paths constantly.
+    Without normalization pathlib treats them as drive-less anchored
+    paths and joining with a workspace yields C:\c\Users\foo, which
+    doesn't exist.
+    """
+    from athena.safety import path_security
+
+    monkeypatch.setattr(path_security.sys, "platform", "win32")
+    assert path_security.normalize_msys_path("/c/Users/foo") == "C:/Users/foo"
+    assert path_security.normalize_msys_path("/d/projects/bar") == "D:/projects/bar"
+    assert path_security.normalize_msys_path("/c/") == "C:/"
+    # Pass-through for non-MSYS shapes.
+    assert path_security.normalize_msys_path("C:/already/absolute") == "C:/already/absolute"
+    assert path_security.normalize_msys_path("relative/path") == "relative/path"
+    # Single segment that isn't a drive letter — pass through.
+    assert path_security.normalize_msys_path("/etc/passwd") == "/etc/passwd"
+
+
+def test_normalize_msys_path_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On Linux/macOS, /c/Users/foo is a legitimate path — never rewrite."""
+    from athena.safety import path_security
+
+    monkeypatch.setattr(path_security.sys, "platform", "linux")
+    assert path_security.normalize_msys_path("/c/Users/foo") == "/c/Users/foo"
+    assert path_security.normalize_msys_path("/d/projects/bar") == "/d/projects/bar"
+
+
+def test_file_ops_accepts_msys_workspace_path(
+    isolated_workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A /c/...-shaped path inside the workspace must resolve cleanly.
+
+    Regression test for the bug that made every Read in a Windows session
+    fail until the model fell back to Bash.
+    """
+    if sys.platform != "win32":
+        pytest.skip("MSYS path bug only manifests on Windows")
+
+    from athena.tools import file_ops
+
+    file_ops.set_workspace(isolated_workspace)
+    target = isolated_workspace / "hello.txt"
+    target.write_text("hi", encoding="utf-8")
+
+    # Build the MSYS-style equivalent of the workspace path.
+    ws_str = str(isolated_workspace)  # e.g. C:\Users\runner\AppData\...\tmpXYZ
+    drive, rest = ws_str[0].lower(), ws_str[2:].replace("\\", "/")
+    msys_target = f"/{drive}{rest}/hello.txt"
+
+    out = file_ops.Read(msys_target)
+    assert "hi" in out

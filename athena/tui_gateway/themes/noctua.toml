@@ -1,0 +1,23 @@
+# noctua — electric cyan + ice on deep teal.
+#
+# Owl-aligned dark palette. Primary is the owl's eye glow; accent
+# is the ice highlight on its feathers. Gradient mirrors the
+# shadow → glow → shadow pattern of the banner art.
+
+name = "noctua"
+description = "electric cyan + ice on deep teal — owl's color family"
+
+primary = "#43e8ff"          # owl eyes / perch glow (loudest interactive)
+primary_dim = "#5fd0e6"      # feather mid-tones (section labels)
+primary_faint = "#1c5a6e"    # darkest shadow (borders, separators)
+accent = "#6fe9ff"           # edge highlights (model name, hi-emphasis values)
+accent_dim = "#6a93a3"       # secondary text
+
+gradient = [
+    "#1e7fd6",  # deep shadow
+    "#36b6cf",  # panel frame
+    "#43e8ff",  # eyes
+    "#6fe9ff",  # ice
+    "#43e8ff",  # eyes
+    "#1e7fd6",  # deep shadow
+]

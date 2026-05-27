@@ -23,7 +23,7 @@ SYSTEM: Final = "system"
 _WRITE_ORIGINS: Final = {FOREGROUND, BACKGROUND_REVIEW, CURATOR, MIGRATION, SYSTEM}
 
 _write_origin: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "ocode_write_origin", default=FOREGROUND
+    "athena_write_origin", default=FOREGROUND
 )
 
 

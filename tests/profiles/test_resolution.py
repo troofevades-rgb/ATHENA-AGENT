@@ -26,7 +26,6 @@ def isolated_home(
     )
     # Clear env so existing developer ATHENA_PROFILE doesn't leak in.
     monkeypatch.delenv("ATHENA_PROFILE", raising=False)
-    monkeypatch.delenv("OCODE_PROFILE", raising=False)
     return home
 
 
@@ -155,14 +154,6 @@ def test_env_beats_active_file_and_config(
         config_default="config-profile",
     )
     assert result == "env-profile"
-
-
-def test_legacy_ocode_profile_env_var_honored(
-    isolated_home: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("OCODE_PROFILE", "legacy")
-    assert resolution.resolve_active_profile() == "legacy"
 
 
 def test_active_file_when_no_cli_or_env(isolated_home: Path) -> None:

@@ -103,18 +103,38 @@ def _resolve_disabled(spec_disabled: Any, enabled: list[str] | None) -> list[str
     parameters={
         "type": "object",
         "properties": {
-            "description": {"type": "string", "description": "Short (3-5 word) task description."},
             "prompt": {"type": "string", "description": "The full task brief for the sub-agent."},
+            "description": {
+                "type": "string",
+                "description": (
+                    "Optional short (3-5 word) display label. If omitted, "
+                    "auto-derived from the first line of ``prompt``."
+                ),
+            },
             "subagent_type": {
                 "type": "string",
                 "enum": list(SUBAGENT_TYPES.keys()),
                 "description": "Which kind of sub-agent to spawn. Defaults to general-purpose.",
             },
         },
-        "required": ["description", "prompt"],
+        "required": ["prompt"],
     },
 )
-def Agent(description: str, prompt: str, subagent_type: str = "general-purpose") -> str:
+def Agent(
+    prompt: str,
+    description: str = "",
+    subagent_type: str = "general-purpose",
+) -> str:
+    # ``description`` was previously required, but it's a display-only
+    # label — smaller models routinely drop it and got a TypeError back
+    # with no clean recovery path. Auto-derive when missing: take the
+    # first non-empty line, trim to ~60 chars.
+    if not description.strip():
+        first_line = next(
+            (line.strip() for line in prompt.splitlines() if line.strip()),
+            "sub-agent task",
+        )
+        description = first_line[:60] + ("…" if len(first_line) > 60 else "")
     spec = SUBAGENT_TYPES.get(subagent_type)
     if not spec:
         return f"ERROR: unknown subagent_type {subagent_type!r}"

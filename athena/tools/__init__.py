@@ -11,6 +11,7 @@ from . import (
     clarify,  # clarify (T2-08)
     diagnose,  # Diagnose (T5-03R)
     file_ops,  # Read, Write, Edit, list_dir
+    memory_query_tool,  # memory_query (user-model backend recall)
     memory_tools,  # write_memory, list_memories, delete_memory
     patch_apply,  # patch_apply (T2-07)
     plan,  # ExitPlanMode, EnterPlanMode
@@ -23,9 +24,10 @@ from . import (
     web,  # WebFetch, WebSearch
 )
 
-# T6-02: search_x lives under athena.social — importing it
-# here is what registers the tool on agent startup.
+# T6-02: search_x + lookup_x_user live under athena.social —
+# importing them here is what registers the tools on agent startup.
 from ..social import search as _social_search_register  # noqa: F401
+from ..social import user_lookup as _social_user_lookup_register  # noqa: F401
 
 # T6-03: delegate_to_cli lives under athena.delegate.
 from ..delegate import cli as _delegate_register  # noqa: F401

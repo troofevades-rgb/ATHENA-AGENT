@@ -29,7 +29,6 @@ def isolated_home(
         home / "active_profile",
     )
     monkeypatch.delenv("ATHENA_PROFILE", raising=False)
-    monkeypatch.delenv("OCODE_PROFILE", raising=False)
     return home
 
 

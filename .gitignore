@@ -34,6 +34,16 @@ Thumbs.db
 *.pem
 *.key
 
+# Tooling session state — never commit
+.claude/
+.tmp-*
+
+# Nested external projects (own repo / contains its own .env)
+RedTeam-MCP/
+
+# Transient coverage snapshots
+coverage_*.json
+
 # Large model artifacts (if checkpoints land in tree)
 *.gguf
 *.safetensors

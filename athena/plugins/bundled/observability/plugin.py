@@ -159,7 +159,23 @@ class ObservabilityPlugin(Plugin):
     def _setup_metrics(self) -> None:
         if not _HAVE_OTEL:
             return
+        # Reader selection:
+        #   - explicit OTLP endpoint    → periodic export to that endpoint
+        #   - metrics_console=true      → periodic export to stdout
+        #   - default (neither set)     → InMemoryMetricReader: meters
+        #     still exist and accept calls, no background thread, no
+        #     terminal spam, no teardown race
+        #
+        # The old default was to install ``ConsoleMetricExporter`` with
+        # a 30s periodic reader unconditionally, which spammed the
+        # terminal with metric dumps AND raced with stdout closure on
+        # process exit (``ValueError: I/O operation on closed file``
+        # during pytest teardown and every clean shutdown). The
+        # in-memory reader keeps the meter API working for downstream
+        # callers without either of those costs.
         endpoint = self.config.get("otlp_endpoint")
+        console_opt_in = bool(self.config.get("metrics_console", False))
+        reader: Any
         if endpoint:
             try:
                 from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
@@ -169,14 +185,22 @@ class ObservabilityPlugin(Plugin):
                 exporter = OTLPMetricExporter(endpoint=str(endpoint))
             except ImportError:  # pragma: no cover
                 exporter = ConsoleMetricExporter()
+            reader = PeriodicExportingMetricReader(
+                exporter,
+                export_interval_millis=int(
+                    self.config.get("metric_export_interval_ms", 30_000),
+                ),
+            )
+        elif console_opt_in:
+            reader = PeriodicExportingMetricReader(
+                ConsoleMetricExporter(),
+                export_interval_millis=int(
+                    self.config.get("metric_export_interval_ms", 30_000),
+                ),
+            )
         else:
-            exporter = ConsoleMetricExporter()
-        reader = PeriodicExportingMetricReader(
-            exporter,
-            export_interval_millis=int(
-                self.config.get("metric_export_interval_ms", 30_000),
-            ),
-        )
+            from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+            reader = InMemoryMetricReader()
         provider = MeterProvider(metric_readers=[reader])
         _otel_metrics.set_meter_provider(provider)
         self._meter = _otel_metrics.get_meter("athena")

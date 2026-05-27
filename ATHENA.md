@@ -4,13 +4,31 @@
 - Python 3.10+, httpx, rich, prompt_toolkit, pyyaml, tomli-w,
   apscheduler, sqlalchemy
 - Talks to local Ollama at $OLLAMA_HOST (default http://localhost:11434)
-- Phase 7 training extras `pip install -e ".\[train\]"` — trl, peft,
+- Phase 7 training extras: `pip install -e ".[train]"` — trl, peft,
   transformers, datasets, accelerate, bitsandbytes (GPU only)
 
 ## Build/test
-- `pip install -e .` (already done in .venv)
+- `pip install -e .` (editable install — required so source edits
+  take effect without reinstall)
 - `pytest tests/ -q`
 - `pytest tests/ --cov=athena.skills --cov=athena.migration -q` for coverage
+
+## Credentials
+- `~/.athena/.env` is the single source of truth for API keys.
+  Loaded once per process and cached. Format is `KEY=value` per line;
+  `#` comments and blank lines OK; surrounding `'` / `"` quotes
+  stripped. Recommend mode 0o600.
+- Lookup order at runtime (`athena/env.py:get_credential`):
+  1. `~/.athena/.env`
+  2. `os.environ`
+  3. Legacy `<thing>_path` config keys (file containing the raw value)
+- Conventional key names:
+  - `ATHENA_XAI_API_KEY` — xAI / Grok Imagine video gen (from console.x.ai)
+  - `ATHENA_X_BEARER_TOKEN` — X (Twitter) v2 search API
+  - `ATHENA_DISCORD_BOT_TOKEN` — Discord gateway adapter
+  - `ATHENA_RUNWAY_API_KEY`, `ATHENA_PIKA_API_KEY` — future video backends
+  Each backend can declare its own `credential_env_vars` tuple; the
+  /video status display reads that declaration.
 
 ## Layout
 - athena/agent/           agent subpackage
@@ -39,8 +57,10 @@
                          prompt at session start
   - validation.py        validate_skill(dir) → list of error strings
 - athena/commands/        slash-command handlers (/loop, /compact, /resume,
-                         /plan, /init, /memory, /review, /steer, /queue, /goal).
-                         Renamed from athena/skills/ in Phase 1.
+                         /plan, /init, /memory, /review, /steer, /queue,
+                         /goal, /subgoal, /board, /video). Full list in
+                         the "Slash commands" section below. Renamed
+                         from athena/skills/ in Phase 1.
 - athena/review/          per-turn background review
   - nudge.py             per-session counter, fires every N tool calls
   - orchestrator.py      maybe_fire_review — spawns daemon-thread fork
@@ -125,10 +145,37 @@
   - queue.py             thread-safe per-session `SteerQueue`; module-level
                          `GLOBAL_STEER_QUEUE` for cross-thread access (Phase 10
                          gateway adapters will push to it)
-- athena/goal/            Ralph-loop invariant (Phase 6)
+- athena/goal/            Ralph-loop invariant + active driver (Phase 6+)
   - invariant.py         get/set/clear of `<profile_dir>/goal.txt`;
                          format_for_system_prompt produces the block injected
                          at the END of every system-prompt rebuild
+  - state.py             `GoalState` dataclass (text/status/turns_taken/
+                         max_turns/subgoals/goal_id) persisted as
+                         `<profile_dir>/goal_state.json`
+  - loop.py              sentinel scanner (GOAL ACHIEVED / GOAL BLOCKED)
+                         + `maybe_continue_goal_after_turn` driver +
+                         `build_continuation_prompt` (stitches goal text,
+                         turn counter, subgoal pointer, decompose hint
+                         into every synthetic continuation) +
+                         `run_goal_verifier` (optional shell-command
+                         gate on GOAL ACHIEVED claims via
+                         `cfg.goal_verifier_command`)
+- athena/videogen/        async video-generation orchestration (Phase 6.5)
+  - job.py               `GenerationRequest` / `JobHandle` /
+                         `CostEstimate` types + `resolve_backend(cfg)`
+                         which honors `cfg.video_backend` selector first,
+                         then capability broker
+  - backends/stub_local.py  placeholder backend (writes a fake .mp4 for
+                         smoke tests; no creds needed)
+  - backends/xai.py      xAI Grok Imagine adapter — submit/poll/fetch
+                         against `api.x.ai/v1/videos/generations`.
+                         Reads `ATHENA_XAI_API_KEY` from .env. Declares
+                         `credential_env_vars` so /video status shows
+                         accurate auth state.
+  - tools.py             `video_generate` + `animate_image` model-facing
+                         tools. Use `get_current_agent().cfg` so
+                         session-scoped `/video set` mutations are
+                         visible immediately.
 - athena/transform/       closed training loop (Phase 7)
   - classifier.py        `Trajectory` + `extract_trajectories` + conservative
                          `auto_classify` (good / bad / preference_pair /
@@ -223,6 +270,28 @@
 - `/goal` is read at session start AND on every system-prompt rebuild
   (after `/cwd`, `/clear`, `Agent.reload_goal()` etc.) so the invariant
   is always re-injected.
+- `~/.athena/config.toml` gotcha: top-level config keys MUST appear
+  ABOVE any `[section]` header. TOML semantics say keys after a
+  section header belong to that section — so a top-level flag like
+  `video_generation_enabled = true` placed after `[gateway.platforms.
+  discord]` parses as `cfg.gateway.platforms.discord.video_generation_
+  enabled` and the actual top-level field stays at its default.
+  We've hit this twice; if a config knob seems ignored, check
+  placement first.
+- Tools should read the LIVE agent's cfg, not a fresh `load_config()`
+  load. Use `athena.agent.core.get_current_agent()` first and fall
+  back to disk only when no agent is bound. This makes session-scoped
+  mutations (`/video set`, `/goal …`) visible to tool calls immediately.
+- `cfg.goal_verifier_command` (optional shell command) gates `GOAL
+  ACHIEVED` claims. When set, the loop runs it after the sentinel
+  fires; non-zero exit refuses the achievement and feeds the output
+  back to the model. Bump-counts toward `max_turns` so a model that
+  keeps claiming done can't loop forever.
+- Backend providers can declare `credential_env_vars: tuple[str, ...]`
+  to make `/video` (and future similar status displays) show
+  accurate "auth ok" / "no credential found" messages — without
+  this, status falls back to a heuristic `ATHENA_<NAME>_API_KEY`
+  guess that won't match if the resolver uses a different key name.
 
 ## CLI
 - `athena` — interactive REPL (default)
@@ -258,6 +327,9 @@
 - `athena skill {diff,rollback} <name>` — diff a skill against its most-
   recent snapshot; rollback restores byte-for-byte (rollback itself audited)
 - `athena memory {diff,rollback} <name>` — same for memory entries
+- `athena board [--goal <id>] [--profile NAME] [--static]` — render the
+  kanban for a workspace; `--static` forces plain text even when
+  textual TUI is available
 
 ## Slash commands
 Dispatched in two ways (consolidation tracked under TODO in CHANGELOG):
@@ -291,6 +363,53 @@ Subsystem commands with modules under `athena/commands/`:
   for security-focused review
 - `/steer MSG | /steer clear | /queue` — queue cross-thread redirects;
   delivered as synthetic user messages before your next prompt. FIFO.
-- `/goal MSG | /goal show | /goal clear` — persistent Ralph-loop invariant
-  at `<profile_dir>/goal.txt`; injected at the END of every system-prompt
-  rebuild.
+- `/board` — show the kanban for the current workspace. Subcommands:
+  `/board goal:<id>` filters to one goal's cards; `/board clear`
+  wipes every live task (archive untouched). Use `/board clear`
+  when aspirational tasks from a prior session are polluting context.
+- `/video` — inspect / switch the video-generation backend:
+  - `/video` (or `status` / `show`) — current selector, every
+    registered backend, and auth status (reads each backend's
+    declared `credential_env_vars`).
+  - `/video list` — name-only listing.
+  - `/video set <name>` — pin a backend for this session (mutates
+    `cfg.video_backend` in memory; survives until restart). Edit
+    `~/.athena/config.toml` to persist.
+  - `/video clear` — unset; broker auto-picks again.
+  Default backends: `stub_video_local` (placeholder, no key) and
+  `xai_video` (Grok Imagine — needs `ATHENA_XAI_API_KEY` in .env).
+- `/goal MSG` — set a concrete deliverable as the active goal. Vague
+  text ("be the best", "ship it") is refused — must be ≥4 words and
+  describe what "done" looks like. Setting auto-fires the first
+  continuation turn so the loop bootstraps without a manual nudge.
+- `/goal` (or `/goal status` / `/goal show`) — show current goal text,
+  status, turn counter, and declared subgoals.
+- `/goal pause` — stop the continuation loop (status=paused).
+- `/goal resume` — restart the loop; from an exhausted state, grants
+  another `cfg.goal_max_turns` (auto-bumped to 10,000 for local
+  providers like ollama).
+- `/goal clear` — wipe goal.txt + goal_state.json.
+- `/subgoal MSG` — append a subgoal (advisory).
+- `/subgoal done` — mark the first not-done subgoal complete.
+
+Goal-loop behavior the model needs to know:
+- Every synthetic continuation prompt includes the goal text, turn
+  counter, and next subgoal — the model sees its objective in the
+  user message every turn, not just the system prompt.
+- When no subgoals exist, the continuation prompt asks the model to
+  call `/subgoal <text>` 3-6 times to decompose before doing real
+  work.
+- Sentinels: end a message with `GOAL ACHIEVED` to claim done; with
+  `GOAL BLOCKED: <reason>` to pause for user input.
+- If `cfg.goal_verifier_command` is set, the verifier runs after
+  `GOAL ACHIEVED` and can refuse the claim with output the model
+  reads on the next turn.
+- The goal text is also injected at the END of every system-prompt
+  rebuild as the passive invariant.
+
+Tool-call discipline:
+- When the user asks for something a tool can do (video_generate,
+  search_x, etc.), CALL THE TOOL. Don't refuse based on guessing
+  whether config is set right — the tool returns structured
+  `status` responses (`not_enabled`, `not_configured`, etc.) and
+  you react to them. Pre-judging wastes a turn and lies to the user.

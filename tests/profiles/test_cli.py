@@ -41,7 +41,6 @@ def isolated_home(
         resolution.resolve_active_profile,
     )
     monkeypatch.delenv("ATHENA_PROFILE", raising=False)
-    monkeypatch.delenv("OCODE_PROFILE", raising=False)
     return home
 
 

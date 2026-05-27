@@ -7,8 +7,7 @@ partial line at the tail of the file, and we want recovery to be silent.
 
 The optional ``ATHENA_SESSIONS_FSYNC=1`` env flag flushes after each write
 — off by default because the hot path (every model turn) is latency-
-sensitive and the loss window on crash is at most one turn. The legacy
-``OCODE_SESSIONS_FSYNC`` is honored for one release.
+sensitive and the loss window on crash is at most one turn.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _fsync_enabled() -> bool:
-    raw = os.environ.get("ATHENA_SESSIONS_FSYNC") or os.environ.get("OCODE_SESSIONS_FSYNC") or ""
+    raw = os.environ.get("ATHENA_SESSIONS_FSYNC") or ""
     return raw.strip() in ("1", "true", "yes")
 
 

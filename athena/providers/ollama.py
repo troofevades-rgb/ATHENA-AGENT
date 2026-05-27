@@ -194,6 +194,29 @@ class OllamaProvider(Provider):
         # T2-03.9: per-session retry / abort counters for /status.
         self._retry_count: int = 0
         self._abort_count: int = 0
+        # Cancellation state for mid-stream interrupt. The flag is
+        # checked inside _iter_stream so even buffered chunks
+        # (httpx may have prefetched several before close fires) get
+        # discarded immediately. Closing the Response alone wasn't
+        # enough on fast local Ollama — chunks kept flowing through
+        # the buffer for seconds. Belt-and-suspenders: close the
+        # socket AND poll the flag.
+        self._in_flight_response: httpx.Response | None = None
+        self._cancelled: bool = False
+
+    def abort_current_stream(self) -> None:
+        """Cancel any in-flight stream. Sets a flag the iterator
+        polls AND closes the Response so the underlying socket
+        shuts down. Either path alone is racy on fast local
+        servers; both together give us bounded cancellation."""
+        self._cancelled = True
+        r = self._in_flight_response
+        if r is None:
+            return
+        try:
+            r.close()
+        except Exception:  # noqa: BLE001
+            pass
 
     # ---- Core stream API ----
 
@@ -215,6 +238,10 @@ class OllamaProvider(Provider):
         ``num_ctx`` is passed through ``kwargs`` for Ollama-specific
         context-window control; other kwargs are ignored.
         """
+        # Reset cancellation state at the start of each fresh stream.
+        # Without this, an aborted prior stream would leave _cancelled=True
+        # and instantly abort the next request before it could yield.
+        self._cancelled = False
         payload: dict[str, Any] = {
             "model": model,
             "messages": _normalize_vision_messages(messages),
@@ -255,40 +282,56 @@ class OllamaProvider(Provider):
                 on_abort=lambda _c: self._inc_abort(),
                 provider_label=self.name,
             )
-            for line in r.iter_lines():
-                if not line:
-                    continue
-                obj = json.loads(line)
-                msg = obj.get("message", {}) or {}
-                content = msg.get("content") or ""
-                if content:
-                    yield StreamChunk("content", content)
-                for tc in msg.get("tool_calls") or []:
-                    fn = tc.get("function", {}) or {}
-                    yield StreamChunk(
-                        "tool_call",
-                        {
-                            "name": fn.get("name", ""),
-                            "arguments": fn.get("arguments", {}),
-                            "id": tc.get("id", ""),
-                        },
-                    )
-                if obj.get("done"):
-                    yield StreamChunk(
-                        "usage",
-                        {
-                            "prompt_tokens": obj.get("prompt_eval_count", 0) or 0,
-                            "completion_tokens": obj.get("eval_count", 0) or 0,
-                            # Ollama-specific extras the agent's stream_stats uses
-                            # for the tok/s footer.
-                            "prompt_eval_count": obj.get("prompt_eval_count", 0) or 0,
-                            "eval_count": obj.get("eval_count", 0) or 0,
-                            "eval_duration": obj.get("eval_duration", 0) or 0,
-                        },
-                    )
-                    yield StreamChunk("end", {"reason": obj.get("done_reason", "stop")})
+            self._in_flight_response = r
+            try:
+                yield from self._iter_stream(r)
+            finally:
+                self._in_flight_response = None
+            return
         finally:
             outer_stack.close()
+
+    def _iter_stream(self, r: httpx.Response) -> Iterator[StreamChunk]:
+        for line in r.iter_lines():
+            # Mid-stream cancellation check. The cancel hook closes
+            # the Response, but httpx may have prefetched several
+            # lines into its buffer — those still flow through
+            # iter_lines until the buffer empties. This flag short-
+            # circuits the loop so the user's ESC has bounded effect
+            # (one buffered chunk's worth, not seconds).
+            if self._cancelled:
+                return
+            if not line:
+                continue
+            obj = json.loads(line)
+            msg = obj.get("message", {}) or {}
+            content = msg.get("content") or ""
+            if content:
+                yield StreamChunk("content", content)
+            for tc in msg.get("tool_calls") or []:
+                fn = tc.get("function", {}) or {}
+                yield StreamChunk(
+                    "tool_call",
+                    {
+                        "name": fn.get("name", ""),
+                        "arguments": fn.get("arguments", {}),
+                        "id": tc.get("id", ""),
+                    },
+                )
+            if obj.get("done"):
+                yield StreamChunk(
+                    "usage",
+                    {
+                        "prompt_tokens": obj.get("prompt_eval_count", 0) or 0,
+                        "completion_tokens": obj.get("eval_count", 0) or 0,
+                        # Ollama-specific extras the agent's stream_stats uses
+                        # for the tok/s footer.
+                        "prompt_eval_count": obj.get("prompt_eval_count", 0) or 0,
+                        "eval_count": obj.get("eval_count", 0) or 0,
+                        "eval_duration": obj.get("eval_duration", 0) or 0,
+                    },
+                )
+                yield StreamChunk("end", {"reason": obj.get("done_reason", "stop")})
 
     def _inc_retry(self) -> None:
         self._retry_count += 1

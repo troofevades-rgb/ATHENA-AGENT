@@ -188,7 +188,10 @@ class MCPStdioClient:
             try:
                 self.proc.stdin.write(line)  # type: ignore[union-attr]
                 self.proc.stdin.flush()  # type: ignore[union-attr]
-            except (BrokenPipeError, OSError, AttributeError) as e:
+            except (BrokenPipeError, OSError, AttributeError, ValueError) as e:
+                # ValueError: write() on a closed file (post-close().write()).
+                # We treat it the same as a broken pipe — caller sees a
+                # uniform MCPError instead of leaking subprocess internals.
                 raise MCPError(f"server '{self.name}' pipe broken: {e}")
 
     # ---- background loops ----------------------------------------------

@@ -147,6 +147,22 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["athena*"]
 
+# Ship non-Python assets the package reads at runtime:
+#   - _owl_art.txt          ASCII owl rendered in the startup banner
+#   - _tui_bundle/main.js   the React + Ink TUI bundle (built from
+#                           ui-tui/ via `bun run build`). Shipping
+#                           the pre-built JS means end users don't
+#                           need Node + bun + a TypeScript toolchain
+#                           to run athena's interactive REPL; they
+#                           only need a ``node`` runtime to execute
+#                           the bundle.
+[tool.setuptools.package-data]
+athena = [
+    "_owl_art.txt",
+    "_owl_image.jpg",
+    "_tui_bundle/main.js",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

@@ -147,13 +147,30 @@ def _ranked_hits(
         return store.search(query, k=k, workspace=workspace)
 
     from ..recall import get_active_vector_store, parse_session_doc_id, rrf_fuse
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
 
     vector_store = get_active_vector_store()
     if vector_store is None:
         return store.search(query, k=k, workspace=workspace)
 
     candidate_k = max(k * 3, k + 5)
-    vec_doc_ids = vector_store.search(query, k=candidate_k, workspace=workspace)
+    # Step bug-fix: the vector store can exist but its embedder
+    # can fail at query time (e.g. OllamaProvider has no embed
+    # method). Treat that the same as "no vector store" —
+    # degrade silently to keyword-only. Otherwise the model
+    # sees the error and panics through a tool-loop trying
+    # other approaches.
+    try:
+        vec_doc_ids = vector_store.search(
+            query, k=candidate_k, workspace=workspace,
+        )
+    except Exception as e:  # noqa: BLE001
+        _log.info(
+            "search_sessions: vector path unavailable (%s); "
+            "degrading to keyword-only", e,
+        )
+        return store.search(query, k=k, workspace=workspace)
 
     if mode == "semantic":
         # Pure semantic: no FTS5 fetch. Hydrate top-k vec ids

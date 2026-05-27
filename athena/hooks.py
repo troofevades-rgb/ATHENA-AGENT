@@ -152,10 +152,6 @@ def fire(
                     **os.environ,
                     "ATHENA_HOOK_EVENT": event,
                     "ATHENA_TOOL_NAME": tool_name,
-                    # Legacy aliases for hook scripts written under the
-                    # ocode name — drop one release after the rename.
-                    "OCODE_HOOK_EVENT": event,
-                    "OCODE_TOOL_NAME": tool_name,
                 },
             )
         except subprocess.TimeoutExpired:

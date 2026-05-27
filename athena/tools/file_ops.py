@@ -2,14 +2,15 @@
 
 Tool names follow Claude Code conventions: Read, Write, Edit. Old snake_case
 names (read_file, write_file, str_replace) remain as aliases so legacy
-ATHENA.md (or pre-rename OCODE.md) instructions and saved sessions keep
-working.
+ATHENA.md instructions and saved sessions keep working.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+from ..safety.path_security import normalize_msys_path
 from ..safety.path_security import set_workspace as _set_path_security_workspace
 from ..safety.path_security import validate_path
 from .delta_lint import lint_after_write
@@ -73,10 +74,55 @@ def _resolve(path: str, *, intent: str) -> Path:
     Absolute-deny paths (process memory, kernel memory, raw devices) are
     refused regardless of approval.
     """
-    p = Path(path).expanduser()
+    p = Path(normalize_msys_path(path)).expanduser()
     if not p.is_absolute():
         p = _WORKSPACE / p
     return validate_path(p, intent=intent)  # type: ignore[arg-type]
+
+
+# ---- Workspace introspection -------------------------------------------
+
+
+@tool(
+    name="workspace_info",
+    toolset="file",
+    description=(
+        "Return the active workspace, the Python process cwd, the athena "
+        "profile name + dir, and the memory directory for this workspace. "
+        "Call this when you're unsure where you are — cheaper than running "
+        "`pwd` via Bash, and gives a structured answer the model can pin. "
+        "Read-only. Relative paths passed to Read / Edit / Write / list_dir "
+        "resolve against the `workspace` field returned here."
+    ),
+    parameters={"type": "object", "properties": {}},
+)
+def workspace_info() -> str:
+    import json as _json
+
+    info: dict[str, Any] = {
+        "workspace": str(_WORKSPACE),
+        "python_cwd": str(Path.cwd()),
+        "workspace_matches_cwd": _WORKSPACE.resolve() == Path.cwd().resolve(),
+    }
+    # Profile + memory dir are convenience extras. Failures here must
+    # not crash the whole tool — surface "(unavailable)" instead.
+    try:
+        from ..config import load_config, profile_dir
+
+        cfg = load_config()
+        profile = getattr(cfg, "profile", None) or "default"
+        info["profile"] = profile
+        info["profile_dir"] = str(profile_dir(profile))
+    except Exception:  # noqa: BLE001
+        info["profile"] = "(unavailable)"
+        info["profile_dir"] = "(unavailable)"
+    try:
+        from ..memory import memory_dir
+
+        info["memory_dir"] = str(memory_dir(_WORKSPACE))
+    except Exception:  # noqa: BLE001
+        info["memory_dir"] = "(unavailable)"
+    return _json.dumps(info, indent=2)
 
 
 # ---- Read ---------------------------------------------------------------

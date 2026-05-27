@@ -56,7 +56,7 @@ def _read_hermes(skill_md: Path) -> tuple[dict[str, Any], str]:
     return data, m.group(2)
 
 
-def _ocode_frontmatter_from_hermes(
+def _athena_frontmatter_from_hermes(
     hermes: dict[str, Any],
     *,
     hermes_path: Path,
@@ -226,7 +226,7 @@ def import_skills(
             continue
 
         try:
-            new_fm = _ocode_frontmatter_from_hermes(
+            new_fm = _athena_frontmatter_from_hermes(
                 hermes_data,
                 hermes_path=hermes_path,
                 is_archived=is_archived,

@@ -132,14 +132,15 @@ def test_exceeds_retry_budget_raises_RetryBudgetExceeded() -> None:
 
 
 def test_rotate_credential_callback_invoked_on_repeated_429() -> None:
-    """Repeated 429s eventually exhaust the retry budget; the
-    rotate callback fires when no other route helps. Even when
-    on_rotate returns False (no more credentials) the wrapper
-    still calls it before escalating to abort.
+    """After 2 consecutive 429s, with_retry escalates to ROTATE_CREDENTIAL
+    and invokes on_rotate_credential. If the callback returns False
+    (no more credentials available), the original HTTPStatusError
+    re-raises — the caller sees a clean rate-limit error instead of
+    an indefinite retry loop.
 
-    Current classifier returns RETRY for 429, not ROTATE_CREDENTIAL
-    directly — so this test exercises the budget-exceeded path and
-    confirms RetryBudgetExceeded carries the 429 classification."""
+    First 429 → RETRY (single-key users benefit from backoff). Second
+    consecutive 429 → ROTATE_CREDENTIAL (multi-key users actually
+    switch keys instead of grinding on a rate-limited one)."""
 
     def op() -> str:
         raise _http_status_error(429, headers={"retry-after": "0"})
@@ -151,13 +152,104 @@ def test_rotate_credential_callback_invoked_on_repeated_429() -> None:
         rotate_calls += 1
         return False
 
-    with pytest.raises(RetryBudgetExceeded):
+    with pytest.raises(httpx.HTTPStatusError):
         with_retry(
             op,
             on_rotate_credential=on_rotate,
             max_backoff_s=0.01,
-            max_retries=2,
+            max_retries=5,
         )
+    assert rotate_calls == 1, (
+        f"expected rotate callback to fire exactly once after the "
+        f"second consecutive 429; fired {rotate_calls} times"
+    )
+
+
+def test_rotate_success_resets_consecutive_429_counter() -> None:
+    """After a successful rotation, the new credential should get its
+    own 2-strike budget — not inherit ``consecutive_429s=2`` from the
+    rotated-out key. Otherwise any single 429 on the new key triggers
+    immediate re-rotation, burning through the entire pool on what
+    might be a transient spike.
+
+    Regression test for retry_utils.py — the counter must reset on
+    rotation success."""
+    call_count = 0
+
+    def op() -> str:
+        nonlocal call_count
+        call_count += 1
+        # First 3 calls return 429 (forces 2 rotations); 4th succeeds.
+        # With the bug, the second rotation fires on the 3rd 429
+        # (because counter was already at 2 after rotating once).
+        # With the fix, the second rotation only fires after TWO
+        # more 429s post-rotation.
+        if call_count <= 3:
+            raise _http_status_error(429, headers={"retry-after": "0"})
+        return "ok"
+
+    rotate_calls = 0
+
+    def on_rotate() -> bool:
+        nonlocal rotate_calls
+        rotate_calls += 1
+        return True
+
+    result = with_retry(
+        op,
+        on_rotate_credential=on_rotate,
+        max_backoff_s=0.01,
+        max_retries=10,
+    )
+    assert result == "ok"
+    # 3 × 429 in a row would have rotated AT MOST 2 times if the
+    # counter resets properly (after 2 consecutive 429s, after another
+    # 2 if we hadn't succeeded). With the bug it would rotate 2 times
+    # too in this scenario, so let's verify the specific cadence:
+    # call 1: 429, counter=1 → RETRY
+    # call 2: 429, counter=2 → ROTATE (counter resets to 0)
+    # call 3: 429, counter=1 → RETRY
+    # call 4: ok
+    # Expected rotations: 1.
+    # Without the reset, call 3 would have counter=3 → ROTATE again.
+    assert rotate_calls == 1, (
+        f"expected exactly 1 rotation; got {rotate_calls}. The "
+        f"consecutive_429s counter is not resetting on rotation "
+        f"success — the new credential is starting at count=2 and "
+        f"any single 429 immediately re-rotates."
+    )
+
+
+def test_rotate_callback_success_continues_retrying() -> None:
+    """When on_rotate returns True (swap succeeded), with_retry
+    continues with the next attempt. The consecutive_429s counter
+    resets on a non-429 outcome — so a rotation that fixes the
+    problem allows the operation to ultimately succeed."""
+    call_count = 0
+
+    def op() -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            raise _http_status_error(429, headers={"retry-after": "0"})
+        return "ok after rotation"
+
+    rotated = []
+
+    def on_rotate() -> bool:
+        rotated.append(True)
+        return True
+
+    result = with_retry(
+        op,
+        on_rotate_credential=on_rotate,
+        max_backoff_s=0.01,
+        max_retries=5,
+    )
+    assert result == "ok after rotation"
+    assert len(rotated) == 1, (
+        f"expected exactly one rotation; got {len(rotated)}"
+    )
 
 
 def test_compress_context_callback_invoked() -> None:

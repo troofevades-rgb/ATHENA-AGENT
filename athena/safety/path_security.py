@@ -31,6 +31,7 @@ import contextvars
 import json
 import logging
 import re
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Literal
@@ -46,6 +47,33 @@ class PathSecurityDenied(PermissionError):
     Either by absolute-deny pattern match or by approval-callback
     rejection.
     """
+
+
+# MSYS/Git-Bash/Cygwin/WSL expose Windows drives at ``/c/...``, ``/d/...``,
+# etc. The model's bash-trained instincts produce these paths constantly,
+# but pathlib treats them as drive-less anchored paths and joining them
+# with a Windows workspace produces ``C:\c\Users\...`` (the leading ``/``
+# replaces the workspace's path while keeping the workspace's drive). That
+# directory doesn't exist, so every Read/Edit fails until the model gives
+# up and falls back to Bash. Normalize before resolution.
+_MSYS_DRIVE_RX = re.compile(r"^/([a-zA-Z])(/.*)?$")
+
+
+def normalize_msys_path(raw: str | Path) -> str | Path:
+    """Convert ``/c/foo`` to ``C:/foo`` on Windows; passthrough elsewhere.
+
+    Defensive on non-string inputs: returns the value unchanged when it
+    doesn't match the MSYS shape so callers don't have to type-check.
+    """
+    if sys.platform != "win32":
+        return raw
+    s = str(raw)
+    m = _MSYS_DRIVE_RX.match(s)
+    if not m:
+        return raw
+    drive = m.group(1).upper()
+    rest = m.group(2) or "/"
+    return f"{drive}:{rest}"
 
 
 _workspace: contextvars.ContextVar[Path | None] = contextvars.ContextVar(
@@ -237,7 +265,7 @@ def validate_path(
          approval via ``audit_append`` and allow.
     """
     ws = (workspace or get_workspace()).resolve()
-    resolved = Path(raw).expanduser().resolve()
+    resolved = Path(normalize_msys_path(raw)).expanduser().resolve()
 
     if _matches_absolute_deny(resolved):
         logger.warning("path_security: absolute deny on %s", resolved)

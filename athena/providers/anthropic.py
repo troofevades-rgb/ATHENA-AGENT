@@ -104,6 +104,7 @@ class AnthropicProvider(Provider):
         base_url: str = _DEFAULT_BASE_URL,
         anthropic_version: str = _DEFAULT_VERSION,
         timeout: float = 600.0,
+        credential_pool: Any = None,
         **kwargs: Any,
     ):
         super().__init__(api_key=api_key, **kwargs)
@@ -117,6 +118,8 @@ class AnthropicProvider(Provider):
             },
             timeout=timeout,
         )
+        # Pool reference for 429-driven rotation. See _rotate_credential.
+        self._credential_pool = credential_pool
         # T2-02: latest rate-limit tracker per credential. Keyed by
         # the credential's last-4 suffix so a pool of multiple keys
         # gets distinct trackers; with a single-key setup the dict
@@ -131,6 +134,25 @@ class AnthropicProvider(Provider):
         # T2-03.9: per-session retry/abort counters for /status.
         self._retry_count: int = 0
         self._abort_count: int = 0
+        # Cancellation state for mid-stream interrupt. Closing the
+        # Response shuts the socket but httpx may have buffered
+        # chunks; the flag is polled in _parse_sse so cancellation
+        # is bounded to one buffered event's worth of work.
+        self._in_flight_response: httpx.Response | None = None
+        self._cancelled: bool = False
+
+    def abort_current_stream(self) -> None:
+        """Cancel any in-flight stream. Sets a flag the parser
+        polls AND closes the Response so the Client stays alive
+        for the next request."""
+        self._cancelled = True
+        r = self._in_flight_response
+        if r is None:
+            return
+        try:
+            r.close()
+        except Exception:  # noqa: BLE001
+            pass
 
     # ---- Core stream API ----
 
@@ -144,6 +166,8 @@ class AnthropicProvider(Provider):
         max_tokens: int | None = None,
         **kwargs: Any,
     ) -> Iterator[StreamChunk]:
+        # Reset cancellation state at the start of each fresh stream.
+        self._cancelled = False
         system, body_messages = self._split_system(messages)
         body_messages = self._translate_messages(body_messages)
         payload: dict[str, Any] = {
@@ -193,9 +217,14 @@ class AnthropicProvider(Provider):
                 max_backoff_s=self._retry_backoff_s,
                 on_retry=lambda _c: self._inc_retry(),
                 on_abort=lambda _c: self._inc_abort(),
+                on_rotate_credential=self._rotate_credential,
                 provider_label=self.name,
             )
-            yield from self._parse_sse(response)
+            self._in_flight_response = response
+            try:
+                yield from self._parse_sse(response)
+            finally:
+                self._in_flight_response = None
         finally:
             outer_stack.close()
 
@@ -204,6 +233,25 @@ class AnthropicProvider(Provider):
 
     def _inc_abort(self) -> None:
         self._abort_count += 1
+
+    def _rotate_credential(self) -> bool:
+        """Mark the current key as 429'd, swap to the next from the
+        pool, and mutate ``self._client.headers["x-api-key"]`` in
+        place so the next request uses the new key. Returns False
+        when no pool is configured or no replacement is available."""
+        if self._credential_pool is None or not self.api_key:
+            return False
+        try:
+            self._credential_pool.mark_429(self.name, self.api_key)
+            nxt = self._credential_pool.rotate_to_next(self.name)
+        except Exception:
+            _logger.exception("[%s] credential pool rotation raised", self.name)
+            return False
+        if nxt is None:
+            return False
+        self.api_key = nxt.key
+        self._client.headers["x-api-key"] = nxt.key
+        return True
 
     def get_retry_counts(self) -> dict[str, int]:
         """Per-session retry / abort counters (T2-03.9)."""
@@ -486,6 +534,11 @@ class AnthropicProvider(Provider):
         stop_reason = "stop"
 
         for raw in response.iter_lines():
+            # Mid-stream cancellation guard — see openai/ollama for
+            # the full explanation. Short-circuits buffered chunks
+            # that arrive between abort() and the recv unblocking.
+            if self._cancelled:
+                return
             if not raw or not raw.startswith("data: "):
                 continue
             data = raw[len("data: ") :].strip()

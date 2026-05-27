@@ -31,7 +31,7 @@ def run_watchdog_job_by_id(job_id: str, *, jobs_db_path: Path | None = None) -> 
     """
     from ..config import CONFIG_DIR, profile_dir
 
-    store = JobStore(jobs_db_path or _default_jobs_db(profile_dir, CONFIG_DIR))
+    store = JobStore(jobs_db_path or _default_jobs_db(CONFIG_DIR))
     job = store.get(job_id)
     if job is None:
         logger.warning("watchdog: job %s not found in store; skipping", job_id)
@@ -88,7 +88,7 @@ def run_watchdog_job(job, *, store: JobStore | None = None) -> dict:
     return result
 
 
-def _default_jobs_db(profile_dir_fn, config_dir) -> Path:
+def _default_jobs_db(config_dir) -> Path:
     """Default location for the cron jobs DB used when no override is passed.
 
     Lives next to the APScheduler db at ``<CONFIG_DIR>/cron_jobs.db``.

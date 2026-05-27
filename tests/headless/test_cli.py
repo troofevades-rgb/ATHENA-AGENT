@@ -112,7 +112,11 @@ def stub_main_env(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(ui_mod, "error", _capture_stderr)
     monkeypatch.setattr(ui_mod, "warn", _capture_stderr)
     monkeypatch.setattr(ui_mod, "info", _capture_stderr)
-    monkeypatch.setattr(ui_mod, "banner", lambda *a, **kw: None)
+    # ``ui.banner`` was removed during the UI cleanup — the Ink TUI
+    # renders the banner now via tui_gateway.banner_data. Headless
+    # paths never call banner(), but the monkeypatch is kept (with
+    # raising=False) so existing test scaffolding stays intact.
+    monkeypatch.setattr(ui_mod, "banner", lambda *a, **kw: None, raising=False)
 
     return SimpleNamespace(
         captured=captured,

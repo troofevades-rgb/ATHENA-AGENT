@@ -50,7 +50,23 @@ _DEFAULT_ASPECT = "16:9"
 
 
 def _load_cfg():
-    """Indirection so tests can monkeypatch."""
+    """Resolve the active config.
+
+    Prefers the live agent's ``cfg`` when an agent context is set —
+    this is what carries session-scoped mutations like
+    ``/video set xai_video``. Falls back to a fresh ``load_config()``
+    only when no agent is bound (CLI / batch / test contexts).
+
+    Indirection here also lets tests monkeypatch a static cfg.
+    """
+    try:
+        from ..agent.core import get_current_agent
+
+        agent = get_current_agent()
+        if agent is not None and getattr(agent, "cfg", None) is not None:
+            return agent.cfg
+    except Exception:  # noqa: BLE001 — never let cfg resolution crash a tool
+        pass
     from ..config import load_config
 
     return load_config()
@@ -98,10 +114,15 @@ def _rejected(reason: str) -> str:
         "Generate a video from a text prompt. Slow + may cost money; "
         "long or expensive jobs require user confirmation before "
         "submitting (cost/latency guard). The backend is resolved via "
-        "the T5-05 media broker (local-preferred). Returns a JSON "
-        "payload with the local path on success, or a structured "
-        "reason on declined / not_configured / error. Off by default — "
-        "set video_generation_enabled in athena config to opt in."
+        "the T5-05 media broker or the operator's /video set selector "
+        "(local-preferred). Returns a JSON payload with the local path "
+        "on success, or a structured ``status`` field on failure "
+        "(``not_enabled`` / ``not_configured`` / ``declined`` / "
+        "``error``). When the user asks for a video, CALL THIS TOOL — "
+        "don't pre-judge whether config is right. The tool returns a "
+        "structured response and you react to that. Refusing to call "
+        "on the basis of \"video gen might be disabled\" wastes a turn "
+        "and misinforms the operator."
     ),
     parameters={
         "type": "object",
@@ -164,10 +185,14 @@ def video_generate(
     name="animate_image",
     toolset="media",
     description=(
-        "Animate a still image into a short video. The backend is "
-        "resolved via the T5-05 media broker (local-preferred). "
-        "Returns a JSON payload with the local path on success, or a "
-        "structured reason. Off by default — set video_generation_enabled."
+        "Animate a still image into a short video. Backend resolved "
+        "via the T5-05 media broker or the operator's /video selector "
+        "(local-preferred). Returns a JSON payload with the local "
+        "path on success, or a structured ``status`` field on failure "
+        "(``not_enabled`` / ``not_configured`` / ``declined`` / "
+        "``error``). When the user asks to animate an image, CALL "
+        "THIS TOOL and react to the structured response — don't "
+        "refuse on the basis of guessing at config state."
     ),
     parameters={
         "type": "object",

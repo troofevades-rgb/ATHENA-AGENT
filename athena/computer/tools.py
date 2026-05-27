@@ -280,23 +280,56 @@ def computer_observe(question: str = "", **_kwargs: Any) -> str:
             }
         )
 
-    return json.dumps(
-        {
-            "available": True,
-            "vision_backend": vision_cls.name,
-            "screenshot_sha256": _sha(shot),
-            "question": question,
-            "width": shot.width,
-            "height": shot.height,
-            "path": path,
-            "bytes": len(shot.png_bytes),
-            "note": (
-                "vision backend resolved via the capability broker; "
-                "the screenshot is on disk at `path`. The agent runtime "
-                "reads the file when dispatching the multimodal call."
-            ),
-        }
-    )
+    # Tool contract says "Returns the vision model's answer" —
+    # honor it by dispatching the multimodal call here instead of
+    # returning the path and hoping the agent runtime picks it up
+    # (it doesn't, and the model spam-retries waiting for an
+    # answer that will never come). Reuse vision_analyze's
+    # describe handler so capture + analysis share one code path.
+    answer: str | None = None
+    vision_error: str | None = None
+    try:
+        from ..vision.analyze import (
+            _default_provider_factory,
+            _handle_describe,
+        )
+        from ..vision.hashlog import HashLogger
+
+        described = _handle_describe(
+            Path(path),
+            HashLogger(cfg=cfg),
+            cfg,
+            prompt=question,
+            provider_factory=_default_provider_factory,
+        )
+        if "error" in described:
+            vision_error = str(described["error"])
+        else:
+            answer = str(described.get("answer", "")).strip()
+    except Exception as e:  # noqa: BLE001
+        vision_error = f"{type(e).__name__}: {e}"
+
+    payload: dict[str, Any] = {
+        "available": True,
+        "vision_backend": vision_cls.name,
+        "screenshot_sha256": _sha(shot),
+        "question": question,
+        "width": shot.width,
+        "height": shot.height,
+        "path": path,
+        "bytes": len(shot.png_bytes),
+    }
+    if answer:
+        payload["answer"] = answer
+    if vision_error:
+        payload["vision_error"] = vision_error
+        payload["note"] = (
+            "screenshot captured but vision analysis failed; "
+            "see vision_error. Do NOT retry computer_observe — "
+            "the failure is in the vision provider, not the "
+            "screenshot."
+        )
+    return json.dumps(payload)
 
 
 def _sha(shot: Screenshot) -> str:

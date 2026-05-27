@@ -34,11 +34,11 @@ class _StubAgent:
 
 def test_goal_set_creates_text_and_state(tmp_path: Path):
     a = _StubAgent(tmp_path, max_turns=10)
-    cmd_goal(a, "ship the migration")
-    assert get_goal(tmp_path) == "ship the migration"
+    cmd_goal(a, "ship the migration verify command")
+    assert get_goal(tmp_path) == "ship the migration verify command"
     st = load_state(tmp_path)
     assert st is not None
-    assert st.text == "ship the migration"
+    assert st.text == "ship the migration verify command"
     assert st.status == "active"
     assert st.turns_taken == 0
     assert st.max_turns == 10
@@ -52,10 +52,10 @@ def test_goal_replace_resets_state(tmp_path: Path):
         GoalState(text="old", status="exhausted", turns_taken=99, max_turns=25),
     )
     a = _StubAgent(tmp_path, max_turns=15)
-    cmd_goal(a, "brand new objective")
+    cmd_goal(a, "brand new concrete objective text")
     st = load_state(tmp_path)
     assert st is not None
-    assert st.text == "brand new objective"
+    assert st.text == "brand new concrete objective text"
     assert st.status == "active"
     assert st.turns_taken == 0
     assert st.max_turns == 15
@@ -68,7 +68,7 @@ def test_goal_replace_resets_state(tmp_path: Path):
 
 def test_goal_pause_flips_status(tmp_path: Path):
     a = _StubAgent(tmp_path)
-    cmd_goal(a, "x")
+    cmd_goal(a, "a concrete test fixture goal")
     cmd_goal(a, "pause")
     st = load_state(tmp_path)
     assert st is not None
@@ -77,7 +77,7 @@ def test_goal_pause_flips_status(tmp_path: Path):
 
 def test_goal_resume_from_paused(tmp_path: Path):
     a = _StubAgent(tmp_path, max_turns=20)
-    cmd_goal(a, "x")
+    cmd_goal(a, "a concrete test fixture goal")
     cmd_goal(a, "pause")
     cmd_goal(a, "resume")
     st = load_state(tmp_path)
@@ -105,7 +105,7 @@ def test_goal_resume_from_exhausted_bumps_cap(tmp_path: Path):
 
 def test_goal_clear_removes_both_files(tmp_path: Path):
     a = _StubAgent(tmp_path)
-    cmd_goal(a, "x")
+    cmd_goal(a, "a concrete test fixture goal")
     assert (tmp_path / "goal.txt").exists()
     cmd_goal(a, "clear")
     assert not (tmp_path / "goal.txt").exists()
@@ -125,20 +125,20 @@ def test_goal_clear_when_absent_is_noop(tmp_path: Path):
 
 def test_goal_status_shows_when_set(tmp_path: Path, capsys):
     a = _StubAgent(tmp_path)
-    cmd_goal(a, "ship it")
+    cmd_goal(a, "ship the migration verify command")
     cmd_goal(a, "status")
     out = capsys.readouterr().out
-    assert "ship it" in out
+    assert "ship the migration verify command" in out
     assert "active" in out
 
 
 def test_goal_bare_alias_for_status(tmp_path: Path, capsys):
     """Bare /goal == /goal status."""
     a = _StubAgent(tmp_path)
-    cmd_goal(a, "ship it")
+    cmd_goal(a, "ship the migration verify command")
     cmd_goal(a, "")
     out = capsys.readouterr().out
-    assert "ship it" in out
+    assert "ship the migration verify command" in out
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +148,7 @@ def test_goal_bare_alias_for_status(tmp_path: Path, capsys):
 
 def test_subgoal_add(tmp_path: Path):
     a = _StubAgent(tmp_path)
-    cmd_goal(a, "ship it")
+    cmd_goal(a, "ship the migration verify command")
     cmd_subgoal(a, "write the tests")
     cmd_subgoal(a, "update the docs")
     st = load_state(tmp_path)
@@ -159,7 +159,7 @@ def test_subgoal_add(tmp_path: Path):
 
 def test_subgoal_done_marks_first_pending(tmp_path: Path):
     a = _StubAgent(tmp_path)
-    cmd_goal(a, "ship it")
+    cmd_goal(a, "ship the migration verify command")
     cmd_subgoal(a, "first")
     cmd_subgoal(a, "second")
     cmd_subgoal(a, "done")
@@ -175,7 +175,7 @@ def test_subgoal_done_marks_first_pending(tmp_path: Path):
 
 def test_subgoal_done_when_all_done_is_noop(tmp_path: Path):
     a = _StubAgent(tmp_path)
-    cmd_goal(a, "x")
+    cmd_goal(a, "a concrete test fixture goal")
     cmd_subgoal(a, "one")
     cmd_subgoal(a, "done")
     cmd_subgoal(a, "done")  # already all done

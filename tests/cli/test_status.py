@@ -34,7 +34,6 @@ def isolated_home(
         tmp_path / "active_profile",
     )
     monkeypatch.delenv("ATHENA_PROFILE", raising=False)
-    monkeypatch.delenv("OCODE_PROFILE", raising=False)
     # Stable load_config — Config defaults are fine for these tests.
     from athena.config import Config
 

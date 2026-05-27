@@ -26,7 +26,7 @@ from typing import TypeVar
 
 import httpx
 
-from .error_classifier import Classification, ErrorAction, classify
+from .error_classifier import Classification, ErrorAction, ErrorClass, classify
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,13 @@ def with_retry(
     """
     attempt = 0
     last_classification: Classification | None = None
+    # Track consecutive 429s. The classifier returns RETRY for the
+    # first 429 (single-key users benefit from backoff alone). After
+    # 2 in a row on the same credential, escalate to
+    # ROTATE_CREDENTIAL so multi-key users actually switch keys
+    # instead of grinding on a rate-limited one.
+    consecutive_429s = 0
+    _ROTATE_AFTER_N_429s = 2
 
     while True:
         try:
@@ -96,6 +103,26 @@ def with_retry(
             classification = _classify_from_exc(exc)
             last_classification = classification
             attempt += 1
+
+            # Escalate consecutive 429s to ROTATE_CREDENTIAL so the
+            # rotate callback gets a chance to swap creds.
+            if classification.error_class is ErrorClass.RATE_LIMIT:
+                consecutive_429s += 1
+                if (
+                    consecutive_429s >= _ROTATE_AFTER_N_429s
+                    and on_rotate_credential is not None
+                ):
+                    classification = Classification(
+                        action=ErrorAction.ROTATE_CREDENTIAL,
+                        error_class=classification.error_class,
+                        reason=(
+                            f"{consecutive_429s} consecutive 429s — "
+                            f"escalating to credential rotation"
+                        ),
+                        suggested_backoff_s=classification.suggested_backoff_s,
+                    )
+            else:
+                consecutive_429s = 0
 
             if attempt > max_retries:
                 logger.error(
@@ -147,6 +174,13 @@ def with_retry(
                     attempt,
                     max_retries,
                 )
+                # Reset the 429 counter so the freshly-rotated credential
+                # gets its own 2-strike budget. Without this, the new
+                # credential would inherit consecutive_429s=2 and any
+                # single 429 on it would immediately re-rotate — burning
+                # through the entire pool on what might be a transient
+                # spike.
+                consecutive_429s = 0
                 continue
 
             if action is ErrorAction.COMPRESS_CONTEXT:

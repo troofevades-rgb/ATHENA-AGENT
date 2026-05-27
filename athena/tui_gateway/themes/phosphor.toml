@@ -1,0 +1,22 @@
+# phosphor — classic CRT lime, the 1990s hacker look.
+#
+# Default theme. Loud green primary; warm amber accent. Six-stop
+# gradient walks the wordmark from medium → bright → medium green.
+
+name = "phosphor"
+description = "classic CRT lime — the 1990s hacker look"
+
+primary = "#00ff00"
+primary_dim = "#008800"
+primary_faint = "#004400"
+accent = "#ffcc66"
+accent_dim = "#aa7733"
+
+gradient = [
+    "#00aa00",
+    "#22cc22",
+    "#44ee44",
+    "#66ff66",
+    "#22cc22",
+    "#008800",
+]

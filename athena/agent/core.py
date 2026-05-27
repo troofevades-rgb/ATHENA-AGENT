@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import logging
 import re
 import threading
 import time
@@ -45,12 +46,19 @@ def _coerce_arg(v: str) -> Any:
 # larger gets truncated with a notice so a runaway document can't blow context.
 _MAX_DOCUMENT_BYTES = 32_000
 
+# Module logger. Previously the two ``except`` blocks in __init__ that log
+# init failures (cross-session cache, browser session) referenced ``logger``
+# without defining it — a NameError waiting to happen if either init ever
+# raised. The except clauses are deep in the warm path so production never
+# tripped it, but adding the import now makes the recovery actually work.
+logger = logging.getLogger(__name__)
+
 
 # ContextVar so a fork running on its own thread can register itself as the
 # current parent for any grand-children it spawns, without clobbering the
 # foreground agent on the main thread.
 _current_agent: contextvars.ContextVar[Agent | None] = contextvars.ContextVar(
-    "ocode_current_agent", default=None
+    "athena_current_agent", default=None
 )
 
 
@@ -281,6 +289,11 @@ class Agent:
         self.cfg = cfg
         self.workspace = workspace.resolve()
         self.model = model or cfg.model
+        # Reset the per-process thrash buffer so a prior session's
+        # repeat-call history doesn't bleed into this one.
+        from ..tools import thrash as _thrash
+
+        _thrash.reset()
         # Phase 8: the canonical attribute is now ``self.provider``. ``client``
         # is preserved as an alias (and as a constructor kwarg) for one
         # transitional release — existing call sites and tests that pass
@@ -349,6 +362,12 @@ class Agent:
         # the next prompt. Populated by athena.review.orchestrator after each
         # review fork completes.
         self.last_review_summary: dict | None = None
+        # Most recently spawned background-review thread. The agent
+        # waits for this to finish before starting the next
+        # foreground turn's model call so we don't run two
+        # concurrent Ollama inferences fighting for GPU time.
+        # See _wait_for_background_work() and maybe_fire_review().
+        self._active_review_thread: threading.Thread | None = None
         # Persistent /goal invariant. Loaded from <profile_dir>/goal.txt at
         # session start and re-injected into the system prompt on every
         # rebuild. Mutated by the /goal slash command via Agent.reload_goal().
@@ -526,6 +545,53 @@ class Agent:
         except Exception:  # noqa: BLE001
             logger.debug("browser session init failed", exc_info=True)
 
+        # Register a cancel hook so the gateway's interrupt path can
+        # abort an in-flight LLM stream by closing the provider's
+        # httpx client. Without this, _thread.interrupt_main() alone
+        # doesn't deliver because the main thread is blocked in C
+        # code (socket.recv) inside the stream and KeyboardInterrupt
+        # only fires at the next bytecode boundary — which can be
+        # minutes away on slow models. The user's symptom was "ESC
+        # does nothing; I have to kill the terminal."
+        try:
+            from .. import interrupt_hooks as _ih
+            _ih.register_cancel_hook(self._cancel_in_flight)
+        except Exception:  # noqa: BLE001
+            logger.debug("cancel hook registration failed", exc_info=True)
+
+    def _cancel_in_flight(self) -> None:
+        """Force an in-flight LLM HTTP stream to abort. Called from
+        the gateway reader thread on InterruptCommand. MUST NOT
+        raise — the cancel-hook dispatcher catches but logs noisily.
+
+        Preferred path: ``provider.abort_current_stream()`` — closes
+        just the current Response so the Client stays alive for the
+        next request. All hosted providers (openai/anthropic/ollama)
+        expose this.
+
+        Fallback: close the whole Client (older providers without
+        the abort method) — they'll need to rebuild lazily."""
+        prov = getattr(self, "provider", None)
+        if prov is None:
+            return
+        abort = getattr(prov, "abort_current_stream", None)
+        if callable(abort):
+            try:
+                abort()
+                return
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "provider.abort_current_stream raised; falling back to client close",
+                    exc_info=True,
+                )
+        client = getattr(prov, "_client", None)
+        if client is None:
+            return
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            logger.debug("provider client close raised during cancel", exc_info=True)
+
     def _build_plugin_hooks(self) -> HookDispatcher:
         """Discover + load enabled plugins. Best-effort; a load failure must
         never break agent startup, so the result on error is an empty
@@ -682,13 +748,7 @@ class Agent:
         model_system: str | None = ms or None
 
         project_context: str | None = None
-        # Look for ATHENA.md first; fall back to OCODE.md for projects that
-        # carried over the legacy filename. (The CLAUDE.md analog.)
         project_md = self.workspace / "ATHENA.md"
-        if not project_md.exists():
-            legacy_md = self.workspace / "OCODE.md"
-            if legacy_md.exists():
-                project_md = legacy_md
         if project_md.exists():
             try:
                 raw = project_md.read_text(encoding="utf-8")
@@ -811,6 +871,16 @@ class Agent:
         from .checkpoints import set_active_checkpoint_manager
 
         with self._turn_lock:
+            # Wait for any in-flight background review fork to finish
+            # before we start a new foreground turn. Without this,
+            # the review's child agent makes its own Ollama calls
+            # concurrently with the foreground turn's calls, which
+            # serializes on Ollama's single-inference-at-a-time
+            # behavior and makes BOTH calls feel slow. Reviews are
+            # best-effort observability — they should run when the
+            # GPU is idle, never compete with the user-visible turn.
+            self._wait_for_background_review(timeout=60.0)
+
             token = _current_agent.set(self)
             set_active_checkpoint_manager(self.checkpoint_manager)
             _set_metrics_store(self.skill_metrics_store)
@@ -831,6 +901,9 @@ class Agent:
                 except Exception:  # noqa: BLE001
                     self._vector_store = None
             set_active_vector_store(self._vector_store)
+            # Spawn the progress ticker so long turns surface as
+            # periodic flashes rather than appearing hung.
+            progress_stop = self._start_progress_ticker()
             try:
                 current_input = user_input
                 tokens_at_loop_start = (
@@ -845,6 +918,7 @@ class Agent:
                         return
                     current_input = next_input
             finally:
+                progress_stop.set()
                 set_active_vector_store(None)
                 _set_metrics_store(None)
                 set_active_checkpoint_manager(None)
@@ -918,10 +992,27 @@ class Agent:
 
         # Stop. Announce the reason.
         if decision.stop_reason == "achieved":
-            ui.console.print(
-                f"[bold green]Goal achieved[/] in "
-                f"{self.goal_state.turns_taken} turn(s)."
+            # Distinguish "verified achievement" (verifier ran + passed)
+            # from "self-declared achievement" (no verifier configured —
+            # model said done, we believed it). This matters because a
+            # silent "Goal achieved" with no verifier looks identical to
+            # a properly-checked completion, masking the gap.
+            verifier_configured = bool(
+                getattr(self.cfg, "goal_verifier_command", None)
             )
+            if verifier_configured:
+                ui.console.print(
+                    f"[bold green]Goal achieved[/] in "
+                    f"{self.goal_state.turns_taken} turn(s) "
+                    "[dim](verifier passed)[/]"
+                )
+            else:
+                ui.console.print(
+                    f"[bold green]Goal achieved[/] in "
+                    f"{self.goal_state.turns_taken} turn(s) "
+                    "[yellow](self-declared; no verifier configured — "
+                    "set cfg.goal_verifier_command to gate this)[/]"
+                )
         elif decision.stop_reason == "blocked":
             ui.warn(
                 f"goal blocked: {decision.blocked_reason}. "
@@ -1064,6 +1155,7 @@ class Agent:
             # Execute each tool call and append a tool message for it.
             # If the user interrupts mid-loop, mark unexecuted calls DENIED so
             # the assistant message's tool_calls are all paired with replies.
+            ui.tool_round_header()
             asst_idx = len(self.messages) - 1
             try:
                 for call in tool_calls:
@@ -1089,6 +1181,33 @@ class Agent:
         ui.warn(f"reached step limit ({max_steps}); stopping for safety.")
         self._fire_stop("step_limit")
 
+    def _wait_for_background_review(self, *, timeout: float = 60.0) -> None:
+        """Block until the previously-spawned background-review thread
+        finishes, capped at ``timeout``. No-op when no review is
+        in flight.
+
+        Called at the top of run_turn so the foreground turn's model
+        call doesn't race the review's model call for GPU time.
+        Past the timeout, we proceed anyway — the review will keep
+        running and finish whenever it can; we just don't block the
+        user any longer.
+        """
+        t = self._active_review_thread
+        if t is None or not t.is_alive():
+            return
+        t.join(timeout=timeout)
+        if t.is_alive():
+            # Past the limit — log and proceed. The thread is daemon
+            # so it won't block process exit, but it will keep
+            # competing for GPU until done. Better than blocking the
+            # user indefinitely.
+            import logging as _logging
+            _logging.getLogger(__name__).info(
+                "background review still running after %.0fs; "
+                "proceeding with foreground turn (review will keep "
+                "running in background)", timeout,
+            )
+
     def _maybe_fire_review(self) -> None:
         """Hand off to the per-turn review orchestrator. Background reviews
         run on a daemon thread and never block this method."""
@@ -1103,9 +1222,49 @@ class Agent:
             fired = maybe_fire_review(self)
             if fired is not None:
                 self.stats.review_fired_count += 1
+                # Record the thread on the agent so the next
+                # run_turn can wait for it before competing for
+                # Ollama. Without this the review's child agent
+                # fights the next foreground turn for GPU time.
+                self._active_review_thread = fired
         except Exception:
             # The review path must never break a foreground turn.
             ui.info("background review failed to fire (logged)")
+
+    def _start_progress_ticker(self) -> threading.Event:
+        """Spawn a daemon thread that emits a status.flash every
+        ~30s if the turn hasn\'t finished. Returns the stop event;
+        caller sets it in the run_turn finally block to terminate.
+
+        The flash text shows tool-call count and elapsed time so
+        the user sees ongoing progress even when the model is
+        between tool calls and not streaming. Without this, long
+        local-model turns look indistinguishable from a hang
+        (caught during step-12 visual testing).
+        """
+        stop = threading.Event()
+        start_at = time.monotonic()
+        tools_at_start = self.stats.tool_calls
+
+        def _tick() -> None:
+            # Wait 30s before first flash so short turns don't flash at all.
+            while not stop.wait(timeout=30.0):
+                elapsed = int(time.monotonic() - start_at)
+                tools_this_turn = self.stats.tool_calls - tools_at_start
+                msg = (
+                    f"still working — {tools_this_turn} tool call(s), "
+                    f"{elapsed}s elapsed"
+                )
+                try:
+                    ui._emit_flash("info", msg)
+                except Exception:  # noqa: BLE001
+                    # Flash is informational; never break the turn.
+                    pass
+
+        threading.Thread(
+            target=_tick, name="athena-progress-ticker", daemon=True,
+        ).start()
+        return stop
 
     def _fire_stop(self, reason: str) -> None:
         hooks.fire(
@@ -1247,8 +1406,10 @@ class Agent:
         # it'd benefit (code blocks, headings, lists). Plain text
         # responses re-render as plain.
         typewriter.finalize(markdown=True)
-        if usage:
-            ui.stream_stats(usage)
+        # ``ui.stream_stats`` (per-turn token+throughput footer)
+        # was removed during the UI cleanup — the Ink TUI's
+        # bottom StatusBar already shows model/tokens/elapsed
+        # continuously, so a per-turn footer was redundant.
         text = "".join(text_parts)
         # Recovery: if the model emitted tool-call JSON as content instead of
         # using the provider's native tool_calls field, parse it out and treat

@@ -9,10 +9,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from prompt_toolkit import PromptSession
-from prompt_toolkit.formatted_text import HTML
-from prompt_toolkit.history import FileHistory
-
 from . import commands, tools, ui
 from .agent import Agent
 from .config import CONFIG_DIR, SESSIONS_DIR, load_config, mcp_config_paths
@@ -124,6 +120,9 @@ _SUBCOMMANDS = {
     "verify": "athena.cli.verify",
     "cache": "athena.cli.cache",
     "recall": "athena.cli.recall",
+    "image-demo": "athena.cli.image_demo",
+    "theme": "athena.cli.theme",
+    "wordmark": "athena.cli.wordmark",
     "computer": "athena.commands.computer",
     "board": "athena.commands.board",
     "update": "athena.commands.update",
@@ -402,39 +401,171 @@ def main() -> int:
             )
         return result.exit_code()
 
-    ui.banner(agent.model, agent.workspace)
+    return _run_interactive_repl(agent, cfg, workspace)
 
-    history_file = CONFIG_DIR / "history"
-    history_file.parent.mkdir(parents=True, exist_ok=True)
-    session = PromptSession(
-        history=FileHistory(str(history_file)),
-        # Always-on bottom toolbar shows model · profile · elapsed ·
-        # token counters · estimated cost · top-3 tool histogram.
-        # The callable re-renders on every redraw so numbers update
-        # while the prompt is sitting idle.
-        bottom_toolbar=ui.build_bottom_toolbar(agent),
-        refresh_interval=1.0,
+
+def _run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
+    """Spawn the Ink TUI, drive the REPL through its gateway.
+
+    All agent output (info / warn / error / tool calls / tool
+    results) flows through ``ui.set_gateway()``'s event bridge to
+    the Ink subprocess. Slash commands run inline in Python; their
+    print output is bridged the same way.
+
+    Falls back to the legacy Rich REPL only when the Ink bundle is
+    missing — surfacing a clear message so the user can build it.
+    """
+    import time as _time
+
+    from .tui_gateway import (
+        MessageAppendEvent,
+        StatusUpdateEvent,
+        TuiGateway,
+    )
+    from .tui_gateway.banner_data import build_banner
+    from .tui_gateway.events import (
+        ConfirmReplyCommand,
+        ResizeCommand,
+        UserInputCommand,
     )
 
-    try:
-        while True:
+    session_start = _time.time()
+
+    def _push_status() -> None:
+        """Snapshot current counters and ship to the TUI."""
+        try:
+            stats = getattr(agent, "stats", None)
+            up = getattr(stats, "prompt_tokens", 0) if stats else 0
+            down = getattr(stats, "eval_tokens", 0) if stats else 0
+            tool_counts = getattr(stats, "tool_call_counts", None) if stats else None
+            tool_summary: str | None = None
+            if tool_counts:
+                top = sorted(
+                    tool_counts.items(), key=lambda kv: -kv[1]
+                )[:3]
+                tool_summary = " / ".join(
+                    f"{name} {n}" for name, n in top if n > 0
+                )
+            # Plan mode is global agent state; read it fresh each
+            # push so a tool-driven Enter/ExitPlanMode immediately
+            # shows up in the TUI.
             try:
-                line = session.prompt(HTML('\n<style fg="#00ff00" bold="true">▰▰</style> ')).strip()
-            except (EOFError, KeyboardInterrupt):
-                ui.console.print()
+                from .tools import plan as _plan
+                in_plan = _plan.is_plan_mode()
+            except Exception:  # noqa: BLE001
+                in_plan = False
+            gateway.send_event(
+                StatusUpdateEvent(
+                    model=agent.model,
+                    profile=cfg.profile,
+                    elapsed_seconds=_time.time() - session_start,
+                    tokens_up=up,
+                    tokens_down=down,
+                    tool_summary=tool_summary,
+                    plan_mode=in_plan,
+                )
+            )
+        except Exception:  # noqa: BLE001 — never crash on UX writes
+            pass
+
+    # Plan-mode transitions ship an immediate status push to the
+    # TUI so the user sees the read-only indicator the moment the
+    # model calls EnterPlanMode mid-turn (instead of waiting for
+    # the next natural _push_status between turns).
+    try:
+        from .tools import plan as _plan_mod
+        _plan_mod.register_plan_mode_listener(lambda _: _push_status())
+    except Exception:  # noqa: BLE001 — registration is best-effort
+        pass
+
+    try:
+        gateway = TuiGateway()
+        gateway.start()
+    except FileNotFoundError as e:
+        sys.stderr.write(f"athena: {e}\n")
+        sys.stderr.write(
+            "  Build the bundle with: cd ui-tui && bun run build\n"
+        )
+        return 2
+    except RuntimeError as e:
+        sys.stderr.write(f"athena: TUI did not start — {e}\n")
+        return 2
+
+    ui.set_gateway(gateway)
+    try:
+        gateway.send_event(
+            build_banner(model=agent.model, cwd=workspace, cfg=cfg)
+        )
+        _push_status()
+        while True:
+            cmd = gateway.recv_command()
+            if cmd is None:
+                # TUI exited (Ctrl-C, /exit, socket closed).
                 break
+            if isinstance(cmd, ConfirmReplyCommand):
+                # Route to the waiting ui.confirm() call. Doesn't
+                # advance the REPL — the agent thread that called
+                # confirm() will unblock and continue its turn.
+                ui._deliver_confirm_reply(cmd.request_id, cmd.accepted)
+                continue
+            if isinstance(cmd, ResizeCommand):
+                # TUI reported a new terminal size. Re-render the
+                # banner so the owl photo matches the new width
+                # (the rest of the banner is sized client-side on
+                # every render via termCols, but the owl pixels
+                # are baked Python-side when the banner is built).
+                try:
+                    gateway.send_event(
+                        build_banner(
+                            model=agent.model,
+                            cwd=workspace,
+                            cfg=cfg,
+                            term_cols=cmd.cols,
+                            term_rows=cmd.rows,
+                        )
+                    )
+                except Exception:  # noqa: BLE001 — never crash on UX writes
+                    pass
+                continue
+            if not isinstance(cmd, UserInputCommand):
+                # Other command types (interrupt) land here;
+                # ignore for now.
+                continue
+            line = cmd.text.strip()
             if not line:
                 continue
+            # Local echo so the user sees their line in the
+            # transcript before the agent responds. Slash
+            # commands don't echo since their handlers emit
+            # their own user-visible output.
+            if not line.startswith("/"):
+                gateway.send_event(
+                    MessageAppendEvent(role="user", content=line)
+                )
             if line.startswith("/"):
-                if not _handle_slash(agent, line):
-                    break
+                # Slash commands print user-facing output via
+                # ``console.print``. The bridge only routes
+                # those to the transcript inside this context;
+                # agent-internal ``console.print`` during a
+                # turn stays silent.
+                with ui.user_facing_render():
+                    if not _handle_slash(agent, line):
+                        break
+                _push_status()
                 continue
             try:
                 agent.run_turn(line)
             except KeyboardInterrupt:
                 ui.warn("turn interrupted")
-                continue
+            _push_status()
+    except KeyboardInterrupt:
+        # An ESC that arrives while we're between turns (idle in
+        # recv_command) lands here. Treat it as a no-op — the user
+        # is already at the prompt. Ctrl+C is what truly exits.
+        ui.warn("interrupted")
     finally:
+        ui.set_gateway(None)
+        gateway.close()
         shutdown_all()
         agent.close()
 

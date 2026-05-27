@@ -77,7 +77,7 @@ def test_subgoal_creates_task_with_goal_id(tmp_path: Path):
     pdir = tmp_path / "profile"
     pdir.mkdir()
     agent = _StubAgent(pdir, workspace=tmp_path / "ws")
-    cmd_goal(agent, "build a thing")
+    cmd_goal(agent, "build a concrete test fixture thing")
 
     cmd_subgoal(agent, "design the schema")
 
@@ -102,7 +102,7 @@ def test_subgoal_done_moves_card_to_done(tmp_path: Path):
     pdir = tmp_path / "profile"
     pdir.mkdir()
     agent = _StubAgent(pdir, workspace=tmp_path / "ws")
-    cmd_goal(agent, "ship it")
+    cmd_goal(agent, "ship the migration verify command")
     cmd_subgoal(agent, "first")
     cmd_subgoal(agent, "second")
 
@@ -146,7 +146,7 @@ def test_one_store_no_parallel_lists(tmp_path: Path):
     pdir = tmp_path / "profile"
     pdir.mkdir()
     agent = _StubAgent(pdir, workspace=tmp_path / "ws")
-    cmd_goal(agent, "objective")
+    cmd_goal(agent, "complete the test fixture objective")
     cmd_subgoal(agent, "alpha")
     cmd_subgoal(agent, "beta")
     cmd_subgoal(agent, "gamma")
@@ -176,7 +176,7 @@ def test_goal_replace_clears_prior_store_cards(tmp_path: Path):
     pdir.mkdir()
     agent = _StubAgent(pdir, workspace=tmp_path / "ws")
 
-    cmd_goal(agent, "first goal")
+    cmd_goal(agent, "the first concrete fixture goal")
     prior_state = load_state(pdir)
     cmd_subgoal(agent, "first subgoal")
     # Fresh store read — the prior in-memory instance doesn't
@@ -184,7 +184,7 @@ def test_goal_replace_clears_prior_store_cards(tmp_path: Path):
     assert len(_store(tmp_path).list(goal_id=prior_state.goal_id)) == 1
 
     # Replace with a new goal.
-    cmd_goal(agent, "second goal")
+    cmd_goal(agent, "the second concrete fixture goal")
     new_state = load_state(pdir)
     assert new_state.goal_id != prior_state.goal_id
     # Previous goal's subgoal-cards are GONE.
@@ -196,7 +196,7 @@ def test_goal_clear_removes_store_cards(tmp_path: Path):
     pdir = tmp_path / "profile"
     pdir.mkdir()
     agent = _StubAgent(pdir, workspace=tmp_path / "ws")
-    cmd_goal(agent, "the goal")
+    cmd_goal(agent, "the concrete test fixture goal")
     cmd_subgoal(agent, "a subgoal")
     state = load_state(pdir)
     goal_id = state.goal_id
@@ -219,7 +219,7 @@ def test_subgoal_card_carries_workspace(tmp_path: Path):
     ws = tmp_path / "ws"
     ws.mkdir()
     agent = _StubAgent(pdir, workspace=ws)
-    cmd_goal(agent, "goal")
+    cmd_goal(agent, "a concrete fixture goal here")
     cmd_subgoal(agent, "do thing")
 
     state = load_state(pdir)

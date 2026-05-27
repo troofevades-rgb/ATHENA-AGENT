@@ -67,20 +67,23 @@ _store: Any = None
 
 
 def _resolve_store() -> Any:
-    """Lazy-build the TaskStore once per process. The store
-    survives across run_turn calls; it's the SAME store the
-    board reads from (T6-06.3) and the goal projection writes
-    to (T6-06.4)."""
+    """Lazy-build the TaskStore — rebuilds when the resolved path
+    changes. In production the path is stable across the process
+    lifetime so the cache hit is the common case. In tests the
+    path changes whenever ``profile_dir`` is monkeypatched; the
+    path-aware cache prevents the previous cached store (pointing
+    at the real ``~/.athena/...``) from absorbing writes meant for
+    the tmp-path profile, which had been polluting the user's
+    default board with pytest tmp-dir cards on every test run."""
     global _store
-    if _store is not None:
-        return _store
     from ..config import load_config, profile_dir
     from ..tasks.model import TaskStore, default_task_store_path
 
     cfg = load_config()
     profile = getattr(cfg, "profile", None) or "default"
     path = default_task_store_path(cfg, profile_dir(profile))
-    _store = TaskStore(path=path)
+    if _store is None or _store.path != path:
+        _store = TaskStore(path=path)
     return _store
 
 

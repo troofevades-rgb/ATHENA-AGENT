@@ -146,6 +146,13 @@ def dispatch(name: str, arguments: Any) -> str:
             return f"ERROR: arguments to '{name}' were not valid JSON: {arguments!r}"
     if not isinstance(arguments, dict):
         return f"ERROR: arguments to '{name}' must be an object, got {type(arguments).__name__}"
+
+    from . import thrash
+
+    thrash_warning = thrash.precheck(name, arguments)
+    if thrash_warning is not None:
+        return thrash_warning
+
     sig = inspect.signature(t.func)
     accepts_var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
     if accepts_var_kw:
@@ -156,9 +163,10 @@ def dispatch(name: str, arguments: Any) -> str:
         result = t.func(**valid)
         if not isinstance(result, str):
             result = json.dumps(result, default=str)
-        return result
     except Exception as e:
         import sys
 
         print(f"[tool {name}] {traceback.format_exc()}", file=sys.stderr)
-        return f"ERROR running {name}: {type(e).__name__}: {e}"
+        result = f"ERROR running {name}: {type(e).__name__}: {e}"
+    thrash.record(name, arguments, result)
+    return result

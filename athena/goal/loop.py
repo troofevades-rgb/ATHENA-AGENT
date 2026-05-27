@@ -36,6 +36,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -93,17 +94,151 @@ class ContinuationDecision:
     blocked_reason: str | None = None
 
 
-# Default continuation prompt — kept short on purpose. The full
-# sentinel contract is documented in the goal block T5-07.4 writes;
-# this turn-by-turn nudge just reminds the model to keep going AND
-# to use the existing sentinels when done or blocked. Override via
-# ``cfg.goal_continuation_prompt``.
+# Bare-minimum kicker used when there's no state to render — the
+# original T5-07 default. Production calls go through
+# :func:`build_continuation_prompt` which stitches in the goal text,
+# turn counter, and subgoal progress so the model sees its own state
+# every turn rather than relying on system-prompt context that may
+# have been compressed away.
 _DEFAULT_CONTINUATION_PROMPT = (
     "Continue working toward the goal. Take one productive step. "
     "When the goal is fully achieved, end your message with a line "
     "containing exactly: GOAL ACHIEVED. If you are blocked and need "
     "the user, end with: GOAL BLOCKED: <reason>."
 )
+
+
+def build_continuation_prompt(
+    state: GoalState | None,
+    cfg: Any = None,
+) -> str:
+    """Build the per-turn continuation prompt, stitching in the live
+    goal state so the model sees its objective + progress + next
+    subgoal directly in the user message (not just buried in the
+    system prompt where compaction can hide it).
+
+    Behaviour:
+
+    - ``cfg.goal_continuation_prompt`` (when set + truthy) wins —
+      override the whole thing.
+    - When ``state`` is None, fall back to the bare kicker (same as
+      the historical default).
+    - With no subgoals declared yet, the prompt nudges the model to
+      decompose the goal first via ``/subgoal <text>`` — this is the
+      auto-decompose hint that prevents the model from flailing on a
+      multi-step goal it hasn't broken down.
+    - With subgoals, the next-incomplete one is surfaced explicitly so
+      the model has a concrete pointer for "what now."
+
+    The sentinel contract (``GOAL ACHIEVED`` / ``GOAL BLOCKED: …``) is
+    always restated — it's cheap and keeps the model honest about
+    completion semantics.
+    """
+    custom = getattr(cfg, "goal_continuation_prompt", None) if cfg is not None else None
+    if custom:
+        return str(custom)
+    if state is None:
+        return _DEFAULT_CONTINUATION_PROMPT
+
+    parts: list[str] = [f"Goal: {state.text}"]
+    parts.append(f"Progress: turn {state.turns_taken}/{state.max_turns}")
+
+    subgoals = list(state.subgoals or [])
+    done = [sg for sg in subgoals if sg.done]
+    pending = [sg for sg in subgoals if not sg.done]
+
+    if subgoals:
+        if done:
+            tail = ", ".join(sg.text for sg in done[-3:])
+            parts.append(f"Recently done ({len(done)}): {tail}")
+        if pending:
+            parts.append(f"Next subgoal: {pending[0].text}")
+            if len(pending) > 1:
+                upcoming = "; ".join(sg.text for sg in pending[1:4])
+                parts.append(f"Then: {upcoming}")
+        else:
+            parts.append(
+                "All declared subgoals are done — verify the top-level "
+                "goal is complete and emit GOAL ACHIEVED, or add the next "
+                "subgoal with /subgoal."
+            )
+    else:
+        parts.append(
+            "No subgoals declared yet. If this goal has multiple steps, "
+            "your FIRST move is to decompose it: call /subgoal <text> for "
+            "each concrete step (3–6 is usually right). If it's a "
+            "single-step goal, just do it."
+        )
+
+    parts.append(
+        "Take one productive step now. When the goal is fully achieved, "
+        "end your message with a line containing exactly: GOAL ACHIEVED. "
+        "If blocked and you need the user, end with: GOAL BLOCKED: <reason>."
+    )
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Verifier hook (T-GOAL-VERIFY)
+# ---------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class VerifierResult:
+    """Outcome of running ``cfg.goal_verifier_command`` after a model
+    claims GOAL ACHIEVED. ``passed`` mirrors exit code == 0; ``output``
+    carries stderr + stdout (truncated) so the model gets actionable
+    feedback when the verifier rejects the claim.
+    """
+
+    passed: bool
+    output: str
+
+
+_VERIFIER_OUTPUT_MAX = 4_000
+
+
+def run_goal_verifier(cfg: Any) -> VerifierResult | None:
+    """Run ``cfg.goal_verifier_command`` (when set) and return the
+    result. ``None`` means no verifier is configured — caller should
+    accept the model's GOAL ACHIEVED claim at face value.
+
+    The command runs through the shell so multi-stage pipelines work
+    (``pytest -q && mypy``). Exit code 0 → pass; any other exit code,
+    timeout, or spawn failure → fail with the captured reason. Hard
+    120-second cap so a runaway verifier can't wedge the loop.
+    """
+    cmd = getattr(cfg, "goal_verifier_command", None) if cfg is not None else None
+    if not cmd:
+        return None
+    timeout_s = float(getattr(cfg, "goal_verifier_timeout_s", 120.0) if cfg else 120.0)
+    try:
+        proc = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as e:
+        return VerifierResult(
+            passed=False,
+            output=f"verifier timed out after {timeout_s}s: {e}",
+        )
+    except OSError as e:
+        return VerifierResult(
+            passed=False,
+            output=f"verifier failed to spawn: {e}",
+        )
+    output = (proc.stdout or "") + (proc.stderr or "")
+    output = output.strip() or "(no output)"
+    if len(output) > _VERIFIER_OUTPUT_MAX:
+        output = (
+            output[: _VERIFIER_OUTPUT_MAX // 2]
+            + f"\n... (truncated; {len(output)} chars total) ...\n"
+            + output[-_VERIFIER_OUTPUT_MAX // 2 :]
+        )
+    return VerifierResult(passed=(proc.returncode == 0), output=output)
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +312,46 @@ def maybe_continue_goal_after_turn(
 
     achieved, blocked_reason = scan_sentinels(last_assistant_text)
     if achieved:
+        # Optional verifier guard: when cfg.goal_verifier_command is set,
+        # run it before accepting the model's claim. A failing verifier
+        # refuses the achievement, keeps the goal active, and injects
+        # the verifier's output as the next synthetic prompt so the
+        # model knows exactly what's still broken. This is the
+        # difference between "I think I'm done" and "tests pass."
+        verifier = run_goal_verifier(cfg)
+        if verifier is not None and not verifier.passed:
+            # Bump turns_taken — the model spent a turn making the
+            # claim, and we need turn-cap pressure so a model that
+            # keeps emitting GOAL ACHIEVED can't loop forever.
+            state.turns_taken += 1
+            # Loud UI message: the rejection prompt below goes to the
+            # MODEL only; without this, the operator just sees the
+            # loop "keep going" with no idea why. The achievement
+            # claim and its rejection are real events worth surfacing.
+            try:
+                from .. import ui as _ui
+
+                preview = (verifier.output or "").splitlines()
+                head = preview[0] if preview else "(no output)"
+                _ui.warn(
+                    f"[goal] verifier rejected GOAL ACHIEVED "
+                    f"(turn {state.turns_taken}/{state.max_turns}): {head}"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            if state.turns_taken >= state.max_turns:
+                state.status = "exhausted"
+                _persist(profile_dir, state)
+                return ContinuationDecision(False, stop_reason="exhausted")
+            _persist(profile_dir, state)
+            rejection = (
+                "GOAL ACHIEVED was rejected by the verifier. The goal is "
+                "NOT complete. Verifier output:\n"
+                f"```\n{verifier.output}\n```\n"
+                "Address the failure and continue. Do not re-emit "
+                "GOAL ACHIEVED until the verifier passes."
+            )
+            return ContinuationDecision(True, synthetic_prompt=rejection)
         state.status = "achieved"
         _persist(profile_dir, state)
         return ContinuationDecision(False, stop_reason="achieved")
@@ -205,11 +380,10 @@ def maybe_continue_goal_after_turn(
         return ContinuationDecision(False, stop_reason="exhausted")
 
     _persist(profile_dir, state)
-    prompt = (
-        getattr(cfg, "goal_continuation_prompt", None)
-        or _DEFAULT_CONTINUATION_PROMPT
+    return ContinuationDecision(
+        True,
+        synthetic_prompt=build_continuation_prompt(state, cfg),
     )
-    return ContinuationDecision(True, synthetic_prompt=prompt)
 
 
 def _persist(profile_dir: Path, state: GoalState) -> None:

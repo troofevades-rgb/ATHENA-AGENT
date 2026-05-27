@@ -68,6 +68,7 @@ class OpenAICompatibleProvider(Provider):
         base_url: str | None = None,
         timeout: float = 600.0,
         extra_headers: dict[str, str] | None = None,
+        credential_pool: Any = None,
         **kwargs: Any,
     ):
         super().__init__(api_key=api_key, **kwargs)
@@ -78,6 +79,10 @@ class OpenAICompatibleProvider(Provider):
         if extra_headers:
             headers.update(extra_headers)
         self._client = httpx.Client(base_url=self.base_url, headers=headers, timeout=timeout)
+        # Pool reference for 429-driven rotation. When set, with_retry's
+        # on_rotate_credential callback asks the pool for the next
+        # credential and swaps the Authorization header in place.
+        self._credential_pool = credential_pool
         # T2-02: per-credential rate-limit state for the 12-header
         # generic schema. All OpenAI-compat subclasses (OpenAIProvider,
         # OpenRouterProvider, NousProvider, OpenAICompatProvider)
@@ -90,6 +95,28 @@ class OpenAICompatibleProvider(Provider):
         # T2-03.9: per-session retry / abort counters for /status.
         self._retry_count: int = 0
         self._abort_count: int = 0
+        # Cancellation state for mid-stream interrupt. Closing the
+        # Response shuts the socket but httpx may have buffered
+        # several chunks — the flag is polled inside _parse_sse so
+        # cancellation is bounded to one buffered chunk's worth of
+        # work, not seconds.
+        self._in_flight_response: httpx.Response | None = None
+        self._cancelled: bool = False
+
+    def abort_current_stream(self) -> None:
+        """Cancel any in-flight stream. Sets a flag the parser
+        polls AND closes the Response so the underlying socket
+        shuts down. Both paths together give bounded cancellation
+        on fast local servers where buffer-flush alone would
+        let chunks keep flowing for seconds."""
+        self._cancelled = True
+        r = self._in_flight_response
+        if r is None:
+            return
+        try:
+            r.close()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _default_base_url(self) -> str:
         return _DEFAULT_BASE_URL
@@ -106,6 +133,8 @@ class OpenAICompatibleProvider(Provider):
         max_tokens: int | None = None,
         **kwargs: Any,
     ) -> Iterator[StreamChunk]:
+        # Reset cancellation state at the start of each fresh stream.
+        self._cancelled = False
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -145,9 +174,14 @@ class OpenAICompatibleProvider(Provider):
                 max_backoff_s=self._retry_backoff_s,
                 on_retry=lambda _c: self._inc_retry(),
                 on_abort=lambda _c: self._inc_abort(),
+                on_rotate_credential=self._rotate_credential,
                 provider_label=self.name,
             )
-            yield from self._parse_sse(response)
+            self._in_flight_response = response
+            try:
+                yield from self._parse_sse(response)
+            finally:
+                self._in_flight_response = None
         finally:
             outer_stack.close()
 
@@ -156,6 +190,30 @@ class OpenAICompatibleProvider(Provider):
 
     def _inc_abort(self) -> None:
         self._abort_count += 1
+
+    def _rotate_credential(self) -> bool:
+        """Mark the current credential as 429'd and swap to the next
+        one from the pool. Returns False if no pool is configured or
+        no replacement is available — with_retry then re-raises so
+        the caller surfaces a clean error.
+
+        Mutates ``self._client.headers["authorization"]`` in place so
+        the next request (which reuses the same httpx.Client) sends
+        the new bearer token.
+        """
+        if self._credential_pool is None or not self.api_key:
+            return False
+        try:
+            self._credential_pool.mark_429(self.name, self.api_key)
+            nxt = self._credential_pool.rotate_to_next(self.name)
+        except Exception:
+            _rl_logger.exception("[%s] credential pool rotation raised", self.name)
+            return False
+        if nxt is None:
+            return False
+        self.api_key = nxt.key
+        self._client.headers["authorization"] = f"Bearer {nxt.key}"
+        return True
 
     def get_retry_counts(self) -> dict[str, int]:
         """Per-session retry / abort counters (T2-03.9)."""
@@ -252,6 +310,11 @@ class OpenAICompatibleProvider(Provider):
         finish_reason = "stop"
 
         for raw in response.iter_lines():
+            # Mid-stream cancellation: cooperatively bail when the
+            # cancel hook has fired. httpx may have buffered chunks
+            # past the Response.close(); the flag short-circuits.
+            if self._cancelled:
+                return
             if not raw or not raw.startswith("data: "):
                 continue
             data = raw[len("data: ") :].strip()

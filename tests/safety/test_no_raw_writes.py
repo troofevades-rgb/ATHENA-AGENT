@@ -88,6 +88,39 @@ ALLOWLIST: frozenset[str] = frozenset(
         # Rollback CLI is itself audited; the restore() call lives in
         # snapshots.py which is allowlisted as the substrate.
         "athena/cli/rollback.py",
+        # Batch / eval / delegate runners — operational outputs
+        # (envelopes, eval summaries, codex transcripts), not
+        # agent-driven mutations of user content.
+        "athena/batch/runner.py",
+        "athena/cli/batch.py",
+        "athena/cli/eval.py",
+        "athena/eval/runner.py",
+        "athena/delegate/codex.py",
+        # T6-05 xAI video adapter — fetch() writes the downloaded
+        # MP4 to out_dir, same provenance shape as stub_local.py.
+        "athena/videogen/backends/xai.py",
+        # /theme save writes the active theme name into config.toml
+        # (one line, atomic rewrite). Config file is itself the
+        # operator-facing surface, not user content.
+        "athena/commands/theme_cmd.py",
+        # User-modeling backend writes auto-extracted facts to
+        # ``~/.athena/profiles/<profile>/user_model/<id>.md`` plus
+        # an INDEX.md. These are machine-managed observation
+        # records (not user content), parallel in shape to the
+        # session JSONL appends and curator report files already
+        # allowlisted above. Mutations are confined to a dedicated
+        # profile subdir and use stable IDs so re-extraction
+        # overwrites cleanly rather than accumulating.
+        "athena/user_model/markdown.py",
+        # TUI gateway silencing — set_gateway() opens os.devnull
+        # in write mode as the destination for Rich's
+        # console.file while the Ink TUI owns the terminal.
+        # Not a user-content write; it's a noop sink that
+        # prevents Rich.Live / console.print / native fd writes
+        # from colliding with the Ink subprocess's rendering.
+        # File is closed and replaced with the real sys.stdout
+        # on TUI shutdown.
+        "athena/ui.py",
     }
 )
 

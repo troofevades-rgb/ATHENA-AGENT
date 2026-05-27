@@ -24,6 +24,7 @@ from athena.providers import get_provider_class, list_providers
 _CTOR_FACTORIES: dict[str, callable] = {
     "ollama": lambda cls: cls(host="http://127.0.0.1:11434"),
     "anthropic": lambda cls: cls(api_key="sk-test"),
+    "codex": lambda cls: cls(api_key="sk-test"),
     "openai": lambda cls: cls(api_key="sk-test"),
     "google": lambda cls: cls(api_key="key"),
     "openrouter": lambda cls: cls(api_key="key"),
@@ -38,10 +39,24 @@ _CTOR_FACTORIES: dict[str, callable] = {
     # T6-05: stub_video_local is also capability-only
     # (declares video_generation). Same exclusion.
     "stub_video_local": lambda cls: cls(),
+    # T6-05R: xai_video adapter — capability-only (video_generation),
+    # not a chat backend. Constructor takes no args at the Provider
+    # base level; key resolution happens lazily inside submit().
+    "xai_video": lambda cls: cls(),
+    # T4-04 / OCR: capability-only adapters registered lazily when
+    # their respective subsystem modules are imported by other tests.
+    # Not chat backends.
+    "audio_whisper_local": lambda cls: cls(),
+    "ocr_tesseract_local": lambda cls: cls(),
 }
 
 # Chat backends — the parity tests below skip non-chat providers.
-_NON_CHAT_PROVIDERS: frozenset[str] = frozenset({"social", "stub_video_local"})
+_NON_CHAT_PROVIDERS: frozenset[str] = frozenset(
+    {
+        "social", "stub_video_local", "xai_video",
+        "audio_whisper_local", "ocr_tesseract_local",
+    }
+)
 
 
 def _construct_for_test(name: str):

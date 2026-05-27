@@ -147,19 +147,10 @@ class SocialProvider(Provider):
         if not query.strip():
             return []
 
-        # Try the bearer-token path first — it's the simplest
-        # auth model and X / Twitter v2 ships one out of the
-        # box. OAuth fallback below stays for vendors that
-        # require user-context (or for athena adding posting
-        # capability later).
         cfg = self._cfg()
-        access_token = _read_bearer_token(cfg)
+        access_token = self._resolve_token(cfg)
         if access_token is None:
-            try:
-                access_token = self._get_oauth().access_token()
-            except Exception as e:  # noqa: BLE001
-                logger.warning("social search: no token available: %s", e)
-                return []
+            return []
 
         url_base = getattr(cfg, "social_search_url", None)
         if not url_base:
@@ -180,6 +171,124 @@ class SocialProvider(Provider):
         if not body:
             return []
         return self._normalise_response(body, limit=int(max_results))
+
+    # ------------------------------------------------------------------
+    # user_lookup — resolve username → user ID + profile
+    # ------------------------------------------------------------------
+
+    def user_lookup(self, username: str) -> dict[str, Any] | None:
+        """Resolve an X / social username to a user object.
+
+        Returns ``{id, username, name, description, ...}`` or None
+        when the user doesn't exist or the endpoint fails.
+
+        Endpoint: ``cfg.social_user_lookup_url`` — the URL up to
+        but NOT including the username segment. The username is
+        appended as a path component (X v2 shape:
+        ``/2/users/by/username/:username``).
+        """
+        username = username.lstrip("@").strip()
+        if not username:
+            return None
+
+        cfg = self._cfg()
+        access_token = self._resolve_token(cfg)
+        if access_token is None:
+            return None
+
+        url_base = getattr(cfg, "social_user_lookup_url", None)
+        if not url_base:
+            logger.warning("social user_lookup: cfg.social_user_lookup_url not configured")
+            return None
+
+        params = {
+            "user.fields": "description,created_at,public_metrics,profile_image_url,location,url,verified",
+        }
+        full_url = f"{url_base.rstrip('/')}/{urllib.parse.quote(username, safe='')}?{urllib.parse.urlencode(params)}"
+        body = self._get(full_url, access_token=access_token)
+        if not body:
+            return None
+        data = body.get("data")
+        return data if isinstance(data, dict) else None
+
+    # ------------------------------------------------------------------
+    # user_timeline — fetch a user's posts by user ID
+    # ------------------------------------------------------------------
+
+    def user_timeline(
+        self,
+        user_id: str,
+        *,
+        max_results: int | None = None,
+        max_pages: int = 1,
+        pagination_token: str | None = None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Fetch posts for a user by their numeric ID.
+
+        Supports multi-page pagination to walk deeper into a
+        user's history. X v2 returns up to 100 tweets per page
+        and a ``next_token`` for the next page.
+
+        Args:
+            user_id: Numeric user ID.
+            max_results: Total posts wanted across all pages.
+            max_pages: Max API pages to fetch (each up to 100
+                tweets). Caps total API calls. Default 1.
+            pagination_token: Resume from a previous page.
+
+        Returns:
+            ``(posts, next_token)`` — normalised posts and the
+            token to continue from (None when exhausted).
+        """
+        if not user_id or not str(user_id).strip():
+            return [], None
+
+        cfg = self._cfg()
+        access_token = self._resolve_token(cfg)
+        if access_token is None:
+            return [], None
+
+        url_base = getattr(cfg, "social_user_timeline_url", None)
+        if not url_base:
+            logger.warning("social user_timeline: cfg.social_user_timeline_url not configured")
+            return [], None
+
+        total_wanted = int(max_results) if max_results else int(
+            getattr(cfg, "social_user_timeline_max_results", 50)
+        )
+        per_page = min(total_wanted, 100)
+
+        base_params: dict[str, Any] = {
+            "max_results": per_page,
+            "tweet.fields": "created_at,public_metrics,referenced_tweets,conversation_id",
+            "expansions": "author_id",
+            "user.fields": "username,name",
+        }
+        extras = getattr(cfg, "social_user_timeline_extra_params", None) or {}
+        base_params.update(extras)
+
+        all_posts: list[dict[str, Any]] = []
+        next_token = pagination_token
+
+        for _page in range(max(1, int(max_pages))):
+            params = dict(base_params)
+            if next_token:
+                params["pagination_token"] = next_token
+
+            full_url = f"{url_base.rstrip('/')}/{user_id}/tweets?{urllib.parse.urlencode(params)}"
+            body = self._get(full_url, access_token=access_token)
+            if not body:
+                break
+
+            page_posts = self._normalise_response(body, limit=per_page)
+            all_posts.extend(page_posts)
+
+            meta = body.get("meta")
+            next_token = meta.get("next_token") if isinstance(meta, dict) else None
+            if not next_token or len(all_posts) >= total_wanted:
+                break
+
+        return all_posts[:total_wanted], next_token
 
     # ------------------------------------------------------------------
     # Provider ABC plumbing — social isn't a chat backend
@@ -209,6 +318,17 @@ class SocialProvider(Provider):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _resolve_token(self, cfg: Any) -> str | None:
+        """Bearer-first, OAuth-fallback token resolution."""
+        access_token = _read_bearer_token(cfg)
+        if access_token is None:
+            try:
+                access_token = self._get_oauth().access_token()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("social: no token available: %s", e)
+                return None
+        return access_token
 
     def _get_oauth(self):
         if self._oauth is not None:

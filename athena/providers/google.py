@@ -75,6 +75,7 @@ class GoogleProvider(Provider):
         *,
         base_url: str = _DEFAULT_BASE_URL,
         timeout: float = 600.0,
+        credential_pool: Any = None,
         **kwargs: Any,
     ):
         super().__init__(api_key=api_key, **kwargs)
@@ -87,6 +88,32 @@ class GoogleProvider(Provider):
             },
             timeout=timeout,
         )
+        # Pool reference for 429-driven rotation. Google does not yet
+        # use with_retry, so this is dormant; once retry is wired in,
+        # the helper below becomes the rotate callback.
+        self._credential_pool = credential_pool
+
+    def _rotate_credential(self) -> bool:
+        """Mark the current key as 429'd, swap to the next from the
+        pool, and mutate ``self._client.headers["x-goog-api-key"]``
+        in place. Returns False when no pool is configured or no
+        replacement is available."""
+        if self._credential_pool is None or not self.api_key:
+            return False
+        try:
+            self._credential_pool.mark_429(self.name, self.api_key)
+            nxt = self._credential_pool.rotate_to_next(self.name)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "[%s] credential pool rotation raised", self.name
+            )
+            return False
+        if nxt is None:
+            return False
+        self.api_key = nxt.key
+        self._client.headers["x-goog-api-key"] = nxt.key
+        return True
 
     # ---- Core stream API ----
 

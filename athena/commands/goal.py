@@ -25,6 +25,8 @@ without requiring ``/clear``.
 
 from __future__ import annotations
 
+import re
+
 from .. import ui
 from ..goal.invariant import clear_goal, get_goal, set_goal
 from ..goal.state import (
@@ -65,22 +67,129 @@ def _show(agent) -> None:
 
 def _max_turns(agent) -> int:
     """Read the configured turn cap, tolerating agents that
-    don't expose a ``cfg`` (pre-T5-07 tests / minimal stubs)."""
+    don't expose a ``cfg`` (pre-T5-07 tests / minimal stubs).
+
+    Local providers (ollama, openai_compat) don't bill per-token, so the
+    25-turn historical default — sized for hosted-API cost — is
+    unnecessarily restrictive. When the active provider is local and the
+    user hasn't explicitly raised the cap, bump to 10_000. That's
+    "effectively unlimited" for any interactive use but still bounded
+    against truly runaway loops. An explicit user-set value > 10_000 is
+    respected; an explicit value < 10_000 is honored too (the user
+    chose it deliberately).
+    """
     cfg = getattr(agent, "cfg", None)
     if cfg is None:
         return 25
-    return int(getattr(cfg, "goal_max_turns", 25))
+    configured = int(getattr(cfg, "goal_max_turns", 25))
+    provider = getattr(agent, "provider", None)
+    if provider is not None:
+        from ..providers import is_local_provider
+
+        if is_local_provider(getattr(provider, "name", "")):
+            # Only bump when the user is at or near the historical default.
+            # Anything noticeably above 25 means they made a deliberate choice.
+            if configured <= 50:
+                return 10_000
+    return configured
+
+
+# Reject goals that read as ambitions rather than tasks. The model
+# spends the whole session wandering otherwise — there's no concrete
+# next action to take. These patterns are conservative on purpose; a
+# bare "ship it" passes, "be the best CLI agent ever" does not.
+_VAGUE_GOAL_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # ``be the best``, ``become the most amazing X``, ``make the
+    # ultimate Y``. Allow up to two filler words (``the``, ``most``,
+    # ``a``, ``an``) between the verb and the superlative so
+    # ``become the most amazing agent`` is caught alongside
+    # ``be the best``.
+    re.compile(
+        r"^\s*(be(come)?|make|create)"
+        r"(\s+(?:the|a|an|most|truly|really))?"
+        r"(\s+(?:the|a|an|most|truly|really))?"
+        r"\s+(best|greatest|top|world[- ]?class|amazing|perfect|"
+        r"ultimate|smartest|fastest|incredible|awesome|legendary)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(do|achieve|accomplish)\s+(everything|anything|all|great|"
+        r"amazing|wonderful)",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _validate_goal_text(text: str) -> str | None:
+    """Return an error message when ``text`` is too vague to act on,
+    else None. Caller surfaces the message via ``ui.error`` and refuses
+    to set the goal."""
+    stripped = text.strip()
+    if not stripped:
+        return "Goal text required."
+    words = stripped.split()
+    if len(words) < 4:
+        return (
+            f"Goal too short ({len(words)} word(s)). Describe a concrete "
+            f"first deliverable, not an ambition. Examples:\n"
+            f"  /goal Ship the migration verify command with passing tests\n"
+            f"  /goal Port hermes website_policy as athena/browser/policy.py\n"
+            f"Not:\n"
+            f"  /goal {stripped}"
+        )
+    for rx in _VAGUE_GOAL_PATTERNS:
+        if rx.search(stripped):
+            return (
+                f"Goal looks like an ambition rather than a task: "
+                f"{stripped!r}.\nDescribe what 'done' looks like THIS session "
+                f"— a specific deliverable, a test that should pass, a file "
+                f"that should exist. Aspirations belong in memory "
+                f"(write_memory type=project), not in /goal."
+            )
+    return None
+
+
+def _bootstrap_prompt(agent) -> str:
+    """The first synthetic continuation injected after /goal <text> or
+    /goal resume — kicks the loop driver into life so the user doesn't
+    have to type a manual nudge.
+
+    Uses :func:`athena.goal.loop.build_continuation_prompt` so the
+    initial turn sees the same state-aware kicker the loop will use on
+    every subsequent turn (goal text + turn counter + subgoal pointer
+    + auto-decompose hint). Falls back gracefully when state isn't
+    loadable yet.
+    """
+    from ..goal.loop import build_continuation_prompt
+    from ..goal.state import load_state
+
+    cfg = getattr(agent, "cfg", None)
+    try:
+        state = load_state(_profile_dir(agent))
+    except Exception:  # noqa: BLE001 — best-effort; missing state → no state
+        state = None
+    return build_continuation_prompt(state, cfg)
 
 
 def _set_goal_and_state(agent, text: str) -> None:
     """Persist a fresh goal + reset its state to active. The
     state's max_turns comes from cfg; turns_taken starts at 0.
 
+    Validates the goal text first — vague/aspirational text
+    (``be the best``, ``do amazing things``) is refused with a hint
+    pointing to a concrete-deliverable formulation. The model wanders
+    on vague goals; making the user phrase a task here prevents the
+    whole session getting wasted.
+
     T6-06.4: mints a stable ``goal_id`` so the T6-06.1 task
     store can tag subgoal-cards. The id is short + URL-safe so
     it shows up cleanly in audit logs / board filters.
     """
     import uuid
+
+    err = _validate_goal_text(text)
+    if err is not None:
+        raise ValueError(err)
 
     pdir = _profile_dir(agent)
     set_goal(pdir, text)
@@ -115,12 +224,15 @@ def _pause(agent) -> None:
     ui.info("goal paused — /goal resume to continue")
 
 
-def _resume(agent) -> None:
+def _resume(agent) -> bool:
+    """Returns True when the caller should bootstrap the loop with a
+    synthetic continuation (state moved to active); False when nothing
+    to resume."""
     pdir = _profile_dir(agent)
     state = load_state(pdir)
     if state is None:
         ui.info("no goal state to resume")
-        return
+        return False
     was_exhausted = state.status == "exhausted"
     state.status = "active"
     if was_exhausted:
@@ -137,6 +249,7 @@ def _resume(agent) -> None:
         ui.info(f"goal resumed (status=active, {state.turns_taken}/{state.max_turns})")
     save_state(pdir, state)
     agent.reload_goal()
+    return True
 
 
 def _clear(agent) -> None:
@@ -162,19 +275,26 @@ def cmd_goal(agent, arg: str = "") -> str:
         _pause(agent)
         return ""
     if arg == "resume":
-        _resume(agent)
+        # Auto-fire the first continuation so the loop bootstraps
+        # without the user having to type a manual nudge. The slash-
+        # command dispatcher (athena/__main__.py:_handle_slash) takes
+        # a returned non-empty string and runs it as a user turn.
+        if _resume(agent):
+            return _bootstrap_prompt(agent)
         return ""
     if arg == "clear":
         _clear(agent)
         return ""
 
-    # Anything else is taken as the new goal text. Set + reset
-    # state.
+    # Anything else is taken as the new goal text. Set + reset state,
+    # then auto-fire the first continuation so the model starts working
+    # immediately instead of waiting for the user to nudge.
     try:
         _set_goal_and_state(agent, arg)
     except ValueError as e:
         ui.error(str(e))
-    return ""
+        return ""
+    return _bootstrap_prompt(agent)
 
 
 @command("subgoal")

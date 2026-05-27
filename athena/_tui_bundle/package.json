@@ -1,0 +1,6 @@
+{
+  "type": "module",
+  "devDependencies": {
+    "react-devtools-core": "^7.0.1"
+  }
+}

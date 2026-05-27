@@ -16,26 +16,9 @@ else:
 
 
 _PRIMARY_HOME = Path.home() / ".athena"
-_LEGACY_HOME = Path.home() / ".ocode"
 
 
-def _resolve_home() -> Path:
-    """Return the active athena home dir.
-
-    Prefers ``~/.athena/``. Falls back to ``~/.ocode/`` if athena's home
-    is missing but the legacy one exists — supports users migrating from
-    the previous project name without forcing them to move files. Once
-    ``~/.athena/`` exists (even empty), the legacy home is ignored.
-    """
-    if _PRIMARY_HOME.exists():
-        return _PRIMARY_HOME
-    if _LEGACY_HOME.exists():
-        return _LEGACY_HOME
-    return _PRIMARY_HOME
-
-
-CONFIG_DIR = _resolve_home()
-LEGACY_CONFIG_DIR = _LEGACY_HOME  # explicit handle for migration helpers
+CONFIG_DIR = _PRIMARY_HOME
 CONFIG_PATH = CONFIG_DIR / "config.toml"
 SESSIONS_DIR = CONFIG_DIR / "sessions"  # legacy flat dir; new code uses profile_dir
 USER_MCP_PATH = CONFIG_DIR / "mcp.json"
@@ -93,6 +76,34 @@ class WebhookServerConfig:
 
 
 @dataclass
+class UserModelConfig:
+    """Auto-extracted user/project observations — separate from the
+    ``write_memory`` user-authored store. ``backend`` picks the
+    implementation: ``markdown`` (default; writes to
+    ``~/.athena/profiles/<profile>/user_model/``), ``honcho`` (points
+    at a Honcho instance for server-scale deployments — planned), or
+    ``none`` (disables auto extraction entirely)."""
+
+    backend: str = "markdown"
+    # Triggers for the post-session fact-extraction LLM call. Both
+    # fire-and-forget; if either is wedged it never blocks the user.
+    ingest_on_compact: bool = True
+    ingest_on_session_end: bool = True
+    # Per-N-turn ingestion for long sessions. 0 disables.
+    ingest_every_n_turns: int = 0
+    # Model used for extraction + query. None = use the main agent
+    # model. Set to a smaller / cheaper model when the main model
+    # is paid-per-token; the extractor's job is structured fact
+    # output, which smaller models handle fine.
+    extract_model: str | None = None
+    # Honcho-specific. Unused until the Honcho backend lands.
+    honcho_url: str = "http://localhost:8000"
+    honcho_workspace: str = "athena-default"
+    honcho_peer_id: str = ""
+    honcho_api_key_env: str = "ATHENA_HONCHO_API_KEY"
+
+
+@dataclass
 class GatewayConfig:
     """Gateway daemon settings (Phase 10).
 
@@ -119,8 +130,15 @@ class GatewayConfig:
 
 @dataclass
 class Config:
-    model: str = "qwen2.5-coder:14b"
+    model: str = "troofevades-q35:athena"
     ollama_host: str = "http://127.0.0.1:11434"
+    # TUI color palette. One of: ``phosphor`` (classic CRT lime,
+    # default), ``dusk`` (amber + deep blue), ``nord`` (cool blue/
+    # slate), ``dracula`` (purple + cyan + pink), ``synthwave``
+    # (hot pink + ice cyan), ``cyber`` (neon green + glitch
+    # magenta). Switch live via ``/theme set <name>`` then persist
+    # via ``/theme save``.
+    theme: str = "phosphor"
     # Profile name under ~/.athena/profiles/<profile>/. Sessions, memory, and
     # per-profile config live here. Multiple profiles let a user keep work
     # contexts (default / personal / client-foo) separated without juggling
@@ -129,6 +147,7 @@ class Config:
     review: ReviewConfig = field(default_factory=ReviewConfig)
     curator: CuratorConfig = field(default_factory=CuratorConfig)
     gateway: GatewayConfig = field(default_factory=GatewayConfig)
+    user_model: UserModelConfig = field(default_factory=UserModelConfig)
     # Skip the per-tool confirmation prompt for tools that opt into it
     # (Bash, Write to existing files, etc.). Replaces the old auto_approve_bash.
     auto_approve_tools: bool = False
@@ -370,6 +389,17 @@ class Config:
     goal_continuation_prompt: str | None = None  # None = built-in default
     goal_achieved_sentinel: str = "GOAL ACHIEVED"
     goal_blocked_sentinel: str = "GOAL BLOCKED"
+    # T-GOAL-VERIFY: optional shell command run after the model emits
+    # GOAL ACHIEVED. Exit 0 → accept the claim; non-zero / timeout /
+    # spawn failure → refuse, keep the goal active, and feed the
+    # verifier's stdout+stderr back into the next synthetic turn so
+    # the model has actionable feedback. Examples:
+    #   goal_verifier_command = "pytest -q"
+    #   goal_verifier_command = "pytest -q && mypy && ruff check ."
+    # None disables the gate (default — model self-declared
+    # achievement is honoured as before).
+    goal_verifier_command: str | None = None
+    goal_verifier_timeout_s: float = 120.0
     # T6-01: semantic + hybrid recall. The existing FTS5
     # keyword path stays — semantic is additive. recall_default_mode
     # picks how the recall tool ranks results when no explicit
@@ -421,6 +451,14 @@ class Config:
     # is what keeps it out of cleartext config and out of any
     # backup that picks up your dotfiles.
     social_bearer_token_path: str | None = None
+    # T6-02.5: user lookup + timeline (OSINT). The user-lookup URL
+    # resolves a username to a user ID + profile; the timeline URL
+    # fetches that user's posts. Both use the same bearer / OAuth
+    # token as social_search.
+    social_user_lookup_url: str | None = None
+    social_user_timeline_url: str | None = None
+    social_user_timeline_max_results: int = 50
+    social_user_timeline_extra_params: dict[str, Any] = field(default_factory=dict)
     # T6-03: external coding-CLI delegation. delegate_to_cli runs
     # the configured external CLI on a scoped task in an isolated
     # git worktree, captures the diff, surfaces it for review.
@@ -510,6 +548,14 @@ class Config:
     video_confirm_over_cost: float = 1.0
     video_output_dir: str | None = None  # default <profile_dir>/videos
     video_poll_interval_s: float = 5.0
+    # Selected video-generation backend by name. When set, overrides
+    # the capability-broker resolution and pins exec to a specific
+    # registered backend (e.g. ``stub_video_local``, ``xai_video``,
+    # ``runway``, ``pika``). Switch interactively with ``/video set
+    # <name>`` — that mutates this field in the live cfg without
+    # touching the TOML on disk. Persist via /video persist if you
+    # want the choice to survive restart. None = let the broker pick.
+    video_backend: str | None = None
     # T6-06: auto kanban. Promotes the in-memory TaskCreate /
     # TaskUpdate / TaskList tracker to a persisted store + a
     # board view. Single backing store also receives goal-loop
@@ -717,13 +763,22 @@ def load_config() -> Config:
                 _assign_field(cfg, k, v)
     # Merge plugin enable state from the machine-managed sidecar file.
     cfg.plugins = _merge_plugin_state(cfg.plugins)
-    # Env overrides. ATHENA_* is the canonical name; OCODE_* is still
-    # honored for one transitional release so existing shells / dotfiles
-    # don't break the day after the rename.
-    if env := (os.environ.get("ATHENA_MODEL") or os.environ.get("OCODE_MODEL")):
+    if env := os.environ.get("ATHENA_MODEL"):
         cfg.model = env
     if env := os.environ.get("OLLAMA_HOST"):
         cfg.ollama_host = _normalize_ollama_host(env)
+    # Apply the configured TUI theme so the banner + every subsequent
+    # ``ui.*`` call render in the user's chosen palette. Done here
+    # instead of at import-time so a bad theme name surfaces at
+    # config-load (clearer error) rather than partway through a
+    # session. Unknown theme falls back silently to ``phosphor``.
+    if cfg.theme and cfg.theme != "phosphor":
+        try:
+            from . import ui as _ui
+
+            _ui.set_theme(cfg.theme)
+        except (KeyError, ImportError):
+            pass  # invalid theme name; keep default
     return cfg
 
 

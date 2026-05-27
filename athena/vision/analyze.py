@@ -105,7 +105,12 @@ def _default_provider_factory(cfg: Any) -> _VisionProvider | None:
         from ..media.registry import MediaRegistry
     except Exception:
         return None
-    reg = MediaRegistry()
+    # MediaRegistry requires cfg (keyword-only) since T5-01R —
+    # without it construction raises TypeError and every
+    # downstream vision call returns an unhandled error to the
+    # model, which then spam-retries computer_observe expecting
+    # different output.
+    reg = MediaRegistry(cfg=cfg)
     provider_cls = reg.backend_for("vision")
     if provider_cls is None:
         return None

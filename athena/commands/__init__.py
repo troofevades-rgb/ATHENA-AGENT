@@ -39,6 +39,7 @@ def all_commands() -> dict[str, CommandFn]:
 
 # Import command modules so they register
 from . import (
+    board,  # noqa: F401 — T6-06 /board view + /board clear
     checkpoint_cmds,  # noqa: F401 — T3-03 /checkpoint, /rollback-to, /checkpoints
     clear_cmd,  # noqa: F401
     compact,  # noqa: F401
@@ -60,5 +61,7 @@ from . import (
     save_cmd,  # noqa: F401
     status_cmd,  # noqa: F401
     steer,  # noqa: F401
+    theme_cmd,  # noqa: F401 — /theme inspect / switch / save
     tools_cmd,  # noqa: F401
+    video,  # noqa: F401 — /video set <backend> + auth status
 )

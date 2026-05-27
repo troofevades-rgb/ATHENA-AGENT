@@ -193,12 +193,53 @@ def resolve_backend(cfg: Any) -> Optional["VideoGenerationBackend"]:
     credentials fall through to None — callers surface a
     structured "not configured" payload).
 
+    Resolution order:
+
+    1. ``cfg.video_backend`` (explicit pick from ``/video set`` or
+       the TOML field). When set to a registered provider name, that
+       provider is used unconditionally — no broker capability scan.
+    2. Otherwise: capability broker, biased by
+       ``cfg.video_backend_prefer`` (default "local") and
+       ``cfg.media_backend_prefer``.
+
     Local-preference is governed by
     ``cfg.media_backend_prefer`` (default "local"); a
     capability-only ``cfg.video_backend_prefer`` override
     nudges the broker if set.
     """
     from ..media import MediaRegistry
+    from ..providers import get_provider_class
+
+    # 1. Explicit selector wins. Unknown names log + fall through to
+    #    the broker rather than failing — the operator still gets *a*
+    #    backend instead of a hard error.
+    pinned_name = getattr(cfg, "video_backend", None)
+    if pinned_name:
+        try:
+            pinned_cls = get_provider_class(pinned_name)
+        except KeyError:
+            logger.warning(
+                "videogen: cfg.video_backend=%r is not a registered "
+                "provider — falling back to broker resolution. "
+                "Available: see /video list.",
+                pinned_name,
+            )
+        else:
+            if not pinned_cls.static_capabilities().supports("video_generation"):
+                logger.warning(
+                    "videogen: cfg.video_backend=%r does not declare "
+                    "video_generation capability — falling back to broker.",
+                    pinned_name,
+                )
+            else:
+                try:
+                    return pinned_cls()  # type: ignore[return-value]
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "videogen: could not instantiate pinned backend %r: %s. "
+                        "Falling back to broker.",
+                        pinned_name, e,
+                    )
 
     # video_backend_prefer overrides media_backend_prefer for
     # this specific capability. The broker's preference field

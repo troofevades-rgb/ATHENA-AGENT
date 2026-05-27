@@ -124,12 +124,41 @@ def build_dpo_dataset(
 
 def write_jsonl(path: Path, examples: list[dict[str, Any]]) -> None:
     """Write ``examples`` to ``path``, one JSON object per line. Creates
-    parent directories. Overwrites any existing file."""
+    parent directories. Overwrites any existing file atomically — a
+    mid-write crash leaves the previous file (if any) intact, never
+    a half-written one.
+
+    Strategy: write to ``<path>.tmp``, fsync, then rename onto
+    ``path``. On POSIX rename is atomic. On Windows ``Path.replace``
+    is also atomic when both paths are on the same volume (which
+    they are by construction here)."""
+    import os
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        for ex in examples:
-            f.write(json.dumps(ex, sort_keys=True) + "\n")
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            for ex in examples:
+                f.write(json.dumps(ex, sort_keys=True) + "\n")
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                # fsync can fail on some filesystems / mounts (e.g.
+                # /tmp on tmpfs). The atomic rename below is still
+                # the durability guarantee the test pins; fsync is
+                # belt-and-suspenders.
+                pass
+        tmp.replace(path)
+    except BaseException:
+        # Clean up the tmp file on failure so a crashed train run
+        # doesn't leave .tmp turds behind. Use Path.unlink with
+        # missing_ok so we don't mask the real exception.
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 # ---- Internals ----------------------------------------------------------

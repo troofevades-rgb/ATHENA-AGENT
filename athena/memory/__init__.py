@@ -161,9 +161,25 @@ def write_memory(
         filename += ".md"
     if filename == "MEMORY.md":
         raise ValueError("cannot use MEMORY.md as a memory filename")
+    # Reject path traversal. ``/memory save`` takes a filename from
+    # the model; prompt-injection could nudge it toward
+    # ``filename="../../../etc/passwd"`` which would resolve to a
+    # write outside the memory dir.
+    if "/" in filename or "\\" in filename or ".." in filename.split("/") + filename.split("\\"):
+        raise ValueError(
+            f"memory filename must be a bare filename without path separators: {filename!r}"
+        )
 
     d = ensure_memory_dir(workspace)
     target = d / filename
+    # Belt and suspenders: even after the literal reject above, verify
+    # the resolved target stays inside ``d``. Catches anything the
+    # string-level check misses (e.g. NUL injection, OS-specific
+    # parsing quirks).
+    if d.resolve() not in target.resolve().parents and d.resolve() != target.resolve().parent:
+        raise ValueError(
+            f"resolved memory path {target} escapes memory dir {d}"
+        )
     content = (
         f"---\nname: {name}\ndescription: {description}\ntype: {type}\n---\n\n{body.strip()}\n"
     )

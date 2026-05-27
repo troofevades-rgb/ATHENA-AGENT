@@ -37,7 +37,6 @@ def isolated_profile(
         tmp_path / "active_profile",
     )
     monkeypatch.delenv("ATHENA_PROFILE", raising=False)
-    monkeypatch.delenv("OCODE_PROFILE", raising=False)
     # load_config returns a stock Config.
     monkeypatch.setattr(
         cli,

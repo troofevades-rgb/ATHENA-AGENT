@@ -15,18 +15,114 @@ with how ``Read`` / ``Write`` / ``Edit`` already operate.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from ..skills import manager
 from ..skills.archive import SkillNotFoundError
 from ..skills.discovery import discover_skills
+from ..skills.frontmatter import parse_frontmatter
 from ..skills.manager import CuratorPolicyError, SkillExistsError
+from ..skills.verify import verify_body
 from . import file_ops
 from .registry import tool
 
 
 def _workspace():
     return file_ops._WORKSPACE
+
+
+# -----------------------------------------------------------------------------
+# Topic-consistency guard for skill_manage patch
+# -----------------------------------------------------------------------------
+
+# Stopwords + tool-noun filler that wouldn't be meaningful evidence of
+# topic match. Kept short on purpose — we want WORDS like "OSINT" and
+# "GEPA" to be the signal, not "the" and "a".
+_STOPWORDS: frozenset[str] = frozenset({
+    "the", "and", "for", "with", "that", "this", "from", "into", "have",
+    "has", "are", "was", "were", "but", "not", "use", "uses", "using",
+    "your", "you", "all", "any", "out", "over", "via", "per", "via",
+    "skill", "skills", "tool", "tools", "code", "data", "info",
+    "research", "analysis", "assistant", "guide", "general",
+    "implementation", "implement", "framework", "module", "system",
+    "public", "private", "user", "users", "list", "show", "create",
+    "delete", "view", "manage", "patch", "update", "write", "read",
+    "file", "files", "directory", "path", "name", "type",
+})
+
+
+def _tokens(s: str) -> set[str]:
+    """Lowercase, alnum-only tokens 3+ chars long, minus stopwords."""
+    if not s:
+        return set()
+    return {
+        w for w in re.findall(r"[a-z0-9]{3,}", s.lower())
+        if w not in _STOPWORDS
+    }
+
+
+def _first_h1(body: str) -> str:
+    """Return the text of the first ``# Heading`` line, or empty string."""
+    for ln in body.splitlines():
+        stripped = ln.lstrip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip()
+    return ""
+
+
+def _check_body_matches_skill(
+    *,
+    body: str,
+    skill_name: str,
+    skill_description: str,
+) -> tuple[bool, str, set[str]]:
+    """Soft topic-match check between a patch body and the target skill.
+
+    Returns ``(matches, h1, h1_tokens)``:
+      * ``matches`` — True when the body's first H1 shares at least one
+        meaningful word with the skill's name or description, OR when
+        the body has no H1 to check.
+      * ``h1`` — the H1 text (or empty)
+      * ``h1_tokens`` — the meaningful tokens extracted from the H1
+
+    Not a security check — it's a "did you mean to write THIS into THAT?"
+    guard. Designed to catch the literal real-world bug observed at
+    2026-05-22T01:12:20 where an agent patched the ``osint-research``
+    skill with a body titled "GEPA Self-Improvement Analyzer" — total
+    topic mismatch the existing pipeline accepted silently.
+    """
+    h1 = _first_h1(body)
+    if not h1:
+        return True, "", set()
+    h1_tokens = _tokens(h1)
+    if not h1_tokens:
+        return True, h1, set()
+    skill_tokens = _tokens(f"{skill_name} {skill_description}")
+    if not skill_tokens:
+        # Skill has no description-side tokens to compare against —
+        # can't reason about match, so allow.
+        return True, h1, h1_tokens
+    return bool(h1_tokens & skill_tokens), h1, h1_tokens
+
+
+def _skill_metadata(skill_name: str, workspace) -> tuple[str, str] | None:
+    """Read the target skill's frontmatter for the topic-match check.
+    Returns (name, description) or None if the skill doesn't exist.
+
+    Uses ``discover_skills`` so the caller doesn't have to re-implement
+    the workspace/user-dir layered lookup — same code path the agent
+    uses for its catalog.
+    """
+    try:
+        catalog = discover_skills(workspace=workspace)
+    except Exception:
+        return None
+    entry = catalog.get(skill_name)
+    if entry is None:
+        return None
+    fm, _source = entry
+    return fm.name or skill_name, fm.description or ""
 
 
 def _ok(action: str, name: str, message: str = "") -> str:
@@ -285,6 +381,56 @@ def skill_manage(
                 "Pass `description` as a key INSIDE frontmatter (not as a "
                 "top-level kwarg).",
             )
+    # Body verify gate (create + patch): any ```python fenced block in
+    # the body must parse with ast.parse before we accept the write.
+    # A broken code block in an active skill is worse than no skill —
+    # future calls trust the skill's example and copy the broken code.
+    if action in ("create", "patch") and body is not None:
+        ok, msg = verify_body(body)
+        if not ok:
+            return _err(action, name, msg)
+    # Topic-consistency gate (patch only): a body whose first H1 shares
+    # no meaningful words with the target skill's name + description
+    # is almost always a "patched the wrong slot" mistake. We refuse
+    # UNLESS the same call also updates the description (frontmatter)
+    # — that explicit double-touch is the agent's way of saying
+    # "yes, I really mean to repurpose this skill."
+    #
+    # The literal incident this guards against: 2026-05-22T01:12:20,
+    # ``skill_manage(action='patch', name='osint-research',
+    # body='# GEPA Self-Improvement Analyzer\n...')`` — model meant to
+    # create a separate GEPA skill but targeted the OSINT slot. The
+    # patch went through silently, leaving a skill whose frontmatter
+    # said OSINT and whose body was GEPA code. Subsequent skill_view
+    # calls returned the GEPA body and the model would loop trying to
+    # "find the right OSINT skill" because the one it loaded didn't
+    # match its name.
+    if action == "patch" and body is not None and (
+        not frontmatter or not str((frontmatter or {}).get("description", "")).strip()
+    ):
+        meta = _skill_metadata(name, workspace)
+        if meta is not None:
+            skill_name_meta, skill_description = meta
+            matches, h1, h1_tokens = _check_body_matches_skill(
+                body=body,
+                skill_name=skill_name_meta,
+                skill_description=skill_description,
+            )
+            if not matches:
+                return _err(
+                    "patch", name,
+                    f"refused: body H1 {h1!r} shares no keywords with "
+                    f"skill {skill_name_meta!r} (description: "
+                    f"{skill_description!r}). This usually means "
+                    f"you're patching the wrong skill slot. If you "
+                    f"really intend to repurpose this skill, include "
+                    f"a frontmatter description update in the same "
+                    f"call so the metadata stays consistent — e.g. "
+                    f"`frontmatter={{'description': '...new topic...'}}`. "
+                    f"Otherwise call skill_manage with the correct "
+                    f"target name (perhaps action='create' for a new "
+                    f"skill).",
+                )
     # Same for write_file: surface the file_path+file_content
     # pair requirement explicitly when only one is passed.
     if action == "write_file":

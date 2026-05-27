@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,35 @@ from ..safety.shell_policy import DEFAULT_DENYLIST, ShellPolicy
 from ..ui import console
 from . import file_ops  # for workspace
 from .registry import tool
+
+
+# Windows drive-letter paths with backslash separators get mangled by
+# Bash (Git Bash / MSYS) which treats backslash as an escape character.
+# ``python C:\Users\foo\bar.py`` becomes ``python C:Usersfoobar.py``
+# after bash unwraps the escapes. Detect drive-letter paths and rewrite
+# to forward slashes — accepted by Python, Git, most Windows tools, and
+# transparent to Bash.
+#
+# Anchored on word boundary + drive letter + colon + backslash so we
+# don't rewrite escape sequences elsewhere in the command (``echo
+# "line1\nline2"``, regex literals, etc.). The body stops at shell
+# metacharacters so we don't slurp into the next argument.
+_WIN_PATH_RX = re.compile(r"\b([A-Za-z]):\\([^\s'\"<>|;&]*)")
+
+
+def _normalize_windows_paths(command: str) -> str:
+    """On Windows, rewrite ``C:\\Users\\foo`` to ``C:/Users/foo`` so Bash
+    doesn't eat the backslashes. No-op on other platforms. No-op when
+    the command contains no drive-letter paths."""
+    if not _IS_WINDOWS:
+        return command
+
+    def _replace(m: re.Match[str]) -> str:
+        drive = m.group(1)
+        rest = m.group(2).replace("\\", "/")
+        return f"{drive}:/{rest}"
+
+    return _WIN_PATH_RX.sub(_replace, command)
 
 
 def _policy_for_config() -> ShellPolicy:
@@ -92,14 +122,31 @@ def _truncate(out: str) -> str:
     toolset="shell",
     aliases=["bash"],
     description=(
-        "Executes a given bash command and returns its output. The working "
-        "directory persists between commands within a turn. Output is captured "
+        "Execute a shell command and return its output. The working directory "
+        "persists between commands within a turn. Output is captured "
         "(stdout+stderr merged) and truncated if very long. Default timeout "
         "120s, max 600s.\n\n"
-        "Avoid `cat`/`head`/`tail`/`sed`/`awk`/`echo`; prefer the Read/Edit/"
-        "Write tools instead. Quote paths with spaces. Use `description` to "
-        "explain non-obvious commands. Set run_in_background=true for long-"
-        "running processes (servers, watchers); poll output with bash_output."
+        "PREFER FIRST-CLASS TOOLS over this one. They are faster, work the "
+        "same on every OS, and don't depend on userland utilities that may "
+        "not be installed (this matters on Windows where `grep`/`find`/`sed` "
+        "are not native):\n"
+        "  - Search file contents:    use Grep, not `grep`/`rg`\n"
+        "  - Find files by name:      use Glob, not `find`/`ls`\n"
+        "  - Read a file:             use Read, not `cat`/`head`/`tail`\n"
+        "  - Edit a file:             use Edit, not `sed`/`awk`\n"
+        "  - Write a file:            use Write, not `echo` redirects\n"
+        "  - Know where you are:      use workspace_info, not `pwd`\n"
+        "Use Bash for: running tests, builds, git operations, package managers, "
+        "executing scripts — things first-class tools don't cover.\n\n"
+        "Quote paths with spaces. Use `description` to explain non-obvious "
+        "commands. Set run_in_background=true for long-running processes "
+        "(servers, watchers); poll output with bash_output.\n\n"
+        "WINDOWS PATHS: use forward slashes (`C:/Users/foo/bar.py`), not "
+        "backslashes. Bash treats `\\` as an escape character — "
+        "`python C:\\Users\\foo\\bar.py` becomes `python C:Usersfoobar.py` "
+        "after Bash unwraps the escapes. (athena auto-normalizes drive-"
+        "letter paths defensively, but writing them right means clearer "
+        "tool calls and saved turns.)"
     ),
     parameters={
         "type": "object",
@@ -132,6 +179,13 @@ def Bash(
     run_in_background: bool = False,
 ) -> str:
     timeout = max(1, min(int(timeout or 120), 600))
+
+    # Pre-normalize Windows drive paths so Bash's escape processing
+    # doesn't eat the backslashes. ``python C:\Users\foo\bar.py``
+    # becomes ``python C:/Users/foo/bar.py`` — accepted everywhere
+    # Bash routes to on Windows (Git Bash + Python + git + MSYS tools).
+    # No-op on POSIX or commands with no drive-letter paths.
+    command = _normalize_windows_paths(command)
 
     decision = _policy_for_config().evaluate_denylist_only(command)
     if not decision.allowed:

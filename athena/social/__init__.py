@@ -15,5 +15,6 @@ vendor change is a one-or-two-file edit.
 
 from .oauth import SocialOAuth, TokenStore
 from .search import search_x
+from .user_lookup import lookup_x_user
 
-__all__ = ["SocialOAuth", "TokenStore", "search_x"]
+__all__ = ["SocialOAuth", "TokenStore", "lookup_x_user", "search_x"]

@@ -202,11 +202,37 @@ def _try_run_tui(state: dict[str, Any]) -> bool:
 
 @command("board")
 def cmd_board(agent, arg: str = "") -> str:
-    """``/board [goal:<id>]`` — show the board for the current
-    workspace. Optional ``goal:<id>`` filter to a single
-    goal's cards."""
-    goal_id = None
+    """``/board`` subcommands:
+
+      /board                  show the board (default)
+      /board goal:<id>        filter to one goal's cards
+      /board clear            delete every live task in this workspace
+                              (archive untouched — recoverable on demand)
+      /board clear --all      drop everything across all goals (same as
+                              ``clear`` today; reserved for future
+                              per-goal scoping)
+    """
     arg = (arg or "").strip()
+
+    # /board clear — wipe live tasks. Archive (if any) stays intact;
+    # leftover aspirational tasks from prior sessions otherwise sit
+    # forever in context and confuse the model on every reload.
+    if arg == "clear" or arg.startswith("clear "):
+        from ..config import load_config, profile_dir
+        from ..tasks.model import TaskStore, default_task_store_path
+
+        cfg = load_config()
+        prof = getattr(cfg, "profile", None) or "default"
+        pdir = profile_dir(prof)
+        store = TaskStore(path=default_task_store_path(cfg, pdir))
+        n = store.clear()
+        if n == 0:
+            ui.info("board already empty")
+        else:
+            ui.info(f"cleared {n} task(s) from the board")
+        return ""
+
+    goal_id = None
     if arg.startswith("goal:"):
         goal_id = arg[len("goal:"):].strip() or None
     state = _resolve_state(goal_id=goal_id)

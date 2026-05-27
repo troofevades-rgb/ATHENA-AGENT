@@ -1,0 +1,864 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "athena://tui_gateway/protocol/v1",
+  "title": "Athena TUI Gateway Protocol v1",
+  "description": "Wire protocol between the Python tui_gateway and the Ink TUI. Line-delimited JSON-RPC 2.0 over a transport (TCP loopback today; UDS in TUI sprint step 3). Events flow gateway \u2192 TUI; commands flow TUI \u2192 gateway. JSON-RPC method == event/command type.",
+  "protocol_version": 2,
+  "$defs": {
+    "ThemePalette": {
+      "type": "object",
+      "description": "Resolved theme palette shipped with banner + theme.change so the TUI never needs its own color table.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "primary": {
+          "type": "string",
+          "description": "Primary fg, hex #RRGGBB."
+        },
+        "primary_dim": {
+          "type": "string"
+        },
+        "primary_faint": {
+          "type": "string"
+        },
+        "accent": {
+          "type": "string"
+        },
+        "accent_dim": {
+          "type": "string"
+        },
+        "gradient": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "primary",
+        "primary_dim",
+        "primary_faint",
+        "accent",
+        "accent_dim"
+      ],
+      "additionalProperties": false
+    },
+    "ToolSetSummary": {
+      "type": "object",
+      "description": "One toolset entry in the banner's tool catalog.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hidden_count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "required": [
+        "name",
+        "tools"
+      ],
+      "additionalProperties": false
+    },
+    "OwlPixelMatrix": {
+      "type": "object",
+      "description": "Half-block pixel matrix from the bundled owl image. width = cells per row; height = rows; cells is a row-major matrix of [glyph, fgHex, bgHex] triples.",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          }
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "cells"
+      ],
+      "additionalProperties": false
+    },
+    "BannerEvent": {
+      "type": "object",
+      "description": "Initial render \u2014 model, workspace, theme catalog, theme palette, owl art.",
+      "properties": {
+        "type": {
+          "const": "banner"
+        },
+        "model": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "theme": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolSetSummary"
+          }
+        },
+        "owl_art": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "owl_pixels": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/OwlPixelMatrix"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "palette": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ThemePalette"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "commands_hint": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "type",
+        "model",
+        "cwd",
+        "theme",
+        "tools"
+      ],
+      "additionalProperties": false
+    },
+    "MessageAppendEvent": {
+      "type": "object",
+      "description": "Append a non-streaming message line to the transcript.",
+      "properties": {
+        "type": {
+          "const": "message.append"
+        },
+        "role": {
+          "enum": [
+            "user",
+            "assistant",
+            "system",
+            "tool"
+          ]
+        },
+        "content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "role",
+        "content"
+      ],
+      "additionalProperties": false
+    },
+    "StreamStartEvent": {
+      "type": "object",
+      "description": "Begin a streaming assistant response.",
+      "properties": {
+        "type": {
+          "const": "stream.start"
+        },
+        "stream_id": {
+          "type": "string"
+        },
+        "role": {
+          "const": "assistant",
+          "default": "assistant"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id"
+      ],
+      "additionalProperties": false
+    },
+    "StreamDeltaEvent": {
+      "type": "object",
+      "description": "Append text to an in-flight assistant stream.",
+      "properties": {
+        "type": {
+          "const": "stream.delta"
+        },
+        "stream_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "StreamEndEvent": {
+      "type": "object",
+      "description": "Mark a streaming assistant response complete.",
+      "properties": {
+        "type": {
+          "const": "stream.end"
+        },
+        "stream_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "stream_id"
+      ],
+      "additionalProperties": false
+    },
+    "ToolStartEvent": {
+      "type": "object",
+      "description": "A tool call is in flight. Renders in the activity lane, NOT the transcript.",
+      "properties": {
+        "type": {
+          "const": "tool.start"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "args_preview": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "call_id",
+        "tool",
+        "args_preview"
+      ],
+      "additionalProperties": false
+    },
+    "ToolProgressEvent": {
+      "type": "object",
+      "description": "Tool emitted a progress note while running.",
+      "properties": {
+        "type": {
+          "const": "tool.progress"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "call_id",
+        "note"
+      ],
+      "additionalProperties": false
+    },
+    "ToolCompleteEvent": {
+      "type": "object",
+      "description": "Tool finished; ok distinguishes success from error.",
+      "properties": {
+        "type": {
+          "const": "tool.complete"
+        },
+        "call_id": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "result_preview": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "call_id",
+        "tool",
+        "ok",
+        "result_preview"
+      ],
+      "additionalProperties": false
+    },
+    "StatusUpdateEvent": {
+      "type": "object",
+      "description": "Periodic status-bar refresh. All fields optional.",
+      "properties": {
+        "type": {
+          "const": "status"
+        },
+        "model": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "profile": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "elapsed_seconds": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tokens_up": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tokens_down": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tool_summary": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "plan_mode": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when the agent is in plan mode (read-only investigation)."
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "StatusFlashEvent": {
+      "type": "object",
+      "description": "Ephemeral notice that decays without entering the transcript.",
+      "properties": {
+        "type": {
+          "const": "status.flash"
+        },
+        "text": {
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "info",
+            "warn"
+          ],
+          "default": "info"
+        },
+        "ttl_seconds": {
+          "type": "number",
+          "default": 3.0
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "ThemeChangeEvent": {
+      "type": "object",
+      "description": "User switched themes; TUI repaints with the new palette.",
+      "properties": {
+        "type": {
+          "const": "theme.change"
+        },
+        "theme": {
+          "type": "string"
+        },
+        "palette": {
+          "$ref": "#/$defs/ThemePalette"
+        }
+      },
+      "required": [
+        "type",
+        "theme",
+        "palette"
+      ],
+      "additionalProperties": false
+    },
+    "ExitEvent": {
+      "type": "object",
+      "description": "Tell the TUI to shut down.",
+      "properties": {
+        "type": {
+          "const": "exit"
+        },
+        "reason": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "AskQuestionRequestEvent": {
+      "type": "object",
+      "description": "Multi-question multiple-choice prompt. TUI replies via AskQuestionReplyCommand correlated by request_id.",
+      "properties": {
+        "type": {"const": "ask_question.request"},
+        "request_id": {"type": "string"},
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {"type": "object"}
+        }
+      },
+      "required": ["type", "request_id", "questions"],
+      "additionalProperties": false
+    },
+    "ConfirmRequestEvent": {
+      "type": "object",
+      "description": "Safety-tier yes/no overlay. TUI replies via ConfirmReplyCommand correlated by request_id.",
+      "properties": {
+        "type": {
+          "const": "confirm.request"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "default": {
+          "type": "boolean",
+          "default": false
+        },
+        "tool_name": {
+          "oneOf": [
+            {"type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "description": "Tool name that triggered the prompt — shown as header in the TUI overlay."
+        },
+        "preview": {
+          "oneOf": [
+            {"type": "string"},
+            {"type": "null"}
+          ],
+          "default": null,
+          "description": "Multi-line preview of what the tool is about to do (Bash command, Edit diff, etc.)."
+        },
+        "preview_kind": {
+          "oneOf": [
+            {"enum": ["command", "diff", "file", "text"]},
+            {"type": "null"}
+          ],
+          "default": null,
+          "description": "Rendering style for the preview body."
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "prompt"
+      ],
+      "additionalProperties": false
+    },
+    "UserInputCommand": {
+      "type": "object",
+      "description": "User submitted a line.",
+      "properties": {
+        "type": {
+          "const": "user.input"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "InterruptCommand": {
+      "type": "object",
+      "description": "User hit Ctrl-C \u2014 abort current operation.",
+      "properties": {
+        "type": {
+          "const": "interrupt"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "SlashCommand": {
+      "type": "object",
+      "description": "Parsed /<command> <arg>.",
+      "properties": {
+        "type": {
+          "const": "slash"
+        },
+        "command": {
+          "type": "string"
+        },
+        "arg": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command",
+        "arg"
+      ],
+      "additionalProperties": false
+    },
+    "ResizeCommand": {
+      "type": "object",
+      "description": "Terminal size changed.",
+      "properties": {
+        "type": {
+          "const": "resize"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "type",
+        "cols",
+        "rows"
+      ],
+      "additionalProperties": false
+    },
+    "ConfirmReplyCommand": {
+      "type": "object",
+      "description": "User's reply to a ConfirmRequestEvent. Correlated by request_id.",
+      "properties": {
+        "type": {
+          "const": "confirm.reply"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "request_id",
+        "accepted"
+      ],
+      "additionalProperties": false
+    },
+    "AskQuestionReplyCommand": {
+      "type": "object",
+      "description": "User's answer(s) to an AskQuestionRequestEvent. answers is parallel to the request's questions list.",
+      "properties": {
+        "type": {"const": "ask_question.reply"},
+        "request_id": {"type": "string"},
+        "answers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "question": {"type": "string"},
+              "answer": {"type": "string"}
+            },
+            "required": ["question", "answer"]
+          }
+        },
+        "cancelled": {"type": "boolean", "default": false}
+      },
+      "required": ["type", "request_id", "answers"],
+      "additionalProperties": false
+    },
+    "HelloEvent": {
+      "type": "object",
+      "description": "First frame from the gateway after a client connects. Declares the wire protocol version, the athena version, and capability strings (e.g. 'heartbeats', 'replay'). Client compares protocol_version and decides whether to proceed. current_seq is the highest seq the server has emitted so far (0 on a fresh gateway).",
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "protocol_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "athena_version": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "current_seq": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "required": [
+        "type",
+        "protocol_version",
+        "athena_version",
+        "capabilities"
+      ],
+      "additionalProperties": false
+    },
+    "PingEvent": {
+      "type": "object",
+      "description": "Gateway \u2192 TUI keepalive. Emitted every ~5s while the connection is healthy. Client must reply with a pong command. Three missed pongs in a row indicate a dead TUI.",
+      "properties": {
+        "type": {
+          "const": "ping"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "ProtocolErrorEvent": {
+      "type": "object",
+      "description": "Gateway \u2192 TUI fatal protocol error. The gateway emits this once before closing, so the client can render a clear message instead of seeing an opaque socket-closed. Codes: 'protocol_version_mismatch', 'tui_heartbeat_lost', 'malformed_hello'.",
+      "properties": {
+        "type": {
+          "const": "protocol.error"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "HelloCommand": {
+      "type": "object",
+      "description": "First frame from the TUI in response to the gateway's hello event. last_seq is the highest seq the client has already seen; the gateway uses it to replay missed events from its ring buffer on reconnect. 0 on a fresh start.",
+      "properties": {
+        "type": {
+          "const": "hello"
+        },
+        "protocol_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "client_version": {
+          "type": "string"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "last_seq": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "required": [
+        "type",
+        "protocol_version",
+        "client_version",
+        "capabilities"
+      ],
+      "additionalProperties": false
+    },
+    "PongCommand": {
+      "type": "object",
+      "description": "TUI \u2192 gateway keepalive reply to a ping event.",
+      "properties": {
+        "type": {
+          "const": "pong"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "event_index": {
+    "banner": {
+      "$ref": "#/$defs/BannerEvent"
+    },
+    "message.append": {
+      "$ref": "#/$defs/MessageAppendEvent"
+    },
+    "stream.start": {
+      "$ref": "#/$defs/StreamStartEvent"
+    },
+    "stream.delta": {
+      "$ref": "#/$defs/StreamDeltaEvent"
+    },
+    "stream.end": {
+      "$ref": "#/$defs/StreamEndEvent"
+    },
+    "tool.start": {
+      "$ref": "#/$defs/ToolStartEvent"
+    },
+    "tool.progress": {
+      "$ref": "#/$defs/ToolProgressEvent"
+    },
+    "tool.complete": {
+      "$ref": "#/$defs/ToolCompleteEvent"
+    },
+    "status": {
+      "$ref": "#/$defs/StatusUpdateEvent"
+    },
+    "status.flash": {
+      "$ref": "#/$defs/StatusFlashEvent"
+    },
+    "theme.change": {
+      "$ref": "#/$defs/ThemeChangeEvent"
+    },
+    "exit": {
+      "$ref": "#/$defs/ExitEvent"
+    },
+    "confirm.request": {
+      "$ref": "#/$defs/ConfirmRequestEvent"
+    },
+    "ask_question.request": {
+      "$ref": "#/$defs/AskQuestionRequestEvent"
+    },
+    "hello": {
+      "$ref": "#/$defs/HelloEvent"
+    },
+    "ping": {
+      "$ref": "#/$defs/PingEvent"
+    },
+    "protocol.error": {
+      "$ref": "#/$defs/ProtocolErrorEvent"
+    }
+  },
+  "command_index": {
+    "user.input": {
+      "$ref": "#/$defs/UserInputCommand"
+    },
+    "interrupt": {
+      "$ref": "#/$defs/InterruptCommand"
+    },
+    "slash": {
+      "$ref": "#/$defs/SlashCommand"
+    },
+    "resize": {
+      "$ref": "#/$defs/ResizeCommand"
+    },
+    "confirm.reply": {
+      "$ref": "#/$defs/ConfirmReplyCommand"
+    },
+    "ask_question.reply": {
+      "$ref": "#/$defs/AskQuestionReplyCommand"
+    },
+    "hello": {
+      "$ref": "#/$defs/HelloCommand"
+    },
+    "pong": {
+      "$ref": "#/$defs/PongCommand"
+    }
+  }
+}

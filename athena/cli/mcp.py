@@ -271,6 +271,78 @@ def cmd_test(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---- subcommand: install -------------------- ---------------------
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    """Install an MCP server from a URL (e.g., mcpmarket.com installer).
+    
+    Fetches the installer script, runs it, and writes the resulting
+    server configuration to mcp.json.
+    """
+    import subprocess
+    import tempfile
+    from urllib.request import urlopen
+    from urllib.error import URLError, HTTPError
+
+    try:
+        # Fetch the installer script
+        sys.stdout.write(f"fetching installer from {args.url}\n")
+        sys.stdout.flush()
+        try:
+            with urlopen(args.url, timeout=30) as response:
+                script = response.read().decode("utf-8")
+        except HTTPError as e:
+            sys.stderr.write(f"error: HTTP {e.code} from {args.url}\n")
+            return 2
+        except URLError as e:
+            sys.stderr.write(f"error: failed to fetch {args.url}: {e}\n")
+            return 2
+    except Exception as e:
+        sys.stderr.write(f"error: {e}\n")
+        return 2
+
+    # Run the installer script
+    sys.stdout.write("running installer...\n")
+    sys.stdout.flush()
+    try:
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except Exception as e:
+        sys.stderr.write(f"error: installer failed: {e}\n")
+        return 1
+
+    if result.returncode != 0:
+        sys.stderr.write(f"installer exited with code {result.returncode}\n")
+        if result.stderr:
+            sys.stderr.write(result.stderr)
+        return 1
+
+    # Read the generated mcp.json
+    from ..config import CONFIG_DIR
+    mcp_path = CONFIG_DIR / "mcp.json"
+    if not mcp_path.exists():
+        sys.stderr.write("error: installer did not create mcp.json\n")
+        return 1
+
+    try:
+        data = json.loads(mcp_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        sys.stderr.write(f"error: failed to parse mcp.json: {e}\n")
+        return 1
+
+    sys.stdout.write(f"success: installed MCP server(s)\n")
+    if "mcpServers" in data:
+        for name in data["mcpServers"]:
+            sys.stdout.write(f"  - {name}\n")
+
+    return 0
+
+
 # ---- helpers --------------------------------------------------------
 
 

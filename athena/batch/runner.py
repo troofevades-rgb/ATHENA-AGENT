@@ -143,15 +143,13 @@ def batch_run(
         run_fn = _run_headless
 
     # Pre-allocate run_ids so the manifest's entries list has a
-    # stable shape even if a worker raises mid-run.
+    # stable shape even if a worker raises mid-run. Each entry ID
+    # has the same shape family as the ones run_headless mints
+    # internally, but is minted here so resume-safety can key off
+    # it before the run even starts.
+    import uuid
     for i, entry in enumerate(entries_list):
         if not entry.run_id:
-            from .manifest import mint_batch_id as _mb  # reuse uuid12 source
-            # Cheap per-entry ID — same shape family as
-            # run_headless mints internally, but minted here
-            # so resume-safety can key off it before the run
-            # even starts.
-            import uuid
             entry.run_id = f"r-{uuid.uuid4().hex[:12]}"
             entries_list[i] = entry  # dataclass is mutable
 

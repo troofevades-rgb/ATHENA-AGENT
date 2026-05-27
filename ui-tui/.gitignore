@@ -1,0 +1,5 @@
+node_modules/
+*.log
+.DS_Store
+# dist/ IS committed — pip install ships the pre-built bundle
+# so end users don't need bun/node toolchains.

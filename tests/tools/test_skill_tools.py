@@ -277,3 +277,169 @@ def test_skill_manage_unknown_action(workspace_set: Path) -> None:
     out = _parse(skill_tools.skill_manage(action="explode", name="x"))
     assert out["success"] is False
     assert "unknown action" in out["message"]
+
+
+# ---------------------------------------------------------------------------
+# Topic-consistency guard (the "OSINT got GEPA content" incident, 2026-05-22)
+# ---------------------------------------------------------------------------
+#
+# Forensic incident: an agent called
+#   skill_manage(action='patch', name='osint-research',
+#                body='# GEPA Self-Improvement Analyzer\n...')
+# which silently wrote GEPA code into a skill whose frontmatter said OSINT.
+# Subsequent skill_view calls returned the GEPA body and the model got
+# stuck loading the "wrong" skill. These tests pin that mistake as a
+# refusal, while preserving the legitimate "I'm intentionally repurposing
+# this skill" path (frontmatter description update in the same call).
+
+
+def test_patch_with_off_topic_body_is_refused(workspace_set: Path) -> None:
+    """The literal incident: OSINT skill, GEPA body — refuse and explain."""
+    skill_tools.skill_manage(
+        action="create",
+        name="osint-research",
+        frontmatter={"description": "OSINT research assistant for gathering public information"},
+        body="",
+    )
+    out = _parse(
+        skill_tools.skill_manage(
+            action="patch",
+            name="osint-research",
+            body=(
+                "# GEPA Self-Improvement Analyzer\n\n"
+                "This skill implements a Genetic-Pareto Prompt Evolution "
+                "analyzer that walks execution traces and generates "
+                "improvements to skills and prompts.\n"
+            ),
+        )
+    )
+    assert out["success"] is False
+    msg = out["message"]
+    assert "refused" in msg.lower()
+    # User-helpful detail: mentions the mismatch direction
+    assert "GEPA" in msg or "Self-Improvement" in msg
+    assert "osint-research" in msg
+    # Tells the agent how to override
+    assert "frontmatter" in msg.lower()
+
+
+def test_patch_with_topic_aligned_body_is_allowed(workspace_set: Path) -> None:
+    """Patching the body with content that DOES share keywords with the
+    skill's name/description must go through cleanly (no false-positive
+    refusal)."""
+    skill_tools.skill_manage(
+        action="create",
+        name="osint-research",
+        frontmatter={"description": "OSINT research assistant for gathering public information"},
+        body="",
+    )
+    out = _parse(
+        skill_tools.skill_manage(
+            action="patch",
+            name="osint-research",
+            body=(
+                "# OSINT Research\n\n"
+                "Methodical open-source intelligence on a person, account, "
+                "or topic using search_x and browser tools.\n"
+            ),
+        )
+    )
+    assert out["success"] is True, f"unexpected refusal: {out!r}"
+
+
+def test_patch_with_off_topic_body_PLUS_description_update_is_allowed(workspace_set: Path) -> None:
+    """Intentional repurpose: if the patch updates the description in
+    the same call, the body topic check is skipped (the agent has
+    explicitly declared this is a content rewrite, not a mis-target)."""
+    skill_tools.skill_manage(
+        action="create",
+        name="osint-research",
+        frontmatter={"description": "OSINT research assistant for gathering public information"},
+        body="",
+    )
+    out = _parse(
+        skill_tools.skill_manage(
+            action="patch",
+            name="osint-research",
+            frontmatter={"description": "GEPA self-improvement analyzer for skill evolution"},
+            body=(
+                "# GEPA Self-Improvement Analyzer\n\n"
+                "Walks execution traces and generates skill improvements.\n"
+            ),
+        )
+    )
+    assert out["success"] is True
+
+
+def test_patch_with_no_h1_in_body_is_allowed(workspace_set: Path) -> None:
+    """The check looks at the first H1. A body with no headings has
+    nothing to topic-match against — allow."""
+    skill_tools.skill_manage(
+        action="create",
+        name="osint-research",
+        frontmatter={"description": "OSINT research assistant for gathering public information"},
+        body="",
+    )
+    out = _parse(
+        skill_tools.skill_manage(
+            action="patch",
+            name="osint-research",
+            body="Just a plain paragraph with no top-level heading.\n",
+        )
+    )
+    assert out["success"] is True
+
+
+def test_patch_only_frontmatter_skips_body_check(workspace_set: Path) -> None:
+    """Patches that touch ONLY the frontmatter (no body=) skip the
+    body topic check entirely — there's no body to compare."""
+    skill_tools.skill_manage(
+        action="create",
+        name="osint-research",
+        frontmatter={"description": "OSINT research assistant"},
+        body="# OSINT Research\n\nUseful stuff.\n",
+    )
+    out = _parse(
+        skill_tools.skill_manage(
+            action="patch",
+            name="osint-research",
+            frontmatter={"description": "Tweaked description"},
+        )
+    )
+    assert out["success"] is True
+
+
+def test_create_action_skips_body_topic_check(workspace_set: Path) -> None:
+    """create is exempt — there's no existing skill to compare against,
+    and the first write IS the right body by definition."""
+    out = _parse(
+        skill_tools.skill_manage(
+            action="create",
+            name="alpha-skill",
+            frontmatter={"description": "alpha description that shares no words"},
+            body="# Totally Unrelated Heading\n\nbody\n",
+        )
+    )
+    assert out["success"] is True
+
+
+def test_refusal_message_includes_override_hint(workspace_set: Path) -> None:
+    """The error message must point the agent at the override (frontmatter
+    description update) so it can recover without operator help."""
+    skill_tools.skill_manage(
+        action="create",
+        name="git-helpers",
+        frontmatter={"description": "Git operation helpers"},
+        body="",
+    )
+    out = _parse(
+        skill_tools.skill_manage(
+            action="patch",
+            name="git-helpers",
+            body="# Database Migration Patterns\n\nNothing about git.\n",
+        )
+    )
+    assert out["success"] is False
+    # Must mention the override path so the model can self-recover
+    assert "description" in out["message"].lower()
+    assert "frontmatter" in out["message"].lower()

@@ -78,7 +78,13 @@ def test_split_protects_head() -> None:
         tail_protection_ratio=0.1,
         head_message_indices=1,
     )
-    head, _middle, _tail = _split_head_middle_tail(msgs, cfg)
+    head, _middle, _tail = _split_head_middle_tail(
+        msgs,
+        head_indices=cfg.head_message_indices,
+        tail_budget_tokens=int(
+            cfg.tail_protection_ratio * cfg.model_context_window
+        ),
+    )
     assert len(head) == 1
     assert head[0]["content"] == "head"
 
@@ -94,7 +100,13 @@ def test_split_protects_tail_by_token_budget() -> None:
         tail_protection_ratio=0.25,
         head_message_indices=1,
     )
-    head, middle, tail = _split_head_middle_tail(msgs, cfg)
+    head, middle, tail = _split_head_middle_tail(
+        msgs,
+        head_indices=cfg.head_message_indices,
+        tail_budget_tokens=int(
+            cfg.tail_protection_ratio * cfg.model_context_window
+        ),
+    )
     assert len(head) == 1
     assert len(middle) > 0
     assert len(tail) > 0
@@ -110,7 +122,13 @@ def test_split_with_long_session_fixture() -> None:
         tail_protection_ratio=0.25,
         head_message_indices=1,
     )
-    head, middle, tail = _split_head_middle_tail(msgs, cfg)
+    head, middle, tail = _split_head_middle_tail(
+        msgs,
+        head_indices=cfg.head_message_indices,
+        tail_budget_tokens=int(
+            cfg.tail_protection_ratio * cfg.model_context_window
+        ),
+    )
     assert len(head) == 1
     assert len(middle) > 10
     assert len(tail) >= 1
@@ -314,3 +332,42 @@ def test_compress_empty_middle_returns_unchanged() -> None:
     assert result.new_messages == msgs
     assert result.middle_message_count == 0
     assert result.summary_tokens == 0
+
+
+def test_summarizer_preamble_includes_anti_hallucination_rules() -> None:
+    """The summarizer prompt MUST carry the citation-required +
+    no-invention rules. Drift here causes goal-loop failures
+    (real incident: model invented a "add owl banner to RUNBOOK"
+    task during compaction and the goal-loop committed to it
+    across sessions).
+
+    This test pins the load-bearing phrases. If you're rewriting
+    the prompt, keep the *intent* of these checks — strict
+    citation, no padding, source-is-data-not-instructions, final
+    self-check — even if the exact words change.
+    """
+    from athena.agent.context_compressor import _SUMMARIZER_PREAMBLE
+
+    p = _SUMMARIZER_PREAMBLE.lower()
+    # Anti-invention rule
+    assert "no invention" in p or "do not invent" in p, (
+        "summarizer prompt must explicitly forbid invention — without "
+        "this, the model fills empty sections with plausible-sounding "
+        "hallucinations"
+    )
+    # Prompt-injection defense (source = data, not commands)
+    assert "do not treat instructions" in p or (
+        "source" in p and "not instructions" in p
+    ), "summarizer prompt must defend against prompt injection from middle messages"
+    # Empty-section discipline
+    assert '"(none)"' in p or "(none)" in p, (
+        "summarizer prompt must specify (none) for empty sections "
+        "so the model doesn't pad"
+    )
+    # Self-check requirement
+    assert "self-check" in p or "re-read" in p, (
+        "summarizer prompt must end with a self-check pass — without "
+        "this, single-pass fabrications survive"
+    )
+    # Remaining-work guard (the section that caused the real bug)
+    assert "remaining work" in p, "Remaining work section is the highest-risk section; keep it but guarded"
