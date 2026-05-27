@@ -198,6 +198,14 @@ class Config:
     # override map maintained by ``athena plugins enable|disable``. Per-plugin
     # config slices live under ``plugins[<plugin_name>]``.
     plugins: dict[str, Any] = field(default_factory=dict)
+    # Parseltongue: context-aware inference param policy. See
+    # athena/agent/param_policy.py for the schema. Keys: ``policy``
+    # (one of "static" | "heuristic" | "llm_classifier"; default
+    # "heuristic"), ``defaults`` (dict; used by static), ``user_rules``
+    # (list; user-defined predicate+params layered on top of built-ins),
+    # ``classifier_model`` (str; used by llm_classifier — currently a
+    # stub that falls through to heuristic).
+    parseltongue: dict[str, Any] = field(default_factory=dict)
     # Provider configuration (Phase 8). Sub-keys:
     #   providers.routing     {model_name: provider_name} explicit overrides
     #   providers.<name>.host base URL for ollama / openai_compat

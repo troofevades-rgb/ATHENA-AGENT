@@ -33,11 +33,16 @@ from ..config import profile_dir as _profile_dir
 from ..sessions.store import SessionStore
 from ..transform.classifier import auto_classify, extract_trajectories
 from ..transform.dataset import (
-    build_dpo_dataset,
+    build_dpo_dataset_from_trajectories,
     build_sft_dataset,
     write_jsonl,
 )
 from ..transform.review import ReviewSession, default_prompt, load_labels
+from ..transform.run_state import (
+    RunState,
+    find_latest_checkpoint,
+    load as load_run_state,
+)
 from ..transform.runner import (
     TrainingRun,
     ensure_ollama_on_path,
@@ -179,10 +184,16 @@ def _cmd_build_dataset(args) -> int:
         chat_template=args.chat_template,
         include_auto_labels=args.include_auto_labels,
     )
-    # DPO pair extraction: trajectories labeled preference_pair, paired with
-    # the immediately-preceding "bad" trajectory in the same session.
-    pairs = _build_preference_pairs(trajectories)
-    dpo = build_dpo_dataset(pairs, chat_template=args.chat_template)
+    # DPO pair extraction: each ``preference_pair`` trajectory is split
+    # at its ``[/steer]`` marker into a (prompt, chosen, rejected) example
+    # where pre-steer assistant work is the rejected branch and post-steer
+    # recovery is the chosen branch. Both share the same prompt — the DPO
+    # invariant the previous cross-trajectory pairing violated.
+    dpo = build_dpo_dataset_from_trajectories(
+        trajectories,
+        chat_template=args.chat_template,
+        include_auto_labels=args.include_auto_labels,
+    )
 
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -199,33 +210,30 @@ def _cmd_build_dataset(args) -> int:
     if dpo:
         write_jsonl(dpo_path, dpo)
         print(f"wrote {len(dpo)} DPO pairs -> {dpo_path}")
+        # Emit a one-line breakdown of failure modes — useful for telling
+        # whether the dataset is dominated by one kind of error (which
+        # would skew DPO toward fixing only that pattern).
+        from collections import Counter
+        modes = Counter(ex["metadata"].get("failure_mode", "other") for ex in dpo)
+        breakdown = ", ".join(f"{m}={n}" for m, n in modes.most_common())
+        print(f"  failure modes: {breakdown}")
     else:
         print("(no preference pairs found - DPO file not written)", file=sys.stderr)
 
     return 0 if sft or dpo else 1
 
 
-def _build_preference_pairs(trajectories):
-    """Pair each preference_pair trajectory with the prior bad one in its
-    session. Returns a list of (chosen, rejected) tuples — chosen is the
-    recovery (preference_pair), rejected is the original bad attempt."""
-    out: list[tuple] = []
-    by_session: dict[str, list] = {}
-    for t in trajectories:
-        by_session.setdefault(t.session_id, []).append(t)
-    for sid, sess in by_session.items():
-        for i, t in enumerate(sess):
-            if t.user_label != "preference_pair":
-                continue
-            # Find the nearest prior bad trajectory.
-            for j in range(i - 1, -1, -1):
-                if sess[j].user_label == "bad":
-                    out.append((t, sess[j]))
-                    break
-    return out
-
-
 def _cmd_run(args) -> int:
+    """Run the LoRA -> DPO -> GGUF pipeline, persisting per-phase state
+    to ``<output_dir>/.athena_train_state.json``.
+
+    With ``--resume`` (or when invoked via ``athena train resume``), an
+    existing state file is loaded, ``completed`` phases are skipped,
+    and ``failed`` or interrupted phases are retried — for SFT
+    specifically, the retry passes the latest HF checkpoint through
+    so HF Trainer restores step / optimizer / scheduler state rather
+    than starting from zero.
+    """
     if not args.sft_dataset:
         print("error: --sft-dataset is required", file=sys.stderr)
         return 2
@@ -243,112 +251,310 @@ def _cmd_run(args) -> int:
     output_dir = (
         Path(args.output_dir).expanduser().resolve()
         if args.output_dir
-        else Path("transform") / "output" / output_name
+        else (Path("transform") / "output" / output_name).resolve()
     )
     output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_dir = output_dir / "checkpoints"
+
+    export_ok = ensure_ollama_on_path()
+    state = _load_or_create_state(
+        output_dir=output_dir,
+        run_id=output_name,
+        args=args,
+        dpo_enabled=dpo_dataset is not None,
+        export_enabled=export_ok,
+        resume=getattr(args, "resume", False),
+    )
+    if state is None:
+        # Resume requested but no state file found.
+        print(
+            f"error: --resume requested but no state file at "
+            f"{output_dir}/.athena_train_state.json",
+            file=sys.stderr,
+        )
+        return 2
+
+    if state.is_complete():
+        print(
+            f"run {output_name} already complete; nothing to do.\n"
+            f"  athena model switch {output_name}   # to make it the default",
+        )
+        return 0
+
+    if not export_ok and state.status_of("export") != "skipped":
+        # ollama disappeared from PATH between runs — skip rather than
+        # try and fail.
+        print("warning: 'ollama' not on PATH — export phase will be skipped", file=sys.stderr)
+        state.skip_phase("export")
+        state.save()
 
     run = TrainingRun(
         base_model=args.base_model,
         sft_dataset=sft_dataset,
         dpo_dataset=dpo_dataset,
         output_dir=output_dir,
+        checkpoint_dir=checkpoint_dir,
         epochs=args.epochs,
         learning_rate=args.lr,
         lora_rank=args.lora_rank,
     )
 
-    print(f"=== Phase 1: LoRA SFT -> {output_dir}")
-    rc_sft = run_lora(run)
-    if rc_sft != 0:
-        print(f"error: LoRA training failed (exit {rc_sft})", file=sys.stderr)
-        _record_run(
-            args.base_model,
-            output_name,
-            output_dir,
-            sft_dataset,
-            None,
-            sft=rc_sft,
-            dpo=None,
-            export=None,
-            register=None,
+    # ---- Phase: SFT ----
+    if state.needs_run("sft"):
+        # If a prior attempt left a checkpoint behind, resume from it.
+        # We re-scan the filesystem rather than trust the state file
+        # alone — the user may have manually deleted a corrupt
+        # checkpoint, and the most recent valid one on disk is what
+        # HF Trainer can actually restore.
+        latest_ckpt = find_latest_checkpoint(checkpoint_dir)
+        if latest_ckpt is not None:
+            print(f"=== Phase 1: SFT (resuming from {latest_ckpt.name})")
+            run.resume_from_checkpoint = latest_ckpt
+        else:
+            print(f"=== Phase 1: LoRA SFT -> {output_dir}")
+        state.start_phase("sft")
+        state.save()
+        rc_sft = run_lora(run)
+        if rc_sft != 0:
+            # On failure, capture whatever checkpoint did get written —
+            # the next resume will pick it up.
+            crash_ckpt = find_latest_checkpoint(checkpoint_dir)
+            state.fail_phase(
+                "sft",
+                exit_code=rc_sft,
+                error=f"LoRA training exited {rc_sft}",
+                checkpoint=str(crash_ckpt) if crash_ckpt else None,
+            )
+            state.save()
+            print(f"error: LoRA training failed (exit {rc_sft})", file=sys.stderr)
+            _record_run_legacy(args, output_name, output_dir, sft_dataset, dpo_dataset, state)
+            return rc_sft
+        # SFT succeeded. If this was a resume that came after a prior
+        # failure, downstream completed/failed phases need to re-run
+        # against the new adapter — invalidate them.
+        reset = state.invalidate_downstream("sft")
+        if reset:
+            print(f"  (also re-running due to upstream change: {', '.join(reset)})")
+        state.complete_phase(
+            "sft",
+            exit_code=0,
+            checkpoint=str(latest_ckpt) if latest_ckpt else None,
         )
-        return rc_sft
+        state.save()
 
     sft_lora = find_lora_adapter(output_dir)
     if sft_lora is None:
         print(f"error: could not locate SFT LoRA adapter under {output_dir}", file=sys.stderr)
         return 1
 
-    rc_dpo: int | None = None
+    # ---- Phase: DPO (soft-fail: warns but continues with SFT-only) ----
     final_lora = sft_lora
-    if dpo_dataset is not None:
-        print("=== Phase 2: DPO on top of SFT LoRA")
-        rc_dpo = run_dpo(run, sft_lora)
-        if rc_dpo != 0:
-            print(
-                f"warning: DPO training failed (exit {rc_dpo}); proceeding with SFT-only adapter",
-                file=sys.stderr,
-            )
+    if state.needs_run("dpo"):
+        if dpo_dataset is None:
+            # The original run didn't have a DPO dataset; the user must
+            # have added one on resume. Either way, mark it skipped.
+            state.skip_phase("dpo")
+            state.save()
         else:
-            dpo_out = output_dir.with_name(output_dir.name + "-dpo")
-            maybe_dpo_lora = find_lora_adapter(dpo_out)
-            if maybe_dpo_lora is not None:
-                final_lora = maybe_dpo_lora
+            print("=== Phase 2: DPO on top of SFT LoRA")
+            state.start_phase("dpo")
+            state.save()
+            rc_dpo = run_dpo(run, sft_lora)
+            if rc_dpo != 0:
+                state.fail_phase(
+                    "dpo",
+                    exit_code=rc_dpo,
+                    error=f"DPO training exited {rc_dpo}",
+                )
+                state.save()
+                print(
+                    f"warning: DPO training failed (exit {rc_dpo}); "
+                    "proceeding with SFT-only adapter",
+                    file=sys.stderr,
+                )
+            else:
+                reset = state.invalidate_downstream("dpo")
+                if reset:
+                    print(f"  (also re-running due to upstream change: {', '.join(reset)})")
+                state.complete_phase("dpo", exit_code=0)
+                state.save()
+                dpo_out = output_dir.with_name(output_dir.name + "-dpo")
+                maybe_dpo_lora = find_lora_adapter(dpo_out)
+                if maybe_dpo_lora is not None:
+                    final_lora = maybe_dpo_lora
 
-    if not ensure_ollama_on_path():
-        print(
-            "warning: 'ollama' not on PATH — skipping GGUF export and "
-            "registration. Run export_to_ollama.py manually.",
-            file=sys.stderr,
-        )
-        _record_run(
-            args.base_model,
-            output_name,
-            output_dir,
-            sft_dataset,
-            dpo_dataset,
-            sft=rc_sft,
-            dpo=rc_dpo,
-            export=None,
-            register=None,
-        )
-        return 0
+    # If DPO completed previously (this is a fresh resume that didn't
+    # touch DPO), still prefer the DPO adapter as the export source.
+    if state.status_of("dpo") == "completed" and final_lora is sft_lora:
+        dpo_out = output_dir.with_name(output_dir.name + "-dpo")
+        maybe_dpo_lora = find_lora_adapter(dpo_out)
+        if maybe_dpo_lora is not None:
+            final_lora = maybe_dpo_lora
 
-    print(f"=== Phase 3: GGUF export + ollama create {output_name}")
-    rc_export = export_to_gguf(
-        final_lora,
-        ollama_name=output_name,
-        base_model=args.base_model,
+    # ---- Phase: export ----
+    if state.needs_run("export"):
+        print(f"=== Phase 3: GGUF export + ollama create {output_name}")
+        state.start_phase("export")
+        state.save()
+        rc_export = export_to_gguf(
+            final_lora,
+            ollama_name=output_name,
+            base_model=args.base_model,
+        )
+        if rc_export != 0:
+            state.fail_phase(
+                "export",
+                exit_code=rc_export,
+                error=f"GGUF export exited {rc_export}",
+            )
+            state.save()
+            print(f"error: GGUF export failed (exit {rc_export})", file=sys.stderr)
+            _record_run_legacy(args, output_name, output_dir, sft_dataset, dpo_dataset, state)
+            return rc_export
+        state.complete_phase("export", exit_code=0)
+        state.save()
+
+    _record_run_legacy(args, output_name, output_dir, sft_dataset, dpo_dataset, state)
+    print(f"\n[ok] training complete. New Ollama model: {output_name}")
+    print(f"  athena model switch {output_name}   # to make it the default")
+    return 0
+
+
+def _load_or_create_state(
+    *,
+    output_dir: Path,
+    run_id: str,
+    args,
+    dpo_enabled: bool,
+    export_enabled: bool,
+    resume: bool,
+) -> RunState | None:
+    """Either load an existing state file (resume path) or create a new one.
+
+    Returns ``None`` when ``resume=True`` was passed but no state file
+    exists at ``output_dir`` — the caller surfaces that as a user error
+    so a typo in ``--output-dir`` doesn't silently start a fresh run.
+    """
+    existing = load_run_state(output_dir)
+    if resume:
+        if existing is None:
+            return None
+        # Refresh the gate flags in case the user supplied different
+        # ``--dpo-dataset`` / ollama setup on resume. Phases already
+        # ``completed`` are honored; phases newly ``pending`` will run
+        # for the first time; phases that were ``skipped`` flip to
+        # ``pending`` when the prerequisite is now present.
+        if dpo_enabled and existing.status_of("dpo") == "skipped":
+            existing.phases["dpo"].status = "pending"
+        if export_enabled and existing.status_of("export") == "skipped":
+            existing.phases["export"].status = "pending"
+        return existing
+    # Fresh run. If a state file is already there from a prior run with
+    # the same output_dir, prefer to start fresh — the user explicitly
+    # didn't pass --resume.
+    fresh = RunState.new(
+        run_id=run_id,
+        output_dir=output_dir,
+        args=_args_to_state_dict(args),
+        dpo_enabled=dpo_enabled,
+        export_enabled=export_enabled,
     )
-    if rc_export != 0:
-        print(f"error: GGUF export failed (exit {rc_export})", file=sys.stderr)
-        _record_run(
-            args.base_model,
-            output_name,
-            output_dir,
-            sft_dataset,
-            dpo_dataset,
-            sft=rc_sft,
-            dpo=rc_dpo,
-            export=rc_export,
-            register=None,
-        )
-        return rc_export
+    fresh.save()
+    return fresh
 
+
+def _args_to_state_dict(args) -> dict:
+    """Capture the subset of CLI args that ``athena train resume`` needs
+    to re-invoke the run. Stored in the state file so the user doesn't
+    have to remember every flag from the original invocation.
+    """
+    return {
+        "base_model": args.base_model,
+        "sft_dataset": args.sft_dataset,
+        "dpo_dataset": args.dpo_dataset,
+        "epochs": args.epochs,
+        "lr": args.lr,
+        "lora_rank": args.lora_rank,
+        "output_name": args.output_name,
+        "output_dir": args.output_dir,
+    }
+
+
+def _record_run_legacy(args, output_name, output_dir, sft_dataset, dpo_dataset, state):
+    """Append a summary entry to the legacy ``~/.athena/training_state.json``
+    history so ``athena train status`` keeps working. The per-run state
+    file under ``output_dir`` is the source of truth for resumability;
+    this is just the journal."""
     _record_run(
         args.base_model,
         output_name,
         output_dir,
         sft_dataset,
         dpo_dataset,
-        sft=rc_sft,
-        dpo=rc_dpo,
-        export=rc_export,
-        register=0,
+        sft=state.phases["sft"].exit_code,
+        dpo=state.phases["dpo"].exit_code,
+        export=state.phases["export"].exit_code,
+        register=0 if state.status_of("export") == "completed" else None,
     )
-    print(f"\n[ok] training complete. New Ollama model: {output_name}")
-    print(f"  athena model switch {output_name}   # to make it the default")
-    return 0
+
+
+def _cmd_resume(args) -> int:
+    """``athena train resume <output_name>`` — load the named run's state
+    file, rehydrate the CLI args it was launched with, and continue
+    from the first non-completed phase.
+    """
+    output_dir = (
+        Path(args.output_dir).expanduser().resolve()
+        if args.output_dir
+        else (Path("transform") / "output" / args.output_name).resolve()
+    )
+    state = load_run_state(output_dir)
+    if state is None:
+        print(
+            f"error: no state file at {output_dir}/.athena_train_state.json",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Reconstruct an args-like object from the state file. Override with
+    # any CLI flags the user explicitly passed to ``resume`` (e.g. they
+    # added ``--dpo-dataset`` on the resume invocation).
+    saved = dict(state.args)
+    if args.base_model:
+        saved["base_model"] = args.base_model
+    if args.sft_dataset:
+        saved["sft_dataset"] = args.sft_dataset
+    if args.dpo_dataset is not None:
+        saved["dpo_dataset"] = args.dpo_dataset
+
+    if not saved.get("base_model") or not saved.get("sft_dataset"):
+        print(
+            "error: state file is missing base_model or sft_dataset; "
+            "pass --base-model / --sft-dataset to rehydrate",
+            file=sys.stderr,
+        )
+        return 2
+
+    # argparse.Namespace stand-in.
+    class _Args:
+        pass
+
+    a = _Args()
+    a.base_model = saved["base_model"]
+    a.sft_dataset = saved["sft_dataset"]
+    a.dpo_dataset = saved.get("dpo_dataset")
+    a.epochs = saved.get("epochs", 3)
+    a.lr = saved.get("lr", 2e-4)
+    a.lora_rank = saved.get("lora_rank", 32)
+    a.output_name = saved.get("output_name") or args.output_name
+    a.output_dir = str(output_dir)
+    a.resume = True
+
+    print(f"resuming run: {state.run_id}")
+    for line in state.summary_lines():
+        print(line)
+    print()
+    return _cmd_run(a)
 
 
 def _record_run(
@@ -440,6 +646,33 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--lora-rank", type=int, default=32)
     p_run.add_argument("--output-name", default=None)
     p_run.add_argument("--output-dir", default=None)
+    p_run.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Continue from the state file at <output_dir>/.athena_train_state.json "
+            "rather than starting fresh. Skips completed phases; retries "
+            "failed/interrupted ones; for SFT, passes the latest HF "
+            "checkpoint through so HF Trainer restores optimizer state."
+        ),
+    )
+
+    p_resume = sub.add_parser(
+        "resume",
+        help=(
+            "Resume a previous run by name (sugar for `run --resume "
+            "--output-dir <inferred>`). Rehydrates CLI args from the state file."
+        ),
+    )
+    p_resume.add_argument("output_name", help="The run's output_name (e.g. 'qwen2.5-coder-14b-athena-1').")
+    p_resume.add_argument("--output-dir", default=None,
+                          help="Explicit path; overrides the inferred 'transform/output/<output_name>' location.")
+    p_resume.add_argument("--base-model", default=None,
+                          help="Override the base model recorded in the state file.")
+    p_resume.add_argument("--sft-dataset", default=None,
+                          help="Override the SFT dataset path recorded in the state file.")
+    p_resume.add_argument("--dpo-dataset", default=None,
+                          help="Add or override a DPO dataset for this resume.")
 
     sub.add_parser("status", help="Show the last training run.")
     return ap
@@ -453,6 +686,8 @@ def main(argv: list[str]) -> int:
         return _cmd_build_dataset(args)
     if args.cmd == "run":
         return _cmd_run(args)
+    if args.cmd == "resume":
+        return _cmd_resume(args)
     if args.cmd == "status":
         return _cmd_status(args)
     return 2

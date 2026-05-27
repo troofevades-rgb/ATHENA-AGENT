@@ -84,6 +84,11 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/transform/deploy.py",  # deployment artefacts
         "athena/transform/review.py",  # review artefacts
         "athena/transform/batch_driver.py",  # T3-05R labels sidecar rewrite (same path as review.py)
+        # Per-run training state machine — atomic .athena_train_state.json
+        # under <output_dir>. Machine-managed bookkeeping for resumable
+        # SFT/DPO/export phases (parallel in shape to goal/state.py and
+        # update/apply.py — not user content, not agent-driven mutation).
+        "athena/transform/run_state.py",
         "athena/webhooks/delivery.py",  # webhook delivery journal
         # Rollback CLI is itself audited; the restore() call lives in
         # snapshots.py which is allowlisted as the substrate.

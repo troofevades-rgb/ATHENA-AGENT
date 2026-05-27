@@ -159,6 +159,104 @@ def test_stream_chat_omits_num_ctx_when_unset(provider: OllamaProvider):
     assert "num_ctx" not in captured["body"]["options"]
 
 
+def test_stream_chat_passes_parseltongue_options(provider: OllamaProvider):
+    """The full parseltongue option surface — top_p, top_k, repeat_penalty,
+    mirostat*, seed, stop — must end up inside ``options`` so the policy
+    layer's params actually reach the model rather than getting silently
+    dropped on the way through."""
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            content=_ndjson(
+                {"message": {"content": ""}, "done": True, "prompt_eval_count": 1, "eval_count": 1},
+            ),
+        )
+
+    with respx.mock() as m:
+        m.post("http://test-host.invalid:11434/api/chat").mock(side_effect=_record)
+        list(
+            provider.stream_chat(
+                model="qwen",
+                messages=[],
+                temperature=0.2,
+                top_p=0.85,
+                top_k=42,
+                repeat_penalty=1.07,
+                mirostat=2,
+                mirostat_tau=4.5,
+                mirostat_eta=0.15,
+                seed=1234,
+                stop=["</tool_call>"],
+            )
+        )
+    opts = captured["body"]["options"]
+    assert opts["temperature"] == 0.2
+    assert opts["top_p"] == 0.85
+    assert opts["top_k"] == 42
+    assert opts["repeat_penalty"] == 1.07
+    assert opts["mirostat"] == 2
+    assert opts["mirostat_tau"] == 4.5
+    assert opts["mirostat_eta"] == 0.15
+    assert opts["seed"] == 1234
+    assert opts["stop"] == ["</tool_call>"]
+
+
+def test_stream_chat_drops_unknown_options(provider: OllamaProvider):
+    """A kwarg the Ollama API doesn't recognize must NOT be smuggled
+    into the request body — that would either confuse the server or
+    silently no-op. Filter to the known option set."""
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            content=_ndjson(
+                {"message": {"content": ""}, "done": True, "prompt_eval_count": 1, "eval_count": 1},
+            ),
+        )
+
+    with respx.mock() as m:
+        m.post("http://test-host.invalid:11434/api/chat").mock(side_effect=_record)
+        list(
+            provider.stream_chat(
+                model="qwen",
+                messages=[],
+                top_p=0.9,
+                completely_made_up_param="oops",
+            )
+        )
+    opts = captured["body"]["options"]
+    assert opts["top_p"] == 0.9
+    assert "completely_made_up_param" not in opts
+
+
+def test_stream_chat_omits_none_valued_options(provider: OllamaProvider):
+    """A policy that explicitly passes ``None`` for a param (meaning
+    'don't override, use Ollama's default') shouldn't send the key
+    at all."""
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            content=_ndjson(
+                {"message": {"content": ""}, "done": True, "prompt_eval_count": 1, "eval_count": 1},
+            ),
+        )
+
+    with respx.mock() as m:
+        m.post("http://test-host.invalid:11434/api/chat").mock(side_effect=_record)
+        list(provider.stream_chat(model="qwen", messages=[], top_p=None, top_k=40))
+    opts = captured["body"]["options"]
+    assert "top_p" not in opts
+    assert opts["top_k"] == 40
+
+
 def test_stream_chat_passes_tools_when_provided(provider: OllamaProvider):
     captured: dict = {}
 

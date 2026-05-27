@@ -22,6 +22,7 @@ from ..providers.credential_pool import global_pool as _global_pool
 from ..providers.runtime_resolver import resolve_provider
 from ..safety.approval_callback import get_approval_callback
 from ..sessions.store import SessionMeta, SessionStore, new_session_id
+from .param_policy import ParamPolicy, PolicyInput, policy_from_config
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.S)
 _TOOL_CALL_TAG_RE = re.compile(r"<tool_call>\s*(.+?)\s*</tool_call>", re.S)
@@ -289,6 +290,16 @@ class Agent:
         self.cfg = cfg
         self.workspace = workspace.resolve()
         self.model = model or cfg.model
+        # Parseltongue: inference param policy. Built once at init from
+        # the [parseltongue] config section; consulted before every
+        # provider.stream_chat call to pick temperature / top_p / top_k
+        # / repeat_penalty / mirostat* based on what's happening this
+        # turn. ``None`` config or ``policy = "heuristic"`` is the
+        # default; ``policy = "static"`` opts back into the pre-
+        # parseltongue static-defaults behaviour.
+        self._param_policy: ParamPolicy = policy_from_config(
+            getattr(cfg, "parseltongue", None)
+        )
         # Reset the per-process thrash buffer so a prior session's
         # repeat-call history doesn't bleed into this one.
         from ..tools import thrash as _thrash
@@ -1091,7 +1102,7 @@ class Agent:
                 )
                 self._fire_stop("cancelled")
                 return
-            assistant_text, tool_calls, raw_done = self._stream_one()
+            assistant_text, tool_calls, raw_done = self._stream_one(tool_call_round=step)
             interrupted = bool(raw_done and raw_done.get("_interrupted"))
 
             # Track usage if the provider reported it (skip phantom raw on
@@ -1325,8 +1336,16 @@ class Agent:
         except OSError:
             pass
 
-    def _stream_one(self) -> tuple[str, list[dict[str, Any]], dict[str, Any] | None]:
+    def _stream_one(
+        self, tool_call_round: int = 0
+    ) -> tuple[str, list[dict[str, Any]], dict[str, Any] | None]:
         """One model turn. Streams text to stdout, returns (text, tool_calls, usage).
+
+        ``tool_call_round`` is the iteration index inside the current
+        user turn (0 = first stream, 1 = after one round of tool calls,
+        etc.) — passed through to the parseltongue param policy so
+        rules like "drop temperature when we're deep in a tool chain"
+        have something to fire on.
 
         ``usage`` is the Ollama-flavored dict the caller already knows how to
         read — ``prompt_eval_count`` / ``eval_count`` / ``eval_duration`` for
@@ -1347,15 +1366,30 @@ class Agent:
         # terminal with both the plain stream and the rendered copy.
         typewriter = ui.TypewriterStream(prefix="▌ ", prefix_style="bold #00ff00")
         msgs_to_send = self._messages_with_cache_markers()
+        tool_schemas = tools.ollama_schema(
+            enabled_toolsets=self.cfg.enabled_toolsets,
+            disabled=self.cfg.disabled_tools,
+        )
+        # Parseltongue: ask the policy for this turn's inference params.
+        # The policy returns a dict that goes into stream_chat as kwargs;
+        # the provider filters to whichever options it actually accepts.
+        policy_input = PolicyInput(
+            messages=msgs_to_send,
+            tools_available=[
+                (t.get("function") or {}).get("name", "")
+                for t in (tool_schemas or [])
+                if isinstance(t, dict)
+            ],
+            tool_calls_so_far=tool_call_round,
+        )
+        policy_params = self._param_policy.params_for(policy_input)
         try:
             for chunk in self.provider.stream_chat(
                 model=self.model,
                 messages=msgs_to_send,
-                tools=tools.ollama_schema(
-                    enabled_toolsets=self.cfg.enabled_toolsets,
-                    disabled=self.cfg.disabled_tools,
-                ),
+                tools=tool_schemas,
                 num_ctx=self.cfg.context_window,
+                **policy_params,
             ):
                 if first and chunk.kind in ("content", "tool_call"):
                     status.stop()
