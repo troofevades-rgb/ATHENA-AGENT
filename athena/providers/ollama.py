@@ -236,25 +236,51 @@ class OllamaProvider(Provider):
         across deltas like OpenAI), so each tool_call shows up whole.
 
         ``num_ctx`` is passed through ``kwargs`` for Ollama-specific
-        context-window control; other kwargs are ignored.
+        context-window control. The :mod:`athena.agent.param_policy`
+        layer also passes ``top_p``, ``top_k``, ``repeat_penalty``,
+        ``mirostat``, ``mirostat_tau``, ``mirostat_eta``, ``seed``,
+        and ``stop`` through this same kwargs surface — each is
+        forwarded into Ollama's ``options`` dict when present so the
+        request body matches what the Ollama API documents.
         """
         # Reset cancellation state at the start of each fresh stream.
         # Without this, an aborted prior stream would leave _cancelled=True
         # and instantly abort the next request before it could yield.
         self._cancelled = False
+        options: dict[str, Any] = {"temperature": temperature}
+        # Each of these is opt-in via kwargs — parseltongue's policy
+        # picks which ones to set per turn; other call sites can leave
+        # them empty and inherit Ollama's defaults. Anything outside
+        # the recognized set is dropped so a typo in a user rule
+        # doesn't poison the request.
+        _OLLAMA_OPTION_KEYS = (
+            "top_p",
+            "top_k",
+            "repeat_penalty",
+            "mirostat",
+            "mirostat_tau",
+            "mirostat_eta",
+            "seed",
+            "stop",
+            "num_ctx",
+            "presence_penalty",
+            "frequency_penalty",
+            "tfs_z",
+            "typical_p",
+        )
+        for key in _OLLAMA_OPTION_KEYS:
+            if key in kwargs and kwargs[key] is not None:
+                options[key] = kwargs[key]
+        if max_tokens is not None:
+            options["num_predict"] = max_tokens
         payload: dict[str, Any] = {
             "model": model,
             "messages": _normalize_vision_messages(messages),
             "stream": True,
-            "options": {"temperature": temperature},
+            "options": options,
         }
         if tools:
             payload["tools"] = tools
-        num_ctx = kwargs.get("num_ctx")
-        if num_ctx:
-            payload["options"]["num_ctx"] = num_ctx
-        if max_tokens is not None:
-            payload["options"]["num_predict"] = max_tokens
 
         # T2-03: retry-wrap the open-stream + raise-for-status step.
         # Streaming body itself is outside the retry boundary.

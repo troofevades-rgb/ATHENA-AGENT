@@ -46,6 +46,16 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=3407)
     ap.add_argument("--max-steps", type=int, default=-1,
                     help="Cap steps for a quick smoke test (e.g. 50). -1 = full epochs.")
+    ap.add_argument("--checkpoint-dir", default="outputs",
+                    help="Where HF Trainer writes intermediate checkpoint-N "
+                         "snapshots. Defaults to ./outputs for backward "
+                         "compatibility; athena's runner now passes "
+                         "<run_output>/checkpoints to isolate runs.")
+    ap.add_argument("--resume-from-checkpoint", default=None,
+                    help="Path to a specific checkpoint-N directory to "
+                         "resume from. HF Trainer restores step / optimizer "
+                         "/ scheduler / LR state. If omitted, training "
+                         "starts from step 0.")
     args = ap.parse_args()
 
     # Imports deferred so --help works without unsloth installed
@@ -116,7 +126,7 @@ def main() -> int:
         weight_decay=0.01,
         lr_scheduler_type="cosine",
         seed=args.seed,
-        output_dir="outputs",
+        output_dir=args.checkpoint_dir,
         report_to="none",          # no W&B, no telemetry
     )
 
@@ -131,10 +141,14 @@ def main() -> int:
         packing=False,             # safer; turn on if you want throughput
     )
 
-    print("Starting training. Checkpoints land in ./outputs/")
+    print(f"Starting training. Checkpoints land in {args.checkpoint_dir}/")
     print(f"  effective batch size: {args.batch * args.grad_accum}")
     print(f"  bf16: {bf16}")
-    trainer.train()
+    if args.resume_from_checkpoint:
+        print(f"  resuming from: {args.resume_from_checkpoint}")
+        trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
+    else:
+        trainer.train()
 
     print(f"Saving LoRA adapter to {args.out}")
     Path(args.out).mkdir(parents=True, exist_ok=True)

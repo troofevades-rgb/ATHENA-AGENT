@@ -46,6 +46,16 @@ class TrainingRun:
     lora_alpha: int = 32
     max_steps: int = -1
     extra_args: list[str] = field(default_factory=list)
+    # Resumability: ``checkpoint_dir`` is where HF Trainer writes its
+    # intermediate ``checkpoint-N`` snapshots. Defaults under
+    # ``output_dir/checkpoints`` so each run has its own checkpoint
+    # namespace (rather than the previous behaviour of dumping into a
+    # shared ``transform/outputs/`` that mixed runs together).
+    # ``resume_from_checkpoint``, when set, is passed through to
+    # ``train_lora.py --resume-from-checkpoint`` so HF Trainer picks
+    # up step / optimizer / scheduler state from that snapshot.
+    checkpoint_dir: Path | None = None
+    resume_from_checkpoint: Path | None = None
 
 
 def run_lora(
@@ -87,8 +97,15 @@ def run_lora(
         str(run.lora_alpha),
         "--max-steps",
         str(run.max_steps),
-        *run.extra_args,
     ]
+    # Per-run checkpoint isolation: default to ``<output_dir>/checkpoints``
+    # so multiple concurrent or sequential runs don't stomp on each other's
+    # checkpoint dirs (which they used to do via a shared ``./outputs``).
+    checkpoint_dir = run.checkpoint_dir or (run.output_dir / "checkpoints")
+    cmd.extend(["--checkpoint-dir", str(checkpoint_dir)])
+    if run.resume_from_checkpoint is not None:
+        cmd.extend(["--resume-from-checkpoint", str(run.resume_from_checkpoint)])
+    cmd.extend(run.extra_args)
     logger.info("running LoRA training: %s", " ".join(cmd))
     call = runner or subprocess.call
     return call(cmd, cwd=str(transform_dir))
