@@ -73,7 +73,12 @@ def test_train_review_subcommand(
         "default_prompt",
         lambda t, suggestion: "good",
     )
-    rc, stdout, _ = _run(["review", "--since-days", "365"])
+    # ``--no-tui`` forces the classic prompt-driven path. T3-05R made
+    # the textual TUI the default, which boots ``app.run()`` — the
+    # asyncio loop hangs in non-TTY pytest environments. This test
+    # exercises the classic path (that's why it monkeypatches
+    # ``default_prompt``); ``--no-tui`` is the right way to select it.
+    rc, stdout, _ = _run(["review", "--since-days", "365", "--no-tui"])
     assert rc == 0
     assert "labeled" in stdout
     # Label persisted to disk:
