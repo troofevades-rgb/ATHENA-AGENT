@@ -83,8 +83,16 @@ def test_slash_model_swaps_provider_when_routing_changes(
         bare = model.split("/", 1)[1] if "/" in model else model
         return _FakeAnthropic(), bare
 
+    # ``athena.commands.model_cmd`` does ``from ..providers.runtime_resolver
+    # import resolve_provider`` — that creates a LOCAL binding in model_cmd.
+    # Patching the source module's attribute doesn't propagate to the
+    # already-imported local binding, so the test must target the
+    # consumer's namespace directly. The behaviour was masked when
+    # ``isolated_home`` didn't redirect CONFIG_DIR (the real fallback
+    # credential file at ~/.athena/.env had anthropic creds, making the
+    # real resolve_provider succeed and shadowing this bug).
     monkeypatch.setattr(
-        "athena.providers.runtime_resolver.resolve_provider",
+        "athena.commands.model_cmd.resolve_provider",
         fake_resolve,
     )
 

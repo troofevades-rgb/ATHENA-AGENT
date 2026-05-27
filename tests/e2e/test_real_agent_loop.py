@@ -143,26 +143,21 @@ def real_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     cfg.model = chosen
     cfg.profile = "default"
     cfg.review.nudge_interval = 0  # disable background review
-    # Curator: with proper isolated_home, the tmp profile has no
-    # ``last_run_at`` history. The first-run check at
-    # ``orchestrator.maybe_run_curator`` line 62 only fails when
-    # last_run_at IS set AND recent — so a fresh profile triggers
-    # the curator unconditionally. That fork competes with the
-    # foreground turn for Ollama (single-inference queue), deadlocks,
-    # blows the test timeout. Setting interval_hours huge doesn't
-    # help because the first-run check ignores interval. Hard-stub
-    # the orchestrator entry point to a no-op.
-    monkeypatch.setattr(
-        "athena.curator.orchestrator.maybe_run_curator",
-        lambda *a, **kw: None,
-    )
+    # NOTE: the background curator spawn is gated by the session-wide
+    # ``ATHENA_DISABLE_BACKGROUND_CURATOR=1`` fixture in tests/conftest.py.
+    # No per-test patch needed here.
+
     # Approval callback: tests run with stdin captured, so any
     # ``ui.confirm()`` call would OSError on input(). Some small
     # models call write-like tools speculatively even when told not
     # to ("Reply with exactly: HELLO_OK" sometimes drives a 7B model
     # to Write the response to a file). AUTO_DENY responds "deny"
     # without prompting — model gets a denied result, can continue.
-    from athena.safety.approval_callback import AUTO_DENY, set_approval_callback
+    from athena.safety.approval_callback import (
+        AUTO_DENY,
+        set_approval_callback,
+        reset_approval_callback,
+    )
     _approval_token = set_approval_callback(AUTO_DENY)
 
     agent = Agent(cfg=cfg, workspace=workspace)
@@ -182,6 +177,14 @@ def real_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         },
     ]
     yield agent
+    # IMPORTANT: reset the approval callback BEFORE closing the agent.
+    # The ContextVar lives at module-process scope; without reset, every
+    # subsequent test sees AUTO_DENY as the "default" and the four
+    # ``test_*_approval_callback*`` tests fail with stale-state asserts.
+    try:
+        reset_approval_callback(_approval_token)
+    except Exception:
+        pass
     try:
         agent.close()
     except Exception:

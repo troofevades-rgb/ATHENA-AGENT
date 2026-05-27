@@ -639,6 +639,21 @@ class Agent:
         except Exception as e:
             ui.info(f"lifecycle pass skipped: {e}")
 
+        # ``ATHENA_DISABLE_BACKGROUND_CURATOR=1`` short-circuits the
+        # session-start curator spawn. The spawn launches a daemon
+        # thread that calls ``maybe_run_curator(self)``, which forks
+        # another Agent and hits the LLM provider. Agent.close()
+        # can't reach the daemon thread to stop it; once spawned, it
+        # runs until natural completion or process exit. In pytest,
+        # that means a prior test's curator can leak into the next
+        # test and race for the same Ollama inference queue —
+        # deadlocking under single-inference-at-a-time. Tests set
+        # the env var session-wide. Direct calls to
+        # ``maybe_run_curator(agent, force=True)`` from curator unit
+        # tests are unaffected; only the background spawn is gated.
+        import os
+        if os.environ.get("ATHENA_DISABLE_BACKGROUND_CURATOR") == "1":
+            return
         try:
             import threading
 

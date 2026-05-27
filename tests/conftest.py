@@ -17,6 +17,34 @@ from athena.skills import loader
 from athena.skills.frontmatter import SkillFrontmatter, serialize_frontmatter
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _disable_background_curator() -> None:
+    """Block ``Agent.__init__``'s session-start curator spawn for the
+    whole pytest run.
+
+    The spawn launches a ``daemon=True`` thread that calls
+    ``maybe_run_curator(self)``, which forks another Agent and hits
+    the LLM provider. ``Agent.close()`` can't reach the daemon
+    thread to stop it — once spawned, it runs until natural
+    completion (often blocked on Ollama I/O) or process exit. In
+    pytest that means a prior test's curator can outlive its
+    Agent and race the next test for Ollama's single-inference
+    queue, deadlocking on socket reads.
+
+    The env var only gates the background spawn from session-start;
+    direct calls to ``maybe_run_curator(agent, force=True)`` from
+    ``tests/curator/`` still hit the real function.
+    """
+    import os
+    saved = os.environ.get("ATHENA_DISABLE_BACKGROUND_CURATOR")
+    os.environ["ATHENA_DISABLE_BACKGROUND_CURATOR"] = "1"
+    yield
+    if saved is None:
+        os.environ.pop("ATHENA_DISABLE_BACKGROUND_CURATOR", None)
+    else:
+        os.environ["ATHENA_DISABLE_BACKGROUND_CURATOR"] = saved
+
+
 @pytest.fixture(autouse=True)
 def _path_security_workspace(tmp_path: Path) -> None:
     """Point path_security at tmp_path for every test.
