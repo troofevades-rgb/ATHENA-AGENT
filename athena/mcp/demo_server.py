@@ -20,10 +20,32 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import sys
 from typing import Any
 
 PROTOCOL_VERSION = "2024-11-05"
+
+
+def _log_call(name: Any, args: dict[str, Any], result: str, is_error: bool) -> None:
+    """Append one ``{tool, args, result, is_error}`` JSON line to
+    the file pointed at by ``$ATHENA_EVAL_MCP_LOG`` if that env var
+    is set. Used by the agent-eval harness to verify the agent called
+    the right tools with the right args; no-op in normal use. Best
+    effort — failures here must NOT interrupt the MCP protocol."""
+    log_path = os.environ.get("ATHENA_EVAL_MCP_LOG")
+    if not log_path:
+        return
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "tool": name,
+                "args": args,
+                "result": result,
+                "is_error": is_error,
+            }) + "\n")
+    except OSError:
+        pass
 
 TOOLS = [
     {
@@ -95,20 +117,23 @@ def _handle(msg: dict[str, Any]) -> None:
     elif method == "tools/call":
         name = params.get("name")
         args = params.get("arguments") or {}
+        result_text: str = ""
+        is_error = False
         try:
             if name == "echo":
-                _result(req_id, _text_content(str(args.get("text", ""))))
+                result_text = str(args.get("text", ""))
             elif name == "add":
-                s = float(args["a"]) + float(args["b"])
-                _result(req_id, _text_content(str(s)))
+                result_text = str(float(args["a"]) + float(args["b"]))
             elif name == "current_time":
-                _result(
-                    req_id, _text_content(datetime.datetime.now().isoformat(timespec="seconds"))
-                )
+                result_text = datetime.datetime.now().isoformat(timespec="seconds")
             else:
-                _result(req_id, _text_content(f"unknown tool: {name}", is_error=True))
+                result_text = f"unknown tool: {name}"
+                is_error = True
         except (KeyError, TypeError, ValueError) as e:
-            _result(req_id, _text_content(f"bad arguments: {e}", is_error=True))
+            result_text = f"bad arguments: {e}"
+            is_error = True
+        _log_call(name, args, result_text, is_error)
+        _result(req_id, _text_content(result_text, is_error=is_error))
     else:
         _error(req_id, -32601, f"method not found: {method}")
 
