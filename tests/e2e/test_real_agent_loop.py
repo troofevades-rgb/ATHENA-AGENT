@@ -90,13 +90,19 @@ def real_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # the LOOP works, not measuring response quality. 3B models
     # finish a 50-token sanity reply in seconds; 14B+ models can
     # take minutes with our 45KB system prompt.
+    # Candidate order: tool-tuned models FIRST, then size-graded
+    # fallbacks. The tool-call test exercises structured tool
+    # emission, which 7-8B non-tool-tuned models often miss
+    # (emitting tool-call JSON as text rather than using the
+    # structured tool_calls field). mistral:latest and
+    # llama3.1:8b are reliably bad at it; coder-tuned tags and
+    # the user's own athena tag are reliably good.
     candidates = [
-        "llama3.2:3b",          # 3B — fastest
-        "mistral:latest",       # 7B
-        "llama3.1:8b",          # 8B
-        "qwen2.5-coder:14b",    # 14B — slower fallback
-        "troofevades-q35:athena",
-        "qwen3-coder:30b",
+        "qwen2.5-coder:14b",    # 14B — coder-tuned, reliable tools
+        "troofevades-q35:athena",  # user's tuned 30B-MoE
+        "qwen3-coder:30b",       # 30B coder
+        "llama3.2:3b",           # 3B — fast but tool-flaky; last resort
+        "llama3.1:8b",           # 8B — same flakiness; last resort
     ]
     chosen = next((m for m in candidates if _target_model_loaded(m)), None)
     if chosen is None:
@@ -137,8 +143,27 @@ def real_agent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     cfg.model = chosen
     cfg.profile = "default"
     cfg.review.nudge_interval = 0  # disable background review
-    # Curator default interval is 168h (7 days) so won't fire during
-    # a test run; no extra disabling needed for it.
+    # Curator: with proper isolated_home, the tmp profile has no
+    # ``last_run_at`` history. The first-run check at
+    # ``orchestrator.maybe_run_curator`` line 62 only fails when
+    # last_run_at IS set AND recent — so a fresh profile triggers
+    # the curator unconditionally. That fork competes with the
+    # foreground turn for Ollama (single-inference queue), deadlocks,
+    # blows the test timeout. Setting interval_hours huge doesn't
+    # help because the first-run check ignores interval. Hard-stub
+    # the orchestrator entry point to a no-op.
+    monkeypatch.setattr(
+        "athena.curator.orchestrator.maybe_run_curator",
+        lambda *a, **kw: None,
+    )
+    # Approval callback: tests run with stdin captured, so any
+    # ``ui.confirm()`` call would OSError on input(). Some small
+    # models call write-like tools speculatively even when told not
+    # to ("Reply with exactly: HELLO_OK" sometimes drives a 7B model
+    # to Write the response to a file). AUTO_DENY responds "deny"
+    # without prompting — model gets a denied result, can continue.
+    from athena.safety.approval_callback import AUTO_DENY, set_approval_callback
+    _approval_token = set_approval_callback(AUTO_DENY)
 
     agent = Agent(cfg=cfg, workspace=workspace)
     # The default system prompt loads ATHENA.md + skills catalog +

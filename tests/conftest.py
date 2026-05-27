@@ -38,6 +38,23 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("USERPROFILE", str(home))  # Windows
     # Python caches expanduser results; nudge Path.home() by patching it.
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    # ``athena.config.CONFIG_DIR`` is computed at module import time
+    # (``Path.home() / ".athena"`` — frozen as a module-level constant).
+    # Monkeypatching ``Path.home`` AFTER import doesn't change CONFIG_DIR,
+    # so anything that reads via ``profile_dir(...)`` without a ``home=``
+    # override still hits the developer's real ~/.athena. That made
+    # tests like ``test_anthropic_provider_gets_cache_markers`` read the
+    # user's real ``goal_state.json``, and when it had an active goal
+    # with ``max_turns=10000`` the agent looped 10k turns until pytest
+    # timed it out. Redirect every CONFIG_DIR-derived constant in
+    # athena.config so subsystems reading via profile_dir() see the tmp
+    # home too.
+    import athena.config as _athena_config
+    tmp_config_dir = home / ".athena"
+    monkeypatch.setattr(_athena_config, "CONFIG_DIR", tmp_config_dir)
+    monkeypatch.setattr(_athena_config, "CONFIG_PATH", tmp_config_dir / "config.toml")
+    monkeypatch.setattr(_athena_config, "SESSIONS_DIR", tmp_config_dir / "sessions")
+    monkeypatch.setattr(_athena_config, "USER_MCP_PATH", tmp_config_dir / "mcp.json")
     # Body cache must not leak across tests.
     loader.invalidate_all()
     return home
