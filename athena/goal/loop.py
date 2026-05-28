@@ -53,26 +53,39 @@ logger = logging.getLogger(__name__)
 # start of a line, then the literal sentinel. ACHIEVED is a whole line;
 # BLOCKED captures the reason after the colon.
 #
-# Both are MULTILINE so the contract is "any line in the assistant's
-# message" — the spec says "end your message with the line", but a
-# friendlier scanner accepts the sentinel anywhere on its own line so
-# a trailing markdown rendering quirk doesn't lose us achievement.
+# Match only the LAST non-empty line of the assistant's message. The
+# previous MULTILINE regex matched the sentinel anywhere -- including
+# when the model quoted the contract back at the user ("> GOAL ACHIEVED
+# - when you see this line, stop"), ending the loop spuriously. The
+# spec says the model must END the message with the sentinel, so we
+# enforce that. ``_LEAD`` still tolerates a markdown bullet / blockquote
+# prefix because real model output frequently renders the final line
+# that way.
 #
-# The DOTALL is intentionally NOT set; the reason capture stops at the
-# end of its line so multi-paragraph blocked messages don't slurp the
-# whole tail into ``reason``.
+# The matchers below are called by helpers that pre-extract the last
+# non-empty line of the assistant message; the regex itself anchors
+# with ``^`` / ``$`` against that single line.
 
 _LEAD = r"^\s*[>#*\-•]*\s*"
 
 _ACHIEVED_RX = re.compile(
     _LEAD + r"GOAL\s+ACHIEVED\b[^\n]*$",
-    re.IGNORECASE | re.MULTILINE,
+    re.IGNORECASE,
 )
 
 _BLOCKED_RX = re.compile(
     _LEAD + r"GOAL\s+BLOCKED\s*:\s*(.+?)\s*$",
-    re.IGNORECASE | re.MULTILINE,
+    re.IGNORECASE,
 )
+
+
+def _last_nonempty_line(text: str) -> str:
+    """Return the rightmost line of ``text`` that contains a
+    non-whitespace character; empty string when there is none."""
+    for line in reversed(text.splitlines()):
+        if line.strip():
+            return line
+    return ""
 
 
 @dataclasses.dataclass
@@ -262,9 +275,15 @@ def scan_sentinels(assistant_text: str) -> tuple[bool, str | None]:
     """
     if not assistant_text or not isinstance(assistant_text, str):
         return False, None
-    if _ACHIEVED_RX.search(assistant_text):
+    # Anchor matching on the LAST non-empty line so the loop doesn't
+    # end when the model quotes the contract back at the user
+    # ("> GOAL ACHIEVED - when you see this line...").
+    last = _last_nonempty_line(assistant_text)
+    if not last:
+        return False, None
+    if _ACHIEVED_RX.search(last):
         return True, None
-    m = _BLOCKED_RX.search(assistant_text)
+    m = _BLOCKED_RX.search(last)
     if m:
         reason = m.group(1).strip()
         return False, reason or None

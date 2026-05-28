@@ -288,6 +288,22 @@ def skill_write_file(
                 raise CuratorPolicyError(reason)
 
     target = skill_dir / Path(*parts)
+    # Belt-and-suspenders: the string-level ".." check above rejects
+    # literal traversal, but a symlink inside the skill dir (a user-
+    # placed ``references/`` → ``..``) would escape it. Verify the
+    # resolved target sits inside the resolved skill dir.
+    skill_dir_resolved = skill_dir.resolve()
+    try:
+        target_resolved = target.resolve()
+    except OSError as e:
+        raise ValueError(f"file_path is not resolvable: {e}") from e
+    if (
+        target_resolved != skill_dir_resolved
+        and skill_dir_resolved not in target_resolved.parents
+    ):
+        raise ValueError(
+            f"resolved target {target_resolved} escapes skill dir {skill_dir_resolved}"
+        )
     from ..tools.delta_lint import lint_after_write
 
     lint_err = lint_after_write(target, content)

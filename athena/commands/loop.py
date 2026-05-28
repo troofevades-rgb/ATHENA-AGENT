@@ -87,7 +87,19 @@ def cmd_loop(agent, arg: str = "") -> str:
             ui.console.print(f"\n[bold cyan]── /loop tick #{ticks} ({body!r}) ──[/]\n")
             _run_iteration(agent, body)
 
-    th = threading.Thread(target=_runner, name="athena-loop", daemon=True)
+    # Snapshot the foreground context so write_origin, approval
+    # callback, and any other ContextVars set in the REPL propagate
+    # into the loop thread. Plain ``threading.Thread`` does NOT copy
+    # ContextVars; the loop body would otherwise see defaults --
+    # critically, a gateway-installed approval router on the
+    # foreground would not be visible inside the loop's tool calls.
+    import contextvars as _ctx
+    _foreground_ctx = _ctx.copy_context()
+
+    def _entry() -> None:
+        _foreground_ctx.run(_runner)
+
+    th = threading.Thread(target=_entry, name="athena-loop", daemon=True)
     _LOOP = {"stop": stop, "thread": th, "body": body, "interval": interval}
     th.start()
     ui.info(f"loop scheduled: every {interval:.0f}s -> {body!r}. /loop-stop to cancel.")

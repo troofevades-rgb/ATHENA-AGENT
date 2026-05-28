@@ -279,15 +279,24 @@ def _hbitmap_to_bmp(hbm: int, width: int, height: int, gdi32) -> bytes:
 
     pixel_count = width * height * 4
     buf = (ctypes.c_ubyte * pixel_count)()
-    rows = gdi32.GetDIBits(
-        ctypes.windll.user32.GetDC(None),
-        hbm,
-        0,
-        height,
-        ctypes.byref(buf),
-        ctypes.byref(bmi),
-        0,
-    )
+    # GetDC(NULL) returns a screen DC that we MUST release; the prior
+    # code passed it inline and never freed it, leaking one user-object
+    # DC per screenshot. Windows caps per-process user DCs around 10k,
+    # so a long-running computer-use loop eventually started silently
+    # failing screenshots (BitBlt/GetDIBits would return 0).
+    screen_dc = ctypes.windll.user32.GetDC(None)
+    try:
+        rows = gdi32.GetDIBits(
+            screen_dc,
+            hbm,
+            0,
+            height,
+            ctypes.byref(buf),
+            ctypes.byref(bmi),
+            0,
+        )
+    finally:
+        ctypes.windll.user32.ReleaseDC(None, screen_dc)
     if not rows:
         raise RuntimeError("GetDIBits failed")
 

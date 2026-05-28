@@ -31,7 +31,12 @@ import tomli_w
 logger = logging.getLogger(__name__)
 
 
-SubprocessRunner = "subprocess._SubprocessTarget"
+from collections.abc import Callable
+
+# Type for the ``runner`` test seam — ``subprocess._SubprocessTarget`` was
+# never a real CPython name; only ``from __future__ import annotations``
+# was hiding the AttributeError at runtime introspection.
+SubprocessRunner = Callable[..., int]
 
 
 def register_with_ollama(
