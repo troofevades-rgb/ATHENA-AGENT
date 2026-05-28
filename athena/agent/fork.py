@@ -115,6 +115,13 @@ def fork(
     from .core import Agent, _current_agent
 
     client = build_auxiliary_client(self) if auxiliary_client else self.client
+    # Inherit the parent's plugin dispatcher so policy plugins
+    # (shell_audit, allowlists, custom vetoes) apply inside forks
+    # too. Without this the child Agent falls through to an empty
+    # HookDispatcher and any pre_tool_call veto wired in by a
+    # plugin is silently ignored inside background_review and
+    # curator forks -- a real escape hatch for a plugin that, e.g.,
+    # blocks Bash in the REPL.
     child = Agent(
         child_cfg,
         self.workspace,
@@ -122,6 +129,7 @@ def fork(
         client=client,
         session_store=self.session_store,
         parent_session_id=self.session_id,
+        plugin_hooks=self.plugin_hooks,
     )
     # If we built an auxiliary client, the child owns it (close on shutdown).
     # If we passed the parent's client, the child does NOT own it.

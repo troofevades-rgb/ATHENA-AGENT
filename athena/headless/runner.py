@@ -159,15 +159,32 @@ def run_headless(
     timed_out = {"flag": False}
     timer: threading.Timer | None = None
     if timeout_s is not None and timeout_s > 0:
-        import _thread
 
         def _fire_timeout() -> None:
-            # Interrupt the main thread the way Ctrl+C does.
-            # The agent's existing turn-cancel paths catch
-            # KeyboardInterrupt at the same call sites used by
-            # the interactive UI.
+            # Cancel the agent's in-flight work via the same
+            # mechanism the interactive ESC handler uses:
+            # ``cancel_pending`` is checked at the top of every
+            # tool round and ``_cancel_in_flight`` aborts the
+            # current HTTP stream so the worker unblocks
+            # immediately. The previous implementation used
+            # ``_thread.interrupt_main`` which raises
+            # KeyboardInterrupt in the PROCESS main thread, not
+            # whichever thread invoked run_headless -- batch /
+            # gateway adapters that call run_headless from a
+            # worker thread would either kill the wrong thread or
+            # land the KeyboardInterrupt outside the try/except
+            # window (after timer.cancel() / agent.close()).
             timed_out["flag"] = True
-            _thread.interrupt_main()
+            try:
+                agent.cancel_pending = True
+            except Exception:
+                pass
+            cancel = getattr(agent, "_cancel_in_flight", None)
+            if callable(cancel):
+                try:
+                    cancel()
+                except Exception:
+                    pass
 
         timer = threading.Timer(float(timeout_s), _fire_timeout)
         timer.daemon = True
@@ -179,12 +196,11 @@ def run_headless(
     try:
         agent.run_turn(task)
     except KeyboardInterrupt:
-        if timed_out["flag"]:
-            status = "timeout"
-            error = f"wall-clock timeout after {timeout_s:.1f}s"
-        else:
-            status = "interrupted"
-            error = "interrupted by user (SIGINT)"
+        # External SIGINT (Ctrl+C). The timeout path above no
+        # longer raises KeyboardInterrupt, so reaching here means
+        # the operator actually hit Ctrl+C.
+        status = "interrupted"
+        error = "interrupted by user (SIGINT)"
     except Exception as e:  # noqa: BLE001
         logger.exception("headless run failed")
         status = "error"
@@ -192,6 +208,12 @@ def run_headless(
     finally:
         if timer is not None:
             timer.cancel()
+        if timed_out["flag"] and status == "ok":
+            # run_turn returned cleanly after we requested cancel —
+            # mark as timeout for the envelope. If the agent raised
+            # something else first that's already in ``status``.
+            status = "timeout"
+            error = f"wall-clock timeout after {timeout_s:.1f}s"
         try:
             agent.close()
         except Exception:  # noqa: BLE001

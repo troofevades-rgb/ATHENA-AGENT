@@ -44,16 +44,16 @@ def _default_agent_factory(
     Imports deferred so the module loads in environments without
     ollama / network access (the test seam never reaches here).
 
-    Also installs AUTO_DENY as the approval callback so any tool
-    that would otherwise prompt for confirmation fails closed —
-    the eval runs unattended and stdin is captured.
+    Note: AUTO_DENY is installed inside the worker thread by
+    ``run_task`` (see below) — installing it here is wrong because
+    ``threading.Thread`` does NOT propagate ContextVars to its target.
+    A previous version set it on the eval main thread, where it had
+    no effect inside the runner thread; tasks then blocked on stdin
+    for any confirmation-required tool and got reported as "timeout"
+    instead of "approval deadlock."
     """
     from athena.agent.core import Agent
     from athena.config import Config
-    from athena.safety.approval_callback import (
-        AUTO_DENY,
-        set_approval_callback,
-    )
 
     cfg = Config(model=model)
     cfg.profile = "default"
@@ -63,11 +63,6 @@ def _default_agent_factory(
         cfg.enabled_toolsets = list(enabled_toolsets)
     if policy_config is not None:
         cfg.parseltongue = dict(policy_config)
-
-    # AUTO_DENY: confirmation-required tools fail closed in eval.
-    # Token reset is the caller's job (the runner already restores
-    # in a finally below).
-    set_approval_callback(AUTO_DENY)
 
     return Agent(cfg, workspace, model=model)
 
@@ -177,11 +172,27 @@ def run_task(
         status_holder: dict[str, Any] = {"done": False, "exc": None}
 
         def _runner() -> None:
+            # AUTO_DENY MUST be installed inside this thread, not on
+            # the eval main thread: threading.Thread does not propagate
+            # ContextVars to its target. Without this, a task whose
+            # agent calls a confirmation-required tool would block on
+            # the default interactive callback (stdin), then trip the
+            # worker.join timeout and be misreported as "timeout"
+            # instead of "approval deadlock."
+            from athena.safety.approval_callback import (
+                AUTO_DENY,
+                reset_approval_callback,
+                set_approval_callback,
+            )
+
+            approval_token = set_approval_callback(AUTO_DENY)
             try:
                 agent.run_until_done(task.prompt)
                 status_holder["done"] = True
             except BaseException as e:  # noqa: BLE001
                 status_holder["exc"] = e
+            finally:
+                reset_approval_callback(approval_token)
 
         worker = threading.Thread(
             target=_runner,

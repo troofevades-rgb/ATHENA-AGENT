@@ -177,16 +177,37 @@ async def _run_agent(
 ) -> str:
     """Construct an Agent, run one turn, return last assistant
     message. Agent runs in a worker thread; the asyncio loop stays
-    free."""
+    free.
+
+    The worker installs ``AUTO_DENY`` and ``write_origin=SYSTEM``
+    inside the worker thread itself. A webhook daemon has no stdin
+    bound so any confirmation prompt would block the executor
+    forever, and without an explicit write_origin every webhook
+    mutation was being attributed to ``foreground`` — the curator
+    then refused to prune them.
+    """
+    from ..provenance import SYSTEM, reset_current_write_origin, set_current_write_origin
+    from ..safety.approval_callback import (
+        AUTO_DENY,
+        reset_approval_callback,
+        set_approval_callback,
+    )
+
     if agent_factory is None:
         agent_factory = _default_agent_factory
     agent = await asyncio.to_thread(agent_factory)
+
+    def _run_with_guards() -> None:
+        approval_token = set_approval_callback(AUTO_DENY)
+        origin_token = set_current_write_origin(SYSTEM)
+        try:
+            agent.run_until_done(prompt, max_iterations=_AGENT_MAX_ITERATIONS)
+        finally:
+            reset_current_write_origin(origin_token)
+            reset_approval_callback(approval_token)
+
     try:
-        await asyncio.to_thread(
-            agent.run_until_done,
-            prompt,
-            max_iterations=_AGENT_MAX_ITERATIONS,
-        )
+        await asyncio.to_thread(_run_with_guards)
         return agent.last_assistant_message() or ""
     finally:
         close = getattr(agent, "close", None)
