@@ -61,29 +61,34 @@ def run_agent_job(job, *, store: JobStore | None = None) -> dict:
     # just to construct a CronJob.
     from ..agent import Agent
     from ..config import load_config
+    from ..provenance import CRON, reset_current_write_origin, set_current_write_origin
 
+    token = set_current_write_origin(CRON)
     try:
-        cfg = load_config()
-        agent = Agent(cfg, Path.cwd())
         try:
-            agent.run_until_done(prompt, max_iterations=_AGENT_MAX_ITERATIONS)
+            cfg = load_config()
+            agent = Agent(cfg, Path.cwd())
+            try:
+                agent.run_until_done(prompt, max_iterations=_AGENT_MAX_ITERATIONS)
+                result = {
+                    "status": "success",
+                    "response": agent.last_assistant_message(),
+                    "tool_calls": agent.tool_call_trace(),
+                    "started_at": start.isoformat(),
+                }
+                status = "success"
+            finally:
+                agent.close()
+        except Exception as e:
+            logger.exception("agent cron %s failed", job.id)
             result = {
-                "status": "success",
-                "response": agent.last_assistant_message(),
-                "tool_calls": agent.tool_call_trace(),
+                "status": "error",
+                "reason": f"{type(e).__name__}: {e}",
                 "started_at": start.isoformat(),
             }
-            status = "success"
-        finally:
-            agent.close()
-    except Exception as e:
-        logger.exception("agent cron %s failed", job.id)
-        result = {
-            "status": "error",
-            "reason": f"{type(e).__name__}: {e}",
-            "started_at": start.isoformat(),
-        }
-        status = "error"
+            status = "error"
+    finally:
+        reset_current_write_origin(token)
 
     if store:
         store.record_run(job.id, status=status)

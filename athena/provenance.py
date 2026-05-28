@@ -19,8 +19,9 @@ BACKGROUND_REVIEW: Final = "background_review"
 CURATOR: Final = "curator"
 MIGRATION: Final = "migration"
 SYSTEM: Final = "system"
+CRON: Final = "cron"
 
-_WRITE_ORIGINS: Final = {FOREGROUND, BACKGROUND_REVIEW, CURATOR, MIGRATION, SYSTEM}
+_WRITE_ORIGINS: Final = {FOREGROUND, BACKGROUND_REVIEW, CURATOR, MIGRATION, SYSTEM, CRON}
 
 _write_origin: contextvars.ContextVar[str] = contextvars.ContextVar(
     "athena_write_origin", default=FOREGROUND

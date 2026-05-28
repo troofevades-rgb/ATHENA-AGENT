@@ -160,11 +160,19 @@ class CronScheduler:
                 e,
             )
             raise
+        # 10-minute misfire window: if the daemon was offline when a fire
+        # time came up, run the job iff we're within 10 min of when it
+        # was supposed to fire — otherwise skip it. The previous
+        # ``misfire_grace_time=None`` (no grace window) meant every
+        # missed firing replayed after a restart; a daemon offline for
+        # 12h would burst-fire 12 hourly jobs simultaneously, saturating
+        # the credential pool.
         self._sched.add_job(
             target,
             trigger=trigger,
             args=[job.id],
             id=job.id,
             replace_existing=True,
-            misfire_grace_time=None,  # let late jobs still run on resume
+            misfire_grace_time=600,
+            coalesce=True,
         )
