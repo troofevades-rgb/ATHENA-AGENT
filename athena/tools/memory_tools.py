@@ -1,6 +1,24 @@
-"""Memory write/list/delete tools, exposing athena.memory to the model."""
+"""Memory write/list/delete tools, exposing athena.memory to the model.
+
+History: the workspace-keyed legacy API (``~/.athena/projects/<slug>/memory/``)
+and the profile-keyed provider (``~/.athena/profiles/<profile>/memory/``)
+shipped as parallel stores. The model wrote to one, the MCP-side
+``query_memory`` server tool and the ``athena memory`` CLI read from the
+other -- a cross-surface workflow gap (gateway/cron/webhook agents saw a
+different memory set than the foreground REPL).
+
+Until Phase 14 finishes the full migration, the @tool wrappers below
+dual-write: each write hits the legacy workspace-keyed location AND the
+profile-keyed provider, and reads aggregate from both with dedupe on
+filename. This keeps existing data visible while making new writes
+visible to MCP / CLI consumers. ``profile`` is sourced from the active
+agent's config; when no agent is bound (rare; only happens in tests
+that bypass ``Agent``), we fall back to "default".
+"""
 
 from __future__ import annotations
+
+import logging
 
 from ..memory import (
     delete_memory as _delete,
@@ -13,6 +31,22 @@ from ..memory import (
 )
 from . import file_ops  # for current workspace
 from .registry import tool
+
+logger = logging.getLogger(__name__)
+
+
+def _active_profile() -> str:
+    """Best-effort lookup of the active agent's profile so dual-writes
+    land in the right profile-keyed dir. Falls back to "default" so a
+    test that never constructs an Agent still gets a usable write."""
+    try:
+        from ..agent.core import get_current_agent  # lazy: avoid import cycle
+    except ImportError:
+        return "default"
+    agent = get_current_agent()
+    if agent is None:
+        return "default"
+    return getattr(agent.cfg, "profile", None) or "default"
 
 
 @tool(
@@ -60,6 +94,23 @@ def write_memory(filename: str, name: str, description: str, type: str, body: st
         )
     except ValueError as e:
         return f"ERROR: {e}"
+    # Dual-write to the profile-keyed provider so MCP / CLI consumers
+    # see the entry. A provider failure must not break the legacy
+    # path -- log and continue. write_origin is "foreground" because
+    # the @tool surface is always model-driven.
+    try:
+        from ..memory.store import write_entry as _write_entry
+        _write_entry(
+            _active_profile(),
+            filename=filename,
+            name=name,
+            description=description,
+            type=type,
+            body=body,
+            write_origin="foreground",
+        )
+    except Exception:
+        logger.debug("memory_tools.write_memory provider mirror failed", exc_info=True)
     return f"saved memory: {path}"
 
 
@@ -70,14 +121,31 @@ def write_memory(filename: str, name: str, description: str, type: str, body: st
     parameters={"type": "object", "properties": {}},
 )
 def list_memories() -> str:
-    mems = _list(file_ops._WORKSPACE)
-    if not mems:
-        return "(no memories saved for this workspace)"
-    lines = []
-    for mf in mems:
+    seen_filenames: set[str] = set()
+    lines: list[str] = []
+    for mf in _list(file_ops._WORKSPACE):
+        seen_filenames.add(mf.path.name)
         lines.append(f"[{mf.type}] {mf.path.name} — {mf.name}")
         if mf.description:
             lines.append(f"  {mf.description}")
+    # Pull entries from the profile-keyed provider too. Dedupe on the
+    # filename so dual-written entries don't appear twice; entries that
+    # only exist in the new store (e.g. written by a sibling MCP
+    # consumer) still show up.
+    try:
+        from ..memory.store import list_entries
+        for entry in list_entries(_active_profile()):
+            fname = getattr(entry, "filename", None) or f"{entry.name}.md"
+            if fname in seen_filenames:
+                continue
+            seen_filenames.add(fname)
+            lines.append(f"[{entry.type}] {fname} — {entry.name}")
+            if entry.description:
+                lines.append(f"  {entry.description}")
+    except Exception:
+        logger.debug("memory_tools.list_memories provider lookup failed", exc_info=True)
+    if not lines:
+        return "(no memories saved for this workspace)"
     return "\n".join(lines)
 
 
@@ -92,6 +160,21 @@ def list_memories() -> str:
     },
 )
 def delete_memory(filename: str) -> str:
-    if _delete(file_ops._WORKSPACE, filename):
+    legacy_hit = False
+    try:
+        legacy_hit = _delete(file_ops._WORKSPACE, filename)
+    except ValueError as e:
+        return f"ERROR: {e}"
+    # Also clean up the profile-keyed mirror so a sibling MCP query
+    # doesn't keep seeing the deleted entry. Any failure is logged
+    # rather than surfaced -- the legacy delete is the contract.
+    provider_hit = False
+    try:
+        from ..memory.store import delete_entry
+        name = filename[:-3] if filename.endswith(".md") else filename
+        provider_hit = bool(delete_entry(_active_profile(), name))
+    except Exception:
+        logger.debug("memory_tools.delete_memory provider mirror failed", exc_info=True)
+    if legacy_hit or provider_hit:
         return f"deleted {filename}"
     return f"ERROR: {filename} not found"

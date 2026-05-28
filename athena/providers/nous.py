@@ -33,6 +33,7 @@ class NousProvider(OpenAICompatibleProvider):
             streaming=True,
             prompt_caching=True,
             cache_ttls_seconds=(),
+            anthropic_cache_markers=True,
             structured_output=True,
             is_local=False,
             native_format="openai",

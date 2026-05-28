@@ -91,6 +91,7 @@ class AnthropicProvider(Provider):
             max_image_edge_px=1568,
             prompt_caching=True,
             cache_ttls_seconds=(300, 3600),
+            anthropic_cache_markers=True,
             structured_output=True,
             max_context_tokens=200_000,
             is_local=False,

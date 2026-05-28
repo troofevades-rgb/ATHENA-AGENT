@@ -77,6 +77,15 @@ class Capabilities:
     max_image_edge_px: int | None = None
     prompt_caching: bool = False
     cache_ttls_seconds: tuple[int, ...] = ()
+    # True when the provider accepts Anthropic-shape ``cache_control``
+    # markers on messages (native Anthropic + relay providers that pass
+    # the marker through to an Anthropic backend, i.e. OpenRouter,
+    # Nous Portal). Providers whose prompt caching is purely automatic
+    # (OpenAI server-side prefix detection) leave this False -- the
+    # agent loop's marker-application step is then a no-op for them.
+    # Distinct from ``prompt_caching`` because that means "has a
+    # cache"; this means "wants client-side markers."
+    anthropic_cache_markers: bool = False
     kv_cache_reuse: bool = False
     structured_output: bool = False
     embeddings: bool = False

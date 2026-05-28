@@ -1773,26 +1773,33 @@ class Agent:
         if len(result.new_messages) > 1:
             self._persist_message(result.new_messages[1])
 
-    # Providers that benefit from Anthropic-style cache_control
-    # markers. OpenRouter and Nous-Portal relay the marker upstream
-    # when the underlying model is Anthropic; the field is a no-op
-    # for non-Anthropic backends behind the same routing layer.
-    _CACHE_AWARE_PROVIDERS = frozenset({"anthropic", "openrouter", "nous"})
-
     def _messages_with_cache_markers(self) -> list[dict[str, Any]]:
         """Return ``self.messages`` with cache_control markers if the
-        active provider is Anthropic-flavoured and caching is enabled
-        in ``cfg.cache_strategy``. Pure copy — does not mutate
+        active provider has declared support for Anthropic-shape
+        ``cache_control`` markers and caching is enabled in
+        ``cfg.cache_strategy``. Pure copy — does not mutate
         ``self.messages``.
+
+        Whether the provider wants markers is read from
+        :attr:`Capabilities.anthropic_cache_markers` rather than a
+        hardcoded provider-name allowlist; that lets new providers
+        opt in by setting the capability instead of editing this
+        method. Providers whose prompt caching is automatic (OpenAI
+        server-side prefix detection) declare ``prompt_caching=True``
+        without the marker flag and get this method as a no-op.
         """
         strategy = getattr(self.cfg, "cache_strategy", "none")
         if strategy == "none":
             return self.messages
-        provider_name = getattr(self.provider, "name", "")
-        if provider_name not in self._CACHE_AWARE_PROVIDERS:
+        try:
+            caps = self.provider.capabilities(self.model)
+        except Exception:
+            return self.messages
+        if not getattr(caps, "anthropic_cache_markers", False):
             return self.messages
         from .prompt_caching import apply_cache_markers
 
+        provider_name = getattr(self.provider, "name", "")
         return apply_cache_markers(
             self.messages,
             strategy=strategy,  # type: ignore[arg-type]

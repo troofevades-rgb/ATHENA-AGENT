@@ -17,7 +17,7 @@ import pytest
 
 from athena.agent.core import Agent
 from athena.config import Config
-from athena.providers.base import StreamChunk
+from athena.providers.base import Capabilities, StreamChunk
 
 
 class _RecordingProvider:
@@ -27,6 +27,17 @@ class _RecordingProvider:
         self.name = name
         self.requires_api_key = False
         self.calls: list[list[dict[str, Any]]] = []
+        # Cache-marker dispatch reads anthropic_cache_markers off the
+        # provider's Capabilities. Default to "Anthropic-flavoured"
+        # because most tests in this file want markers applied; the
+        # negative-path tests override ``name`` AND set this False.
+        self._caps = Capabilities(
+            prompt_caching=True,
+            anthropic_cache_markers=(name in {"anthropic", "openrouter", "nous"}),
+        )
+
+    def capabilities(self, model: str | None = None) -> Capabilities:
+        return self._caps
 
     def stream_chat(
         self, *, model: str, messages: list[dict[str, Any]], **kwargs: Any

@@ -47,6 +47,7 @@ class OpenRouterProvider(OpenAICompatibleProvider):
             vision=True,
             prompt_caching=True,  # OR passes through underlying caches
             cache_ttls_seconds=(),
+            anthropic_cache_markers=True,  # passes through to Anthropic-backed models
             structured_output=True,
             max_context_tokens=200_000,
             is_local=False,

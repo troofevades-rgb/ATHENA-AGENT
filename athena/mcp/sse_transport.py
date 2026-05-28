@@ -399,10 +399,35 @@ class SSETransport:
         if self._closed:
             raise SSEError(f"[{self.name}] transport is closed")
         timeout = timeout if timeout is not None else self.request_timeout
-        result_box: dict[str, Any] = self._submit_blocking(
-            self._async_request(method, params),
-            timeout=timeout,
-        )
+        # Poll incrementally so that if the server connection drops
+        # mid-request (e.g. token revoked, network blip), the caller
+        # unblocks in ~1s instead of stalling for the full
+        # request_timeout (60s default). Mirrors the dead-server check
+        # MCPStdioClient.request added; without it, every foreground
+        # tool call against a wedged SSE server stalled a full minute
+        # while ``_listen`` was already trying to reconnect.
+        coro_future = asyncio.run_coroutine_threadsafe(
+            self._async_request(method, params), self._loop
+        ) if self._loop is not None else None
+        if coro_future is None:
+            raise SSEError(f"[{self.name}] event loop unavailable")
+        elapsed = 0.0
+        step = 1.0
+        while True:
+            remaining = timeout - elapsed
+            if remaining <= 0:
+                coro_future.cancel()
+                raise SSEError(f"[{self.name}] timeout waiting for {method!r}")
+            try:
+                result_box = coro_future.result(timeout=min(step, remaining))
+                break
+            except FutTimeout:
+                if not self.is_alive():
+                    coro_future.cancel()
+                    raise SSEError(
+                        f"[{self.name}] transport closed while waiting for {method!r}"
+                    )
+                elapsed += step
         if "error" in result_box:
             err = result_box["error"]
             raise SSEError(f"[{self.name}] {method} returned error: {err}")
