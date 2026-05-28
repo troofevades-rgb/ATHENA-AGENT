@@ -189,8 +189,25 @@ def write_memory(
 
 
 def delete_memory(workspace: Path, filename: str) -> bool:
+    # Same model-callable surface as write_memory — guard against
+    # prompt-injected ``filename="../../../etc/passwd"`` deleting
+    # arbitrary files. Mirrors the literal + resolved-containment
+    # check used by write_memory above.
+    if not filename.endswith(".md"):
+        filename += ".md"
+    if filename == "MEMORY.md":
+        raise ValueError("cannot delete MEMORY.md via delete_memory")
+    if "/" in filename or "\\" in filename or ".." in filename.split("/") + filename.split("\\"):
+        raise ValueError(
+            f"memory filename must be a bare filename without path separators: {filename!r}"
+        )
     d = memory_dir(workspace)
     target = d / filename
+    d_resolved = d.resolve()
+    if d_resolved != target.resolve().parent:
+        raise ValueError(
+            f"resolved memory path {target} escapes memory dir {d}"
+        )
     if not target.exists():
         return False
     target.unlink()

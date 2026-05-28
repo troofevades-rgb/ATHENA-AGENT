@@ -440,6 +440,47 @@ def test_restore_confirm_false_aborts(
     assert (skill / "SKILL.md").read_text() == "changed"
 
 
+def test_restore_rejects_tar_slip(
+    store: SnapshotStore,
+    workspace: Path,
+    tmp_path: Path,
+) -> None:
+    """A tarball that was tampered with to contain a ``../escape``
+    member must NOT extract outside ``dest_root``. Defends against
+    a tarball being modified on disk by another tool or supply-chain
+    compromise — the snapshot dir is local but not write-protected."""
+    import tarfile as _tarfile
+    skill = _write_skill_tree(workspace)
+    token = set_current_write_origin(CURATOR)
+    try:
+        with store.snapshot_and_mutate([skill]) as snap:
+            pass
+    finally:
+        reset_current_write_origin(token)
+
+    # Tamper: append a member whose name escapes the extraction root.
+    tampered = snap.tarball_path.with_suffix(".tampered.tar.gz")
+    with _tarfile.open(snap.tarball_path, "r:gz") as src:
+        with _tarfile.open(tampered, "w:gz") as dst:
+            for m in src.getmembers():
+                f = src.extractfile(m) if m.isreg() else None
+                dst.addfile(m, f)
+            evil = _tarfile.TarInfo(name="../escaped.md")
+            payload = b"pwned"
+            import io as _io
+            evil.size = len(payload)
+            dst.addfile(evil, _io.BytesIO(payload))
+    snap.tarball_path.unlink()
+    tampered.rename(snap.tarball_path)
+
+    dest = tmp_path / "restore-here"
+    dest.mkdir()
+    store.restore(snap, dest_root=dest, confirm=lambda _: True)
+    # The legitimate skill member should restore; the escape attempt
+    # must NOT have written ``escaped.md`` next to dest's parent.
+    assert not (dest.parent / "escaped.md").exists(), "tar-slip succeeded"
+
+
 def test_restore_missing_tarball_raises(
     store: SnapshotStore,
     workspace: Path,

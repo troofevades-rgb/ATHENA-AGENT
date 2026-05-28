@@ -51,6 +51,19 @@ def register_with_ollama(
     modelfile_path = modelfile_path or (gguf_path.parent / "Modelfile")
     body = f"FROM {gguf_path}\n"
     if base_system_prompt:
+        # ``"""`` inside the system prompt would terminate the SYSTEM
+        # block and let the rest of the string inject arbitrary
+        # Modelfile directives (e.g. ``FROM /etc/passwd``). The
+        # base_system_prompt is plumbed up from user configs and
+        # migration imports where strings can originate model-side,
+        # so we can't trust it to be quote-free. Reject the unsafe
+        # case rather than try to escape — there's no documented
+        # escape syntax in the Modelfile grammar.
+        if '"""' in base_system_prompt:
+            raise ValueError(
+                "base_system_prompt must not contain triple double-quotes "
+                "(would terminate the Modelfile SYSTEM block)"
+            )
         body += f'SYSTEM """{base_system_prompt}"""\n'
     modelfile_path.parent.mkdir(parents=True, exist_ok=True)
     modelfile_path.write_text(body, encoding="utf-8")

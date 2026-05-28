@@ -357,6 +357,28 @@ def test_delete_removes_file_and_index_entry(workspace: Path) -> None:
     assert "temp.md" not in (load_memory_index(workspace) or "")
 
 
+def test_delete_rejects_path_traversal(workspace: Path, tmp_path: Path) -> None:
+    """delete_memory is model-callable; a prompt-injected filename
+    like '../../../target.md' must NOT delete files outside the
+    memory dir. Mirrors the write_memory containment contract."""
+    victim = tmp_path / "victim.md"
+    victim.write_text("important", encoding="utf-8")
+    assert victim.exists()
+
+    for bad in ("../victim", "../victim.md", "..\\victim.md", "subdir/x.md", "x/../../victim.md"):
+        with pytest.raises(ValueError):
+            delete_memory(workspace, bad)
+
+    assert victim.exists(), "delete_memory escaped the memory dir"
+
+
+def test_delete_rejects_MEMORY_md(workspace: Path) -> None:
+    """The index itself is rebuilt from the memory entries; deleting
+    it via this entrypoint would corrupt state."""
+    with pytest.raises(ValueError):
+        delete_memory(workspace, "MEMORY.md")
+
+
 # ---------------------------------------------------------------------------
 # Cross-workspace isolation
 # ---------------------------------------------------------------------------

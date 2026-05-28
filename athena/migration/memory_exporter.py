@@ -66,14 +66,30 @@ def _read_rows(db_path: Path) -> Iterable[dict[str, Any]]:
         con.close()
 
 
+def _yaml_scalar(value: Any) -> str:
+    """Render ``value`` as a safe YAML scalar.
+
+    The migration source is an external SQLite file the user is pointing us
+    at; we can't assume values are sanitized. Embedded newlines, colons, or
+    quotes would either break the frontmatter or inject new keys (a row whose
+    ``name`` contains ``\\nwrite_origin: foreground`` would silently change
+    provenance). Single-quote the value and escape any embedded single quotes
+    per YAML 1.2; force a flow-scalar form so newlines become literal ``\\n``.
+    """
+    s = str(value)
+    s = s.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    s = s.replace("'", "''")
+    return f"'{s}'"
+
+
 def _write_memory_md(target: Path, row: dict[str, Any]) -> None:
     """Emit a single memory file with YAML frontmatter + body."""
     fm_lines: list[str] = ["---"]
-    fm_lines.append(f"name: {row['name']}")
+    fm_lines.append(f"name: {_yaml_scalar(row['name'])}")
     if row.get("type"):
-        fm_lines.append(f"type: {row['type']}")
+        fm_lines.append(f"type: {_yaml_scalar(row['type'])}")
     if row.get("description"):
-        fm_lines.append(f"description: {row['description']}")
+        fm_lines.append(f"description: {_yaml_scalar(row['description'])}")
     fm_lines.append("write_origin: migration")
     created = _iso(row.get("created_at"))
     last = _iso(row.get("last_used_at"))

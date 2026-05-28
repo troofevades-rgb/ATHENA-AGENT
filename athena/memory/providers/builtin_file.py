@@ -209,9 +209,35 @@ class BuiltinFileProvider(MemoryProvider):
             filename += ".md"
         if filename == _MEMORY_FILE_INDEX:
             raise ValueError(f"cannot use {_MEMORY_FILE_INDEX!r} as a memory filename")
+        # Guard against prompt-injected ``filename="../../../passwd"`` —
+        # the model can pass arbitrary strings here through memory_tools.
+        if "/" in filename or "\\" in filename or ".." in filename.split("/") + filename.split("\\"):
+            raise ValueError(
+                f"memory filename must be a bare filename without path separators: {filename!r}"
+            )
+        # YAML-injection guard: ``name``, ``description``, and ``type`` are
+        # interpolated raw into the frontmatter below. A value containing a
+        # newline would inject arbitrary frontmatter keys (e.g.
+        # ``name="foo\npinned: true"``). Reject newlines and CR explicitly
+        # rather than escaping — these fields are short labels and embedded
+        # control chars are never intentional.
+        for field_name, value in (
+            ("name", name),
+            ("description", description),
+            ("type", type),
+            ("write_origin", write_origin),
+        ):
+            if "\n" in value or "\r" in value:
+                raise ValueError(
+                    f"memory {field_name} must not contain newlines: {value!r}"
+                )
 
         d = self._ensure_dir(profile)
         target = d / filename
+        if d.resolve() != target.resolve().parent:
+            raise ValueError(
+                f"resolved memory path {target} escapes memory dir {d}"
+            )
         existing_created: datetime | None = None
         if target.exists():
             parsed = _parse_file(target)

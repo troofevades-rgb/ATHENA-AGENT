@@ -42,6 +42,7 @@ import logging
 import tarfile
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
+from typing import Any
 
 from ..config import CONFIG_DIR
 from ..provenance import get_current_write_origin
@@ -366,12 +367,42 @@ class SnapshotStore:
                 return []
 
         # Stage 2: extract. We use members=relevant so the tar lib
-        # respects the filter.
+        # respects the filter. Reject any member whose resolved path
+        # would land outside target_root — defends against tar-slip
+        # in tarballs that were tampered with on disk (the snapshot
+        # dir is local, but other tools or a cloud-sync could mutate
+        # it). Also pass filter="data" (Python 3.12+) for the
+        # standard hardening; we keep the manual check so the guard
+        # works on 3.10/3.11 too.
+        target_root_resolved = target_root.resolve()
+        safe_members: list[tarfile.TarInfo] = []
+        for m in relevant:
+            try:
+                dest = (target_root / m.name).resolve()
+            except (OSError, ValueError):
+                continue
+            if dest != target_root_resolved and target_root_resolved not in dest.parents:
+                continue
+            if m.issym() or m.islnk():
+                link_target = (dest.parent / m.linkname).resolve()
+                if (
+                    link_target != target_root_resolved
+                    and target_root_resolved not in link_target.parents
+                ):
+                    continue
+            safe_members.append(m)
+
         restored: list[Path] = []
         with tarfile.open(snapshot.tarball_path, mode="r:gz") as tf:
-            tf.extractall(path=str(target_root), members=relevant)
-            for m in relevant:
-                # File entries get reported as restored paths.
+            extract_kwargs: dict[str, Any] = {
+                "path": str(target_root),
+                "members": safe_members,
+            }
+            # Python 3.12+ supports an extraction filter argument.
+            if hasattr(tarfile, "data_filter"):
+                extract_kwargs["filter"] = "data"
+            tf.extractall(**extract_kwargs)
+            for m in safe_members:
                 if m.isreg() or m.issym():
                     restored.append(target_root / m.name)
         return restored
