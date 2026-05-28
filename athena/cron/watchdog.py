@@ -28,10 +28,16 @@ _OUTPUT_TRUNC = 8_192
 def run_watchdog_job_by_id(job_id: str, *, jobs_db_path: Path | None = None) -> None:
     """Look up the CronJob by ID and run it. Used by APScheduler so the
     target stays picklable across daemon restarts.
-    """
-    from ..config import CONFIG_DIR, profile_dir
 
-    store = JobStore(jobs_db_path or _default_jobs_db(CONFIG_DIR))
+    Resolves the jobs DB through the same profile-aware helper the CLI
+    uses (`athena.cli.cron._profile_cron_paths`). Previously hardcoded
+    ``CONFIG_DIR / cron_jobs.db``, which silently looked at an empty
+    legacy location after the profile migration moved the live DB.
+    """
+    if jobs_db_path is None:
+        from ..cli.cron import _profile_cron_paths
+        _, jobs_db_path = _profile_cron_paths()
+    store = JobStore(Path(jobs_db_path))
     job = store.get(job_id)
     if job is None:
         logger.warning("watchdog: job %s not found in store; skipping", job_id)

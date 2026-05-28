@@ -23,6 +23,7 @@ EXPECTED_SLASH_COMMANDS: dict[str, str] = {
     "checkpoints": "athena/commands/checkpoint_cmds.py",
     "clear": "athena/commands/clear_cmd.py",
     "compact": "athena/commands/compact.py",
+    "computer": "athena/commands/computer.py",
     "cost": "athena/commands/cost_cmd.py",
     "cwd": "athena/commands/cwd_cmd.py",
     "dump": "athena/commands/dump_cmd.py",

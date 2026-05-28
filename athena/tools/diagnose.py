@@ -29,6 +29,24 @@ _MAX_LINES = 200
 _TRUNCATED_MARKER = "[diagnose: truncated, +{} more]"
 
 
+def _active_cfg_or_disk():
+    """Live agent cfg when available; tests monkeypatch
+    ``athena.tools.diagnose.load_config`` directly, so we route the
+    disk fallback through the same module-level binding to preserve
+    that seam."""
+    from ._active_cfg import active_cfg as _active
+    try:
+        from ..agent.core import get_current_agent
+    except ImportError:
+        get_current_agent = lambda: None  # type: ignore[assignment]
+    agent = get_current_agent()
+    if agent is not None and getattr(agent, "cfg", None) is not None:
+        return agent.cfg
+    # Use the module-level ``load_config`` so existing tests that
+    # monkeypatch it keep working.
+    return load_config()
+
+
 @tool(
     name="Diagnose",
     aliases=("diagnose",),
@@ -68,9 +86,11 @@ def Diagnose(paths: list[str] | None = None, **_kwargs) -> str:
 
 
 def _run(paths: list[str]) -> list[Diagnostic]:
-    """Load cfg fresh + call the client. Monkeypatchable via
-    ``athena.tools.diagnose.load_config`` for tests."""
-    cfg = load_config()
+    """Load cfg from the live agent (or disk fallback) + call the
+    client. Monkeypatchable via ``athena.tools.diagnose.load_config``
+    for tests; the legacy disk lookup is preserved through that
+    monkeypatch seam."""
+    cfg = _active_cfg_or_disk()
     try:
         return diagnose(paths, cfg=cfg)
     except Exception as e:  # noqa: BLE001 — defensive; client is already
@@ -133,7 +153,7 @@ def _ok_line(paths: list[str]) -> str:
     """The "no issues" case. Distinguishes "all clean" from "no
     server available" so the agent can tell whether the gate is
     actually firing."""
-    cfg = load_config()
+    cfg = _active_cfg_or_disk()
     if not getattr(cfg, "lsp_enabled", False):
         return "ok (no diagnostics — LSP disabled)"
     # When lsp_enabled but the server isn't on PATH we get [] too;

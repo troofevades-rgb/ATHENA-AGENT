@@ -63,7 +63,8 @@ def tirith_check(command: str = "", **_kw: Any) -> str:
         })
     from ..safety.tirith import check_command_security
 
-    v = check_command_security(command, cfg=load_config())
+    from ._active_cfg import active_cfg
+    v = check_command_security(command, cfg=active_cfg())
     return json.dumps({
         "action": v.action,
         "findings": v.findings,
@@ -108,7 +109,8 @@ def url_safety_check(url: str = "", **_kw: Any) -> str:
             "reason": "no URL provided",
             "resolved_ip": None,
         })
-    cfg = load_config()
+    from ._active_cfg import active_cfg
+    cfg = active_cfg()
     if not getattr(cfg, "url_safety_enabled", True):
         return json.dumps({
             "safe": True,
@@ -188,7 +190,8 @@ def osv_check(
     ecosystem: str = "",
     **_kw: Any,
 ) -> str:
-    cfg = load_config()
+    from ._active_cfg import active_cfg
+    cfg = active_cfg()
     if not getattr(cfg, "osv_enabled", True):
         return json.dumps({
             "available": False,

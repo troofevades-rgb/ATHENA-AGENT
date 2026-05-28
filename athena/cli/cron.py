@@ -26,9 +26,43 @@ from ..cron.watchdog import run_watchdog_job
 
 
 def _default_paths() -> tuple[Path, Path]:
-    """Return (scheduler_db, jobs_db) under CONFIG_DIR. Aligned with the
-    paths the runners use when invoked by APScheduler."""
-    return (CONFIG_DIR / "cron.db", CONFIG_DIR / "cron_jobs.db")
+    """Return (scheduler_db, jobs_db) aligned with the runner / watchdog.
+
+    Both cron databases were moved into ``profiles/<profile>/`` by the
+    auto-migration shipped in `athena/profiles/migration.py:45-46`. The
+    CLI was still hardcoding ``CONFIG_DIR / cron.db`` so after
+    migration the CLI saw an empty global path while the daemon's
+    schedule lived at the profile path. Resolve via the same helper
+    the runner uses so both sides agree.
+    """
+    sched, jobs = _profile_cron_paths()
+    return (sched, jobs)
+
+
+def _profile_cron_paths() -> tuple[Path, Path]:
+    """Per-profile cron paths with legacy fallback. Importable from
+    runner/watchdog so APScheduler-side dispatch agrees with the CLI."""
+    try:
+        from ..config import load_config, profile_dir
+        cfg = load_config()
+        profile = getattr(cfg, "profile", None) or "default"
+        pdir = profile_dir(profile)
+        sched = pdir / "cron.db"
+        jobs = pdir / "cron_jobs.db"
+        # If the profile-keyed DBs don't exist but the legacy ones do,
+        # the migration never ran (or only partially); fall back to
+        # CONFIG_DIR so the operator's existing jobs stay reachable
+        # until the next start-time migration sweep moves them.
+        if not sched.exists() and not jobs.exists():
+            legacy_sched = CONFIG_DIR / "cron.db"
+            legacy_jobs = CONFIG_DIR / "cron_jobs.db"
+            if legacy_sched.exists() or legacy_jobs.exists():
+                return (legacy_sched, legacy_jobs)
+        return (sched, jobs)
+    except Exception:
+        # Pathological config; fall back to legacy paths rather than
+        # crash the CLI.
+        return (CONFIG_DIR / "cron.db", CONFIG_DIR / "cron_jobs.db")
 
 
 def _build_parser() -> argparse.ArgumentParser:

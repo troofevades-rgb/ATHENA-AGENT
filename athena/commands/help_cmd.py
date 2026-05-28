@@ -40,6 +40,7 @@ SLASH_HELP = """\
 /subgoal done        mark the first not-done subgoal complete
 /board [goal:<id>]   render the kanban for this workspace
 /board clear         wipe every live task in the store
+/computer            show computer-use status (backend, mode, allow/deny)
 /video               show registered video backends + auth status
 /video set NAME      pin a video backend for this session
 /video list          name-only listing

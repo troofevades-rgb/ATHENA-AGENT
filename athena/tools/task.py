@@ -76,10 +76,11 @@ def _resolve_store() -> Any:
     the tmp-path profile, which had been polluting the user's
     default board with pytest tmp-dir cards on every test run."""
     global _store
-    from ..config import load_config, profile_dir
+    from ..config import profile_dir
     from ..tasks.model import TaskStore, default_task_store_path
+    from ._active_cfg import active_cfg
 
-    cfg = load_config()
+    cfg = active_cfg()
     profile = getattr(cfg, "profile", None) or "default"
     path = default_task_store_path(cfg, profile_dir(profile))
     if _store is None or _store.path != path:

@@ -49,14 +49,17 @@ def _normalize_windows_paths(command: str) -> str:
 
 
 def _policy_for_config() -> ShellPolicy:
-    """Build the always-on denylist policy from current config.
+    """Build the always-on denylist policy from the live agent cfg.
 
-    Imported lazily so the config singleton is read fresh on each
-    call — useful in tests that rebuild Config between cases.
+    Reads through ``_active_cfg.active_cfg()`` so a session-scoped
+    ``/allowlist add`` is immediately effective. The prior
+    implementation called ``load_config()`` directly, so mid-session
+    allowlist tweaks were invisible to the bash gate until the user
+    restarted athena.
     """
-    from ..config import load_config
+    from ._active_cfg import active_cfg
 
-    cfg = load_config()
+    cfg = active_cfg()
     deny = tuple(DEFAULT_DENYLIST) + tuple(getattr(cfg, "bash_extra_denylist", ()))
     return ShellPolicy(allowlist=cfg.bash_allowlist, denylist=deny)
 
@@ -276,10 +279,10 @@ def _maybe_sandbox(command: str, exec_path: str | None) -> list[str] | None:
     """
     import logging
 
-    from ..config import load_config
+    from ._active_cfg import active_cfg
 
     log = logging.getLogger(__name__)
-    cfg = load_config()
+    cfg = active_cfg()
     if not getattr(cfg, "sandbox_enabled", False):
         return None
 

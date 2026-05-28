@@ -41,9 +41,9 @@ def _verify_after_write(p: Path) -> str:
     log + empty suffix. The write itself is never blocked.
     """
     try:
-        from ..config import load_config
+        from ._active_cfg import active_cfg
 
-        cfg = load_config()
+        cfg = active_cfg()
         if getattr(cfg, "verify_on_write", "diagnose") == "off":
             return ""
         from ..verify import VerifiedExecution
@@ -107,9 +107,10 @@ def workspace_info() -> str:
     # Profile + memory dir are convenience extras. Failures here must
     # not crash the whole tool — surface "(unavailable)" instead.
     try:
-        from ..config import load_config, profile_dir
+        from ..config import profile_dir
+        from ._active_cfg import active_cfg
 
-        cfg = load_config()
+        cfg = active_cfg()
         profile = getattr(cfg, "profile", None) or "default"
         info["profile"] = profile
         info["profile_dir"] = str(profile_dir(profile))

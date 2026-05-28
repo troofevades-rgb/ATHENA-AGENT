@@ -43,6 +43,7 @@ from . import (
     checkpoint_cmds,  # noqa: F401 — T3-03 /checkpoint, /rollback-to, /checkpoints
     clear_cmd,  # noqa: F401
     compact,  # noqa: F401
+    computer,  # noqa: F401 — /computer status
     cost_cmd,  # noqa: F401
     cwd_cmd,  # noqa: F401
     dump_cmd,  # noqa: F401

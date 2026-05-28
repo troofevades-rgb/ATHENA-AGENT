@@ -124,9 +124,9 @@ def _resolve_mode(mode: str | None) -> str:
     if mode in ("keyword", "semantic", "hybrid"):
         return mode
     try:
-        from ..config import load_config
+        from ._active_cfg import active_cfg
 
-        return getattr(load_config(), "recall_default_mode", "hybrid") or "hybrid"
+        return getattr(active_cfg(), "recall_default_mode", "hybrid") or "hybrid"
     except Exception:
         return "hybrid"
 
