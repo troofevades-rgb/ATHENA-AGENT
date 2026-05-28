@@ -30,20 +30,53 @@ logger = logging.getLogger(__name__)
 
 
 class HookDispatcher:
+    """Routes lifecycle hooks to plugins, fast-paths past plugins that don't
+    override the hook.
+
+    For each hook, we partition the plugin list at construction time into
+    those whose method is actually overridden vs. those still pointing at
+    the base ``Plugin`` no-op. The hot tool-call path then only iterates
+    the overriding plugins; with the default bundled set, ``post_tool_call``
+    has zero overriders, which lets the dispatcher short-circuit and skip
+    the ``dict(tool_args)`` copy + per-plugin try/except setup entirely.
+    """
+
+    _HOOK_NAMES = (
+        "on_session_start",
+        "on_session_end",
+        "pre_tool_call",
+        "post_tool_call",
+        "on_user_message",
+        "on_assistant_message",
+    )
+
     def __init__(self, plugins: list[Plugin]):
         self.plugins = list(plugins)
+        self._by_hook: dict[str, list[Plugin]] = {
+            hook: [p for p in self.plugins if self._overrides(p, hook)]
+            for hook in self._HOOK_NAMES
+        }
+
+    @staticmethod
+    def _overrides(plugin: Plugin, hook_name: str) -> bool:
+        """True if ``plugin`` has its own implementation of ``hook_name``
+        (i.e., the bound method's underlying function is NOT the base
+        ``Plugin`` class's no-op default)."""
+        plugin_fn = getattr(type(plugin), hook_name, None)
+        base_fn = getattr(Plugin, hook_name, None)
+        return plugin_fn is not None and plugin_fn is not base_fn
 
     # ---- Session lifecycle ----
 
     def on_session_start(self, session_id: str, profile: str) -> None:
-        for p in self.plugins:
+        for p in self._by_hook["on_session_start"]:
             try:
                 p.on_session_start(session_id, profile)
             except Exception:
                 logger.exception("plugin %s on_session_start raised; continuing", p.name)
 
     def on_session_end(self, session_id: str, completed: bool, interrupted: bool) -> None:
-        for p in self.plugins:
+        for p in self._by_hook["on_session_end"]:
             try:
                 p.on_session_end(session_id, completed, interrupted)
             except Exception:
@@ -57,9 +90,12 @@ class HookDispatcher:
         The first plugin to return ``False`` wins the veto; every subsequent
         plugin still sees the call for observability but cannot override.
         """
+        targets = self._by_hook["pre_tool_call"]
+        if not targets:
+            return True, None
         allow = True
         blocker: str | None = None
-        for p in self.plugins:
+        for p in targets:
             try:
                 decision = p.pre_tool_call(tool_name, dict(tool_args))
             except Exception:
@@ -71,7 +107,10 @@ class HookDispatcher:
         return allow, blocker
 
     def post_tool_call(self, tool_name: str, tool_args: dict[str, Any], result: str) -> None:
-        for p in self.plugins:
+        targets = self._by_hook["post_tool_call"]
+        if not targets:
+            return
+        for p in targets:
             try:
                 p.post_tool_call(tool_name, dict(tool_args), result)
             except Exception:
@@ -81,8 +120,11 @@ class HookDispatcher:
 
     def on_user_message(self, prompt: str) -> str:
         """Chain prompt through every plugin. Each ``None`` is a pass-through."""
+        targets = self._by_hook["on_user_message"]
+        if not targets:
+            return prompt
         current = prompt
-        for p in self.plugins:
+        for p in targets:
             try:
                 modified = p.on_user_message(current)
             except Exception:
@@ -93,7 +135,7 @@ class HookDispatcher:
         return current
 
     def on_assistant_message(self, content: str) -> None:
-        for p in self.plugins:
+        for p in self._by_hook["on_assistant_message"]:
             try:
                 p.on_assistant_message(content)
             except Exception:
