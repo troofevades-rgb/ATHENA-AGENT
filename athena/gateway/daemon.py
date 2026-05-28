@@ -296,6 +296,24 @@ class GatewayDaemon:
                 )
                 for t in still_running:
                     t.cancel()
+                # Await the cancelled tasks' ``finally`` blocks before
+                # tearing down the daemon. Without this wait,
+                # cancellation is queued but each task's finally (which
+                # releases approval callbacks, decrements pool pins,
+                # writes the last turn) was racing
+                # pool.evict_all() / router.close() -- producing the
+                # "Cannot operate on a closed database" warnings the
+                # pin/use model alone could not prevent.
+                try:
+                    await asyncio.wait_for(
+                        asyncio.gather(*still_running, return_exceptions=True),
+                        timeout=5.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "daemon.stop: cancelled tasks did not unwind in 5s; "
+                        "proceeding with teardown",
+                    )
 
         # Deny every pending approval so any worker thread blocked on
         # request_sync unwinds cleanly before pool.evict_all closes

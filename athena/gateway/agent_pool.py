@@ -136,11 +136,41 @@ class AgentPool:
         await self._close_agent(agent, session_id)
         return True
 
-    async def evict_all(self) -> None:
-        """Drop every entry. Used on daemon shutdown."""
+    async def evict_all(self, *, drain_timeout_s: float = 5.0) -> None:
+        """Drop every entry. Used on daemon shutdown.
+
+        Waits up to ``drain_timeout_s`` seconds for pinned (in-flight)
+        entries to drain before force-closing. Without this wait, a
+        session task that was cancelled by daemon.stop() but whose
+        ``finally`` block was still releasing the pin would have its
+        Agent's SessionStore closed underneath it -- producing the
+        "Cannot operate on a closed database" warnings the pin/use
+        model was supposed to prevent.
+        """
+        import time as _time
+        deadline = _time.monotonic() + max(0.0, drain_timeout_s)
+        # Poll the pin counter in short steps. We can't reuse
+        # asyncio.Event here because pins are bumped/dropped under
+        # ``self._lock`` and we want to keep the lock scope tiny.
+        while True:
+            async with self._lock:
+                if not self._inflight:
+                    break
+                remaining = sum(self._inflight.values())
+            if _time.monotonic() >= deadline:
+                if remaining:
+                    logger.warning(
+                        "agent pool evict_all: %d pin(s) still held after "
+                        "%.1fs grace; force-closing", remaining, drain_timeout_s,
+                    )
+                break
+            await asyncio.sleep(0.05)
+
         async with self._lock:
             entries = list(self._cache.items())
             self._cache.clear()
+            # Stale pin counters can't reference live agents anymore.
+            self._inflight.clear()
         for session_id, agent in entries:
             await self._close_agent(agent, session_id)
 
