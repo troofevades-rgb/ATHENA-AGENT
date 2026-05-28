@@ -55,6 +55,8 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/goal",            description: "set/pause/resume/inspect/clear active goal" },
   { name: "/subgoal",         description: "append (arg: MSG) or 'done' the next subgoal" },
   { name: "/board",           description: "render the kanban (or 'clear' to wipe)" },
+  { name: "/computer",        description: "show computer-use status (backend, mode, allow/deny)" },
+  { name: "/skill",           description: "import a SKILL.md / dir / archive, or 'reload'" },
   { name: "/video",           description: "video backends: list/set/clear" },
   { name: "/theme",           description: "TUI palette: list, 'set NAME', or 'save'" },
   { name: "/hooks",           description: "list configured hooks" },

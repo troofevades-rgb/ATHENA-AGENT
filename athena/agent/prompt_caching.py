@@ -80,13 +80,17 @@ def apply_cache_markers(
 ) -> list[dict[str, Any]]:
     """Return a copy of ``messages`` with cache_control markers applied.
 
-    The original list and message dicts are NOT mutated. Returns a
-    deepcopy with markers attached at:
-      - The last (or only) system message.
-      - The last 3 non-system messages.
+    The original list and the individual message dicts are NOT mutated.
+    Returns a SHALLOW copy of the list in which only the messages that
+    actually receive a marker are deep-copied (up to 4: the last system
+    message + the last 3 non-system messages). Messages NOT in those
+    positions are aliased with the caller -- safe because this function
+    doesn't mutate them and the marker-application step targets only
+    the deep-copied indices.
 
-    Strategy ``"none"`` returns a deepcopy unchanged. Strategy
-    ``"aggressive"`` is currently identical to ``"system_and_3"`` —
+    Strategy ``"none"`` returns a FULL deepcopy so callers that opt out
+    of caching can still rely on isolated copy semantics. Strategy
+    ``"aggressive"`` is currently identical to ``"system_and_3"`` --
     reserved for future strategies (e.g., every-N-turns).
 
     Pass ``native_anthropic=False`` when the wire format is

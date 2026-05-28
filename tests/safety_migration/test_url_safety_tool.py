@@ -63,9 +63,14 @@ def test_empty_url_returns_safe_false(monkeypatch):
 def test_disabled_returns_safe_true(monkeypatch):
     """When operator turns off URL safety entirely (e.g. they
     have their own pre-check), the tool short-circuits with
-    safe=True + a reason that says checks were skipped."""
+    safe=True + a reason that says checks were skipped.
+
+    The tool now sources its cfg via ``_active_cfg.active_cfg`` --
+    monkeypatch that helper directly rather than the module-level
+    ``load_config`` import (which the tool no longer touches).
+    """
     monkeypatch.setattr(
-        "athena.tools.security.load_config",
+        "athena.tools._active_cfg.active_cfg",
         lambda: _cfg(url_safety_enabled=False),
     )
     from athena.tools.security import url_safety_check

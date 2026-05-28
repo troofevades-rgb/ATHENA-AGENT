@@ -179,11 +179,22 @@ def main() -> int:
         from .profiles.migration import maybe_run_migration
 
         maybe_run_migration()
-    except Exception:
+    except Exception as e:  # noqa: BLE001
         # A migration failure must never block startup; the user's
         # legacy items stay in place and the rest of the app still
-        # runs. Logged in migration.py.
-        pass
+        # runs. The prior implementation swallowed the exception with
+        # an inaccurate "logged in migration.py" comment -- only
+        # per-item shutil.move failures actually log inside
+        # run_migration; an ImportError on the migration module
+        # itself, an ensure_profile failure, or anything in
+        # migration_needed flowed through pass with zero indication.
+        # Surface a one-liner so the operator at least knows the
+        # migration didn't complete and can re-run manually.
+        import sys as _sys
+        _sys.stderr.write(
+            f"warning: legacy-profile migration skipped ({type(e).__name__}: {e}). "
+            "Run `athena profiles migrate` to retry.\n"
+        )
 
     # Subcommands short-circuit the interactive parser. argv[1] is the verb.
     if len(sys.argv) >= 2 and sys.argv[1] in _SUBCOMMANDS:

@@ -308,7 +308,6 @@ class Config:
     proxy_default_provider: str = "anthropic"
     proxy_bind_host: str = "127.0.0.1"
     proxy_bind_port: int = 11434
-    proxy_require_auth: bool = False
     proxy_log_path: str = "~/.athena/proxy.jsonl"
     proxy_log_bodies: bool = False
     proxy_bodies_dir: str = "~/.athena/proxy_bodies"

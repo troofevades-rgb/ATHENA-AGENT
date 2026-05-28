@@ -102,13 +102,38 @@ def memory_query(question: str) -> str:
     try:
         result = asyncio.run(backend.query(question))
     except RuntimeError:
-        # Already inside an event loop (rare in athena's sync REPL,
-        # but possible under tests). Fall back to a fresh loop.
-        loop = asyncio.new_event_loop()
-        try:
-            result = loop.run_until_complete(backend.query(question))
-        finally:
-            loop.close()
+        # Already inside an event loop (the REPL is sync but tests +
+        # gateway-context calls can land here with a running loop).
+        # Build a fresh loop on its own thread so the backend's
+        # ``httpx.AsyncClient`` -- which calls ``get_running_loop()``
+        # internally -- sees a loop that's actually running.
+        # ``loop.run_until_complete`` on a fresh loop from THIS thread
+        # would re-raise "This event loop is already running" because
+        # asyncio's thread-loop binding still points at the outer loop.
+        import threading as _threading
+        holder: dict[str, object] = {}
+
+        def _runner() -> None:
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                holder["result"] = new_loop.run_until_complete(
+                    backend.query(question),
+                )
+            except Exception as exc:  # noqa: BLE001
+                holder["exc"] = exc
+            finally:
+                try:
+                    new_loop.close()
+                finally:
+                    asyncio.set_event_loop(None)
+
+        t = _threading.Thread(target=_runner, name="memory-query-loop", daemon=True)
+        t.start()
+        t.join()
+        if "exc" in holder:
+            raise holder["exc"]  # type: ignore[misc]
+        result = holder["result"]  # type: ignore[assignment]
 
     lines = [result.answer]
     if result.sources:
