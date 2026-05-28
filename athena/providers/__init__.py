@@ -154,6 +154,7 @@ from . import openai as _openai  # noqa: E402,F401
 from . import openai_compat as _openai_compat  # noqa: E402,F401
 from . import openrouter as _openrouter  # noqa: E402,F401
 from . import social as _social  # noqa: E402,F401
+from . import xai as _xai  # noqa: E402,F401
 
 # T6-05: stub video-generation backend. Declares
 # video_generation in its manifest so the broker has

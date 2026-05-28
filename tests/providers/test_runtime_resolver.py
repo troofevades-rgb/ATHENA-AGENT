@@ -16,6 +16,7 @@ from athena.providers.openai import OpenAIProvider
 from athena.providers.openai_compat import OpenAICompatProvider
 from athena.providers.openrouter import OpenRouterProvider
 from athena.providers.runtime_resolver import resolve_provider
+from athena.providers.xai import XAIProvider
 
 
 @pytest.fixture
@@ -26,7 +27,7 @@ def empty_pool(tmp_path: Path) -> CredentialPool:
 @pytest.fixture
 def filled_pool(tmp_path: Path) -> CredentialPool:
     p = CredentialPool(tmp_path / "credentials.json")
-    for name in ("anthropic", "openai", "google", "openrouter", "nous"):
+    for name in ("anthropic", "openai", "google", "openrouter", "nous", "xai"):
         p.add_credential(name, Credential(key=f"key-{name}-1"))
     return p
 
@@ -95,6 +96,25 @@ def test_nous_prefix(filled_pool: CredentialPool):
     p, bare = resolve_provider("nous/Hermes-3-Llama-3.1-405B", cfg, filled_pool)
     assert isinstance(p, NousProvider)
     assert bare == "Hermes-3-Llama-3.1-405B"
+    p.close()
+
+
+def test_xai_prefix(filled_pool: CredentialPool):
+    cfg = Config()
+    p, bare = resolve_provider("xai/grok-2-1212", cfg, filled_pool)
+    assert isinstance(p, XAIProvider)
+    assert bare == "grok-2-1212"
+    p.close()
+
+
+def test_grok_bare_prefix(filled_pool: CredentialPool):
+    """'grok-' alone routes to xai without the explicit xai/ prefix --
+    mirrors the gemini-/codex- bare-prefix convention so operators
+    can use the model name they see in xAI's docs verbatim."""
+    cfg = Config()
+    p, bare = resolve_provider("grok-2-vision-1212", cfg, filled_pool)
+    assert isinstance(p, XAIProvider)
+    assert bare == "grok-2-vision-1212"
     p.close()
 
 
