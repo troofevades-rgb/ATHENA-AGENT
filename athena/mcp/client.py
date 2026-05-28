@@ -155,6 +155,12 @@ class MCPStdioClient:
     def request(
         self, method: str, params: dict | None = None, timeout: float | None = None
     ) -> dict[str, Any]:
+        # Bail early if the subprocess has already died. Without this, a
+        # zombie server's pending futures sit until ``request_timeout``
+        # (60s default) before unblocking — every foreground turn stalls
+        # for a full minute per request to a dead server.
+        if not self.is_alive():
+            raise MCPError(f"server '{self.name}' is not running (subprocess exited)")
         with self._id_lock:
             req_id = self._next_id
             self._next_id += 1
@@ -165,8 +171,27 @@ class MCPStdioClient:
         with self._pending_lock:
             self._pending[req_id] = fut
         self._send(msg)
+        # Poll incrementally so a server that dies mid-request unblocks
+        # us in ~1s rather than the full request_timeout.
+        deadline_total = timeout or self.request_timeout
+        elapsed = 0.0
+        step = 1.0
         try:
-            response = fut.result(timeout=timeout or self.request_timeout)
+            while True:
+                remaining = deadline_total - elapsed
+                if remaining <= 0:
+                    raise FutTimeout()
+                try:
+                    response = fut.result(timeout=min(step, remaining))
+                    break
+                except FutTimeout:
+                    if not self.is_alive():
+                        with self._pending_lock:
+                            self._pending.pop(req_id, None)
+                        raise MCPError(
+                            f"server '{self.name}' exited while waiting for {method!r}"
+                        )
+                    elapsed += step
         except FutTimeout:
             with self._pending_lock:
                 self._pending.pop(req_id, None)

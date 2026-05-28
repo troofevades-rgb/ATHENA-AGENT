@@ -28,13 +28,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ..tools.registry import _REGISTRY, Tool  # internal: we register Tool objects directly
+from ..tools.registry import _REGISTRY, Tool, bump_schema_version
 from .client import MCPError, format_tool_result
 from .transport_resolver import MCPTransport, open_transport
 
 # Anything the resolver returns — stdio or SSE — looks the same here:
 # both expose initialize / list_tools / call_tool / close.
 _ACTIVE_CLIENTS: list[MCPTransport] = []
+_HIDDEN_SERVERS: set[str] = set()
 
 
 def load_mcp_servers(
@@ -99,6 +100,9 @@ def load_mcp_servers(
                 client.close()
             continue
 
+        if not scfg.get("autoload", True):
+            _HIDDEN_SERVERS.add(name)
+
         allowed = set(scfg.get("allowed_tools") or [])
         denied = set(scfg.get("disabled_tools") or [])
         registered = 0
@@ -112,7 +116,8 @@ def load_mcp_servers(
                 continue
             _register_mcp_tool(name, client, tdef, log)
             registered += 1
-        log("info", f"mcp server '{name}': {registered}/{len(tools)} tools registered")
+        visibility = "hidden" if name in _HIDDEN_SERVERS else "active"
+        log("info", f"mcp server '{name}': {registered}/{len(tools)} tools registered ({visibility})")
         started.append(client)
 
     _ACTIVE_CLIENTS.extend(started)
@@ -146,17 +151,39 @@ def _register_mcp_tool(
     _dispatcher.__name__ = full_name
     _dispatcher.__qualname__ = full_name
 
+    _srv = server_name  # capture for closure
+
     _REGISTRY[full_name] = Tool(
         name=full_name,
         description=description,
         parameters=schema,
         func=_dispatcher,
-        # Most MCP tools that mutate something don't self-identify; we don't
-        # block them with confirmation by default. Use disabled_tools or the
-        # `--auto-approve` flag is irrelevant here. Per-tool confirmation
-        # would need an annotation we don't have today.
         requires_confirmation=False,
+        check_fn=lambda _s=_srv: _s not in _HIDDEN_SERVERS,
     )
+    bump_schema_version()
+
+
+def enable_server(name: str) -> bool:
+    """Un-hide a server's tools so the model can see them. Returns True if state changed."""
+    if name in _HIDDEN_SERVERS:
+        _HIDDEN_SERVERS.discard(name)
+        bump_schema_version()
+        return True
+    return False
+
+
+def disable_server(name: str) -> bool:
+    """Hide a server's tools from the model. Returns True if state changed."""
+    if name not in _HIDDEN_SERVERS:
+        _HIDDEN_SERVERS.add(name)
+        bump_schema_version()
+        return True
+    return False
+
+
+def hidden_servers() -> set[str]:
+    return set(_HIDDEN_SERVERS)
 
 
 def shutdown_all() -> None:
