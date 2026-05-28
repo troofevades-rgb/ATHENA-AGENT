@@ -224,6 +224,14 @@ def _json_path(actual: str, expected: Any, *, context: dict[str, Any]) -> Score:
                 f"{type(e).__name__}: {e}"
             ),
         )
+    except ValueError as e:
+        # _resolve_path raises ValueError for malformed paths
+        # (unbalanced brackets). Report as a scorer config error
+        # rather than letting the runner's outer except mis-tag it.
+        return Score(
+            passed=False, score=0.0,
+            details=f"json_path scorer: {e}",
+        )
 
     if got == want:
         return Score(
@@ -262,7 +270,16 @@ def _resolve_path(obj: Any, path: str) -> Any:
         elif ch == "[":
             if buf:
                 tokens.append(buf); buf = ""
-            j = path.index("]", i)
+            try:
+                j = path.index("]", i)
+            except ValueError as e:
+                # Unbalanced bracket -- e.g. ``data[0`` -- previously
+                # bubbled as a ValueError that the eval runner
+                # mis-reported as "scorer raised". Surface a clear
+                # error tied to the path string instead.
+                raise ValueError(
+                    f"json_path scorer: unbalanced '[' in {path!r}"
+                ) from e
             tokens.append(path[i + 1: j])
             i = j  # skip past ]
         else:

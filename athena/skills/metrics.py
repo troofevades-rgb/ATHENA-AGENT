@@ -43,6 +43,7 @@ import dataclasses
 import datetime as _dt
 import json
 import logging
+import os
 import threading
 from collections.abc import Iterable
 from pathlib import Path
@@ -254,7 +255,12 @@ class _NoopStore(SkillMetricsStore):
     """All writes are silent no-ops; reads return empty."""
 
     def __init__(self) -> None:  # noqa: D107 — intentional non-call to super
-        self.path = Path("/dev/null")
+        # ``Path("/dev/null")`` resolves to ``C:\dev\null`` on Windows --
+        # a real path under the current drive. Use ``os.devnull`` so the
+        # sentinel actually points at the platform null device on both
+        # Posix and Windows. We don't read or write this file but
+        # consumers may stat/parent it for diagnostics.
+        self.path = Path(os.devnull)
 
     def record_view(self, name: str, session_id: str | None = None) -> None:
         return None
