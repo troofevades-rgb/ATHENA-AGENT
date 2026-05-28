@@ -149,14 +149,6 @@ def with_retry(
                     on_abort(classification)
                 raise
 
-            if action is ErrorAction.FALLBACK_PROVIDER:
-                # Reserved; treat as abort until cross-provider
-                # fallback machinery exists (Tier 3/4).
-                logger.error("[%s] fallback_provider not implemented; aborting", provider_label)
-                if on_abort is not None:
-                    on_abort(classification)
-                raise
-
             # Anything past here is a retry of some kind; fire the counter hook.
             if on_retry is not None:
                 on_retry(classification)
