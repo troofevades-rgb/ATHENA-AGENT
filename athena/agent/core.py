@@ -1882,6 +1882,17 @@ class Agent:
             self.run_turn(user_prompt)
 
     def close(self) -> None:
+        # Drop the cancel hook __init__ registered so long-lived
+        # daemons (gateway, webhook, cron) don't accumulate one
+        # bound-method-per-evicted-Agent in the module-level _hooks
+        # list. Each entry pinned the entire Agent (provider,
+        # SessionStore, messages); after thousands of session
+        # rotations the leak was the dominant memory consumer.
+        try:
+            from .. import interrupt_hooks as _ih
+            _ih.unregister_cancel_hook(self._cancel_in_flight)
+        except Exception:  # noqa: BLE001
+            logger.debug("cancel hook unregistration failed", exc_info=True)
         # Plugin lifecycle end. Always fires when a session_id exists,
         # regardless of cleanup success below. The completed/interrupted
         # distinction is a Phase 10 concern (the gateway tracks it); for
