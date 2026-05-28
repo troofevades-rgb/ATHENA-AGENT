@@ -49,9 +49,6 @@ class ErrorAction(enum.Enum):
     ROTATE_CREDENTIAL = "rotate_credential"
     """Same request, next credential in the pool."""
 
-    FALLBACK_PROVIDER = "fallback_provider"
-    """Same request, different provider entirely. (Reserved — treated as ABORT.)"""
-
     COMPRESS_CONTEXT = "compress_context"
     """Context too large; compress and retry."""
 

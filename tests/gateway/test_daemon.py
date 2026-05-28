@@ -210,9 +210,13 @@ async def test_stop_bounded_by_timeout_on_wedged_adapter(
 # ---- command dispatch ------------------------------------------------
 
 
-async def test_dispatch_command_default_returns_placeholder(
+async def test_dispatch_command_default_unsupported_returns_clear_notice(
     isolated_cfg: Config,
 ) -> None:
+    """The default dispatcher handles /help, /status, /session; other
+    commands return an explicit "not supported in the gateway" notice
+    so the operator sees something actionable rather than the legacy
+    "not yet implemented" placeholder reaching end users."""
     daemon = GatewayDaemon(isolated_cfg)
     event = MessageEvent(
         platform="t",
@@ -222,7 +226,22 @@ async def test_dispatch_command_default_returns_placeholder(
     )
     out = await daemon.dispatch_command(event, "sess-1", "stop")
     assert "/stop" in out
-    assert "not yet implemented" in out
+    assert "not supported" in out
+    assert "/help" in out
+
+
+async def test_dispatch_command_default_help_lists_bridged_commands(
+    isolated_cfg: Config,
+) -> None:
+    """`/help` returns the list of commands actually bridged into the
+    gateway so operators know what's available without consulting the
+    code."""
+    daemon = GatewayDaemon(isolated_cfg)
+    event = MessageEvent(platform="t", chat_id="c", user_id="u", text="/help")
+    out = await daemon.dispatch_command(event, "sess-1", "help")
+    assert "/help" in out
+    assert "/status" in out
+    assert "/session" in out
 
 
 async def test_dispatch_command_uses_injected_dispatcher(

@@ -26,10 +26,13 @@ Three policies ship in this module:
   layer on top. Predicates are pure-Python over ``messages``,
   ``tools_available``, ``tool_calls_so_far``. Cheap, deterministic,
   no extra LLM call.
-- :class:`LLMClassifierPolicy` — opt-in upgrade. One quick call to a
-  small classifier model before the main generation. Higher latency
-  but handles cases the heuristic misses. Off by default; not yet
-  wired (stubbed for v1).
+- :class:`LLMClassifierPolicy` — DEFERRED. Designed as an opt-in
+  upgrade (one quick call to a small classifier model before the
+  main generation, mapping to params), but the body is still a stub
+  that falls through to a heuristic. ``policy_from_config`` rejects
+  the ``llm_classifier`` selection rather than silently routing
+  through the stub. Will be revived when the classifier model and
+  prompt are settled.
 
 The class returned by :func:`policy_from_config` is what the agent
 asks for params before each provider call. The result is a kwarg dict
@@ -458,9 +461,15 @@ def policy_from_config(config_section: dict[str, Any] | None) -> ParamPolicy:
     if name == "heuristic":
         return heuristic_policy(extra_rules=user_rules)
     if name == "llm_classifier":
-        return LLMClassifierPolicy(
-            classifier_model=cfg.get("classifier_model", "qwen2.5:1.5b"),
-            fallback=heuristic_policy(extra_rules=user_rules),
+        # LLMClassifierPolicy is a stub (params_for falls through to
+        # the heuristic fallback). Silently routing through it gave
+        # config-readers the false impression they had opted into an
+        # LLM classifier when they hadn't. Until the real one ships,
+        # refuse the selection so the operator gets an explicit error
+        # rather than a phantom upgrade.
+        raise ValueError(
+            "policy='llm_classifier' is not yet implemented; "
+            "use policy='heuristic' or policy='static' instead"
         )
     # Unknown policy → fall back to heuristic rather than refuse to
     # start. The agent should never fail to boot over a config typo.

@@ -346,10 +346,23 @@ def test_policy_from_config_unknown_falls_back():
     assert isinstance(p, HeuristicPolicy)
 
 
-def test_policy_from_config_llm_classifier_stub_falls_through():
-    p = policy_from_config({"policy": "llm_classifier", "classifier_model": "qwen2.5:1.5b"})
-    assert isinstance(p, LLMClassifierPolicy)
-    # Stub: params still come from the fallback policy.
+def test_policy_from_config_llm_classifier_is_rejected():
+    """Until the LLM classifier actually does something, refuse the
+    selection so the operator gets an explicit error rather than a
+    phantom 'upgrade' that silently runs the heuristic. The class
+    still exists for future development."""
+    with pytest.raises(ValueError, match="not yet implemented"):
+        policy_from_config({"policy": "llm_classifier", "classifier_model": "qwen2.5:1.5b"})
+
+
+def test_llm_classifier_policy_class_still_present():
+    """LLMClassifierPolicy isn't selectable from config, but the class
+    is preserved so in-progress work can target it directly without
+    a rebase."""
+    p = LLMClassifierPolicy(
+        classifier_model="qwen2.5:1.5b",
+        fallback=policy_from_config({"policy": "heuristic"}),
+    )
     out = p.params_for(PolicyInput(messages=[_user("refactor")]))
     assert out["temperature"] == 0.3
 
