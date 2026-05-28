@@ -29,6 +29,7 @@ _CTOR_FACTORIES: dict[str, callable] = {
     "google": lambda cls: cls(api_key="key"),
     "openrouter": lambda cls: cls(api_key="key"),
     "nous": lambda cls: cls(api_key="key"),
+    "xai": lambda cls: cls(api_key="key"),
     "openai_compat": lambda cls: cls(api_key=None, host="http://127.0.0.1:8000"),
     # T6-02: the social provider is a capability-only adapter
     # (declares social_search; not a chat backend). The

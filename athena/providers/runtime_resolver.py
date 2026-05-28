@@ -9,6 +9,7 @@ Routing priority:
    - ``google/<m>`` or ``gemini-...`` → google
    - ``openrouter/<m>``         → openrouter
    - ``nous/<m>``               → nous
+   - ``xai/<m>`` or ``grok-...`` → xai
 3. ``<host:port>/<model>`` form → openai_compat (the leading segment
    parses as a host with a port).
 4. Anything else                → ollama (default; local-first posture).
@@ -57,6 +58,7 @@ _PREFIX_TO_PROVIDER: dict[str, str] = {
     "google/": "google",
     "openrouter/": "openrouter",
     "nous/": "nous",
+    "xai/": "xai",
 }
 
 # Providers whose prefix is just a routing hint and should be stripped
@@ -68,6 +70,7 @@ _STRIP_PREFIX_FOR: frozenset[str] = frozenset(
         "openai",
         "google",
         "nous",
+        "xai",
     }
 )
 
@@ -98,6 +101,9 @@ def _route(model: str, cfg: Config) -> str:
 
     if model.startswith("codex-"):
         return "codex"
+
+    if model.startswith("grok-"):
+        return "xai"
 
     # <host:port>/<model> form — the leading segment looks like a host.
     if "/" in model:
