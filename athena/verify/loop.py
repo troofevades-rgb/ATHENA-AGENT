@@ -267,14 +267,30 @@ class VerifiedExecution:
                 timeout_s=timeout_s,
             )
         except Exception as e:  # noqa: BLE001
-            logger.debug("verify_write: run leg raised: %s", e)
+            # Distinguish "policy denied this command" (operator
+            # config issue) from "the runner itself errored" (flaky
+            # verifier) so the user-facing rollback hint can describe
+            # the actual cause. Lazy import keeps the verify loop
+            # decoupled from the sandbox subsystem on module load.
+            try:
+                from ..sandbox.runner import BlockedByPolicyError
+            except ImportError:
+                BlockedByPolicyError = ()  # type: ignore[assignment]
+            blocked = isinstance(e, BlockedByPolicyError) if BlockedByPolicyError else False
+            outcome = "blocked_by_policy" if blocked else "failed_run"
+            stderr_msg = (
+                f"verify command blocked by policy: {e}"
+                if blocked
+                else f"verify runner errored: {e}"
+            )
+            logger.debug("verify_write: run leg raised (%s): %s", outcome, e)
             return self._finalize_failure(
                 VerificationOutcome(
                     path=path_str,
-                    outcome="failed_run",
+                    outcome=outcome,
                     checkpoint_id=checkpoint_id,
                     run_exit_code=-1,
-                    run_stderr_tail=f"verify runner errored: {e}",
+                    run_stderr_tail=stderr_msg,
                 ),
                 cfg=cfg,
             )

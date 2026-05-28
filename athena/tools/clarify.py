@@ -169,17 +169,43 @@ def clarify(
     return answer
 
 
+# A previous clarify call whose stdin reader was orphaned on timeout
+# holds onto the next keystroke from the user (Python's ``input()`` can
+# only be unblocked by EOF or by a line being typed). When a fresh
+# clarify call starts and the prior reader is still blocked, the next
+# Enter press goes to the orphan -- the user sees "I pressed Enter and
+# nothing happened." We refuse to enqueue a second reader while an
+# orphan from a prior call is still in flight; the new call returns the
+# timeout sentinel immediately instead. The orphan's eventual line
+# never reaches the new clarify but at least we don't race for stdin.
+_ORPHAN_READER: threading.Thread | None = None
+_ORPHAN_LOCK = threading.Lock()
+
+
 def _prompt_stdin(
     question: str, options: list[str], allow_freeform: bool, timeout_seconds: int
 ) -> str:
     """Print the prompt and read one line from stdin with a timeout.
 
     The reader runs on a daemon thread so the queue-based timeout
-    can fire even if the user walks away. A leaked daemon thread
-    (one that's still blocked on input() when the timeout fires)
-    dies at process exit — fine for a tool that's not invoked in
-    a tight loop.
+    can fire even if the user walks away. The thread will keep
+    blocking on ``input()`` after the timeout (Python offers no way
+    to interrupt a blocking ``input()`` on either Posix or Windows
+    without OS-specific hacks); we track the orphan so the next
+    ``_prompt_stdin`` call can detect it and refuse to spawn a
+    competitor for the next keystroke.
     """
+    global _ORPHAN_READER
+
+    with _ORPHAN_LOCK:
+        if _ORPHAN_READER is not None and not _ORPHAN_READER.is_alive():
+            _ORPHAN_READER = None
+        if _ORPHAN_READER is not None:
+            return (
+                "no answer received (a prior clarify is still blocked on "
+                "stdin; press Enter once to clear it, then retry)"
+            )
+
     ui.console.print(f"\n[bold]?[/] {question}")
     for i, option in enumerate(options, start=1):
         ui.console.print(f"  {i}. {option}")
@@ -203,6 +229,12 @@ def _prompt_stdin(
     try:
         kind, value = q.get(timeout=timeout_seconds)
     except _queue.Empty:
+        # Track the orphan so the NEXT clarify call refuses to
+        # spawn a competitor for the next keystroke. We don't try
+        # to kill the thread -- there's no portable way to interrupt
+        # blocking ``input()``.
+        with _ORPHAN_LOCK:
+            _ORPHAN_READER = t
         return f"no answer received (timeout after {timeout_seconds}s)"
 
     if kind == "err":

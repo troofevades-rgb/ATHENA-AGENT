@@ -54,7 +54,7 @@ Another pitfall: `athena/plugins/` (Phase 5, the `Plugin` ABC + bundled plugins)
 - Don't share httpx clients across threads — use `auxiliary_client.py` factory pattern for forks.
 - Migration tools (`migration/`) always write under `write_origin="migration"` so the curator leaves imported content alone until it sees local activity. Preserve that invariant.
 - MCP tools come in namespaced as `{server}__{tool}` and bypass the built-in confirmation hook. If a destructive MCP tool needs gating, point the user at `disabled_tools` in `mcp.json`.
-- Both stdio and HTTP/SSE MCP transports are wired through (Phase 12). HTTP/SSE servers authenticate via OAuth 2.1 PKCE with token storage at `~/.athena/mcp_tokens.json`. If extending transport behavior, keep both paths covered.
+- Both stdio and HTTP/SSE MCP transports are wired through (Phase 12). HTTP/SSE servers authenticate via OAuth 2.1 PKCE with per-server token storage at `~/.athena/mcp_tokens/<server_id>.json`. If extending transport behavior, keep both paths covered.
 
 ## Slash commands worth knowing about
 

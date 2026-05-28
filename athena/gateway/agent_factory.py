@@ -73,10 +73,21 @@ def _build_agent_sync(daemon: GatewayDaemon, session_id: str) -> Agent:
                 loaded,
             )
     except Exception:
+        # History reload failed mid-stream (e.g. one corrupt JSONL
+        # line). The previous behaviour left ``messages = [system]``
+        # and kept the SAME session_id, so subsequent turns appended
+        # onto the still-broken JSONL -- compounding the corruption
+        # while the user saw an agent with full amnesia about an
+        # apparently-resumed chat. Detach this agent from the broken
+        # session_id (the daemon's next resolve will mint a fresh
+        # one) so further writes don't pile on top of the corruption.
         logger.exception(
-            "gateway: history reload failed for %s; starting fresh",
+            "gateway: history reload failed for %s; detaching session id "
+            "and starting fresh -- the corrupt JSONL is preserved on disk "
+            "for manual recovery",
             session_id,
         )
+        agent.session_id = None
     return agent
 
 

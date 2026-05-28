@@ -245,6 +245,14 @@ class SSETransport:
         """
         backoff = _RECONNECT_BASE
         while not self._closed:
+            # Clear the endpoint-ready flag before each connect
+            # attempt so callers that arrive during the reconnect
+            # window are forced to wait for the new server's
+            # ``endpoint`` event rather than posting to a stale
+            # session URL from the prior connection. ``_post_endpoint``
+            # is overwritten as soon as the new endpoint frame
+            # arrives (see _handle_frame).
+            self._endpoint_ready.clear()
             try:
                 async with self._client.stream("GET", "/sse") as r:
                     if r.status_code == 401 and self.oauth_cfg is not None:

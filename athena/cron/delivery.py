@@ -164,10 +164,23 @@ def _deliver_gateway(
         _deliver_log(job, result)
         return
 
-    cf = asyncio.run_coroutine_threadsafe(
-        adapter.send_text(chat_id, body),
-        loop,
-    )
+    try:
+        cf = asyncio.run_coroutine_threadsafe(
+            adapter.send_text(chat_id, body),
+            loop,
+        )
+    except RuntimeError as e:
+        # Loop was closed between the is_running() check above and
+        # this submission -- the daemon is shutting down on its own
+        # thread. Distinguish this from the post-submission "send
+        # failed" path below so the cron logs aren't ambiguous.
+        logger.warning(
+            "cron %s: gateway loop closed mid-dispatch (%s) — falling back to log",
+            job.id,
+            e,
+        )
+        _deliver_log(job, result)
+        return
     try:
         cf.result(timeout=10.0)
     except Exception as e:
