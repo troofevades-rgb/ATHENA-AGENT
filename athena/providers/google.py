@@ -17,6 +17,7 @@ string; we use the header).
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Iterator
 from typing import Any
@@ -25,6 +26,7 @@ import httpx
 
 from . import register_provider
 from .base import Capabilities, Provider, StreamChunk
+from .retry_utils import with_retry
 
 _DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
@@ -88,10 +90,15 @@ class GoogleProvider(Provider):
             },
             timeout=timeout,
         )
-        # Pool reference for 429-driven rotation. Google does not yet
-        # use with_retry, so this is dormant; once retry is wired in,
-        # the helper below becomes the rotate callback.
+        # Pool reference for 429-driven rotation. ``stream_chat``
+        # below wraps the request-open step in ``with_retry`` with
+        # :meth:`_rotate_credential` as the rotate hook so 429s on a
+        # pooled key trigger an automatic swap to the next credential.
         self._credential_pool = credential_pool
+        # Retry budget — defaults match the OpenAI base class so
+        # cross-provider behaviour is uniform.
+        self._retry_max: int = 5
+        self._retry_backoff_s: float = 30.0
 
     def _rotate_credential(self) -> bool:
         """Mark the current key as 429'd, swap to the next from the
@@ -145,9 +152,39 @@ class GoogleProvider(Provider):
         # don't end up with .../models/models/<id>.
         clean_model = model.removeprefix("models/")
         path = f"/models/{clean_model}:streamGenerateContent"
-        with self._client.stream("POST", path, params={"alt": "sse"}, json=payload) as r:
-            _raise_with_body(r)
-            yield from self._parse_sse(r)
+
+        # Wrap the request-open + raise-for-status in with_retry so a
+        # 429 on a pooled credential rotates to the next one (same
+        # pattern as OpenAIProvider). Streaming body is OUTSIDE the
+        # retry boundary because once we've yielded chunks to the caller
+        # we can't replay them.
+        outer_stack = contextlib.ExitStack()
+        try:
+            def _open_response() -> Any:
+                tmp_stack = contextlib.ExitStack()
+                try:
+                    r = tmp_stack.enter_context(
+                        self._client.stream(
+                            "POST", path, params={"alt": "sse"}, json=payload,
+                        )
+                    )
+                    _raise_with_body(r)
+                except BaseException:
+                    tmp_stack.close()
+                    raise
+                outer_stack.push(tmp_stack.pop_all())
+                return r
+
+            response = with_retry(
+                _open_response,
+                max_retries=self._retry_max,
+                max_backoff_s=self._retry_backoff_s,
+                on_rotate_credential=self._rotate_credential,
+                provider_label=self.name,
+            )
+            yield from self._parse_sse(response)
+        finally:
+            outer_stack.close()
 
     def parse_tool_calls(
         self, content: str, raw_response: dict[str, Any]

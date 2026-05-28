@@ -100,6 +100,8 @@ class SSETransport:
         # Public state (read-only outside the class).
         self._tools_cache: list[dict[str, Any]] | None = None
         self.stderr_buffer: list[str] = []  # diagnostic ring buffer
+        # initialize() result, kept for /mcp listing parity with stdio.
+        self._server_info: dict[str, Any] = {}
         # ID counter (incremented inside the loop thread, but reads
         # from the sync side are fine because it's only used in
         # _next_request_id which itself runs in the loop).
@@ -351,7 +353,7 @@ class SSETransport:
 
     def initialize(self) -> dict[str, Any]:
         """JSON-RPC initialize handshake. Mirrors the stdio shape."""
-        return self.request(
+        result = self.request(
             "initialize",
             {
                 "protocolVersion": PROTOCOL_VERSION,
@@ -362,6 +364,13 @@ class SSETransport:
                 },
             },
         )
+        # Mirror MCPStdioClient: cache the initialize response so the
+        # /mcp slash command can show server name + version without
+        # re-issuing the handshake. The stdio attribute is named
+        # ``_server_info``; keep the name aligned so the command's
+        # shared accessor works against either transport.
+        self._server_info = result if isinstance(result, dict) else {}
+        return result
 
     def list_tools(self, refresh: bool = False) -> list[dict[str, Any]]:
         if not refresh and self._tools_cache is not None:
@@ -451,6 +460,30 @@ class SSETransport:
             raise SSEError(f"POST failed: {e}") from e
 
         return await future
+
+    # --- parity shims with MCPStdioClient so /mcp and the dead-server
+    # detection in MCPStdioClient.request can poll the same attributes
+    # / methods regardless of transport.
+
+    @property
+    def _tools(self) -> list[dict[str, Any]] | None:
+        """Alias of ``_tools_cache`` matching the stdio client's
+        attribute name so ``/mcp`` can read tool counts uniformly."""
+        return self._tools_cache
+
+    def is_alive(self) -> bool:
+        """True while the SSE transport is still serving requests.
+        Mirrors :meth:`MCPStdioClient.is_alive`. The transport is
+        considered dead once :meth:`close` has been called."""
+        return not self._closed
+
+    def stderr_tail(self, n: int = 50) -> list[str]:
+        """Last ``n`` lines from the diagnostic ring buffer. Mirrors
+        :meth:`MCPStdioClient.stderr_tail` so ``/mcp logs NAME``
+        works for both transports."""
+        if n <= 0:
+            return []
+        return list(self.stderr_buffer[-n:])
 
     def close(self) -> None:
         if self._closed:
