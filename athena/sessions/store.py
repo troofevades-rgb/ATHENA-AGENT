@@ -21,6 +21,7 @@ import logging
 import secrets
 import sqlite3
 import threading
+import weakref
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -112,7 +113,14 @@ class SessionStore:
         # We track them all on _connections so close() can shut every
         # one down on daemon teardown.
         self._tls = threading.local()
-        self._connections: list[sqlite3.Connection] = []
+        # Each entry is (weakref-to-owning-thread, connection). The
+        # weakref lets _conn() detect threads that have exited and
+        # close their connections, instead of leaking the sqlite
+        # handle (+ WAL shm/wal files) for the life of the process.
+        # Long-lived daemons that spawn many short threads (cron jobs,
+        # review forks) used to accumulate one connection per thread
+        # until close(). Now they get reaped opportunistically.
+        self._connections: list[tuple[weakref.ref[threading.Thread], sqlite3.Connection]] = []
         self._connections_lock = threading.Lock()
         # Initialise schema once on the constructing thread; this also
         # opens the first per-thread connection.
@@ -120,24 +128,36 @@ class SessionStore:
 
     def _conn(self) -> sqlite3.Connection:
         """Return this thread's sqlite3 connection, opening one on
-        first call. Raises ``RuntimeError`` after ``close()``."""
+        first call. Raises ``RuntimeError`` after ``close()``.
+
+        Opportunistically closes connections whose owning thread has
+        died so they don't pile up across the process lifetime."""
         if self._closed:
             raise RuntimeError("SessionStore is closed")
         conn = getattr(self._tls, "conn", None)
         if conn is not None:
             return conn
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        # WAL mode lets concurrent readers proceed while a writer
-        # holds the file lock; on its own this dramatically reduces
-        # "database is locked" errors under bursty dispatch.
         try:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
         except sqlite3.Error:
             logger.debug("WAL pragma not available", exc_info=True)
         self._tls.conn = conn
+        thread_ref = weakref.ref(threading.current_thread())
         with self._connections_lock:
-            self._connections.append(conn)
+            # Reap dead-thread entries while we hold the lock anyway.
+            survivors: list[tuple[weakref.ref[threading.Thread], sqlite3.Connection]] = []
+            for ref, c in self._connections:
+                if ref() is None:
+                    try:
+                        c.close()
+                    except sqlite3.Error:
+                        pass
+                else:
+                    survivors.append((ref, c))
+            survivors.append((thread_ref, conn))
+            self._connections = survivors
         return conn
 
     # -- session lifecycle -------------------------------------------
@@ -351,7 +371,7 @@ class SessionStore:
         if a SessionStore was never actually used."""
         self._closed = True
         with self._connections_lock:
-            connections = list(self._connections)
+            connections = [c for _ref, c in self._connections]
             self._connections.clear()
         for conn in connections:
             try:
