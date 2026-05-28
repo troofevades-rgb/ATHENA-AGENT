@@ -17,10 +17,21 @@ import logging
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+# Type for the ``runner`` test seam used below — anything with
+# ``subprocess.call``'s signature ``(cmd: list[str], cwd: str | None) -> int``.
+# The prior ``subprocess._SubprocessTarget`` annotation referenced a name that
+# doesn't exist in CPython's ``subprocess`` module; only ``from __future__
+# import annotations`` was hiding the AttributeError because annotations
+# evaluate lazily. ``typing.get_type_hints`` / pydantic / doc-gen on this
+# module would have blown up.
+SubprocessRunner = Callable[..., int]
 
 
 def _default_transform_dir() -> Path:
@@ -63,7 +74,7 @@ def run_lora(
     *,
     transform_dir: Path | None = None,
     python: str | None = None,
-    runner: subprocess._SubprocessTarget | None = None,
+    runner: SubprocessRunner | None = None,
 ) -> int:
     """Invoke ``transform/scripts/train_lora.py``. Returns the exit code.
 
@@ -117,7 +128,7 @@ def run_dpo(
     *,
     transform_dir: Path | None = None,
     python: str | None = None,
-    runner: subprocess._SubprocessTarget | None = None,
+    runner: SubprocessRunner | None = None,
 ) -> int:
     """Invoke ``transform/scripts/train_dpo.py`` on top of an SFT LoRA.
 
@@ -163,7 +174,7 @@ def export_to_gguf(
     base_model: str | None = None,
     transform_dir: Path | None = None,
     python: str | None = None,
-    runner: subprocess._SubprocessTarget | None = None,
+    runner: SubprocessRunner | None = None,
 ) -> int:
     """Invoke ``transform/scripts/export_to_ollama.py`` to merge the
     LoRA, convert to GGUF, and register with Ollama under ``ollama_name``.

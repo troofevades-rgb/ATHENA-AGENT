@@ -108,6 +108,19 @@ def load_reference(
     if skill_dir is None:
         return None
     target = skill_dir / Path(*parts)
+    # A symlink inside the skill dir (references/ -> ..) would let
+    # the literal ``..`` check pass but still resolve outside the
+    # dir. Reject when the resolved target is not under skill_dir.
+    try:
+        skill_dir_resolved = skill_dir.resolve()
+        target_resolved = target.resolve()
+    except OSError:
+        return None
+    if (
+        target_resolved != skill_dir_resolved
+        and skill_dir_resolved not in target_resolved.parents
+    ):
+        return None
     if not target.exists() or not target.is_file():
         return None
     return target.read_text(encoding="utf-8")
