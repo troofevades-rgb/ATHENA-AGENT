@@ -379,6 +379,10 @@ class Agent:
         # concurrent Ollama inferences fighting for GPU time.
         # See _wait_for_background_work() and maybe_fire_review().
         self._active_review_thread: threading.Thread | None = None
+        # Optional polling skill-watcher (cfg.skills_autoload).
+        # Started by _maybe_start_skill_watcher after history is
+        # materialised; stopped in close(). None when autoload is off.
+        self._skill_watcher = None  # type: ignore[var-annotated]
         # Persistent /goal invariant. Loaded from <profile_dir>/goal.txt at
         # session start and re-injected into the system prompt on every
         # rebuild. Mutated by the /goal slash command via Agent.reload_goal().
@@ -569,6 +573,26 @@ class Agent:
             _ih.register_cancel_hook(self._cancel_in_flight)
         except Exception:  # noqa: BLE001
             logger.debug("cancel hook registration failed", exc_info=True)
+
+        # Optional skill watcher (cfg.skills_autoload). Kicks off a
+        # daemon thread that polls the skill search paths and triggers
+        # reload_skills() when a SKILL.md is added, edited, or
+        # removed. OFF by default to avoid the background thread for
+        # users who never edit skills mid-session.
+        if getattr(cfg, "skills_autoload", False):
+            try:
+                from ..skills.watcher import SkillWatcher
+
+                self._skill_watcher = SkillWatcher(
+                    workspace=self.workspace,
+                    on_change=self.reload_skills,
+                    poll_interval=float(
+                        getattr(cfg, "skills_autoload_interval", 2.0),
+                    ),
+                )
+                self._skill_watcher.start()
+            except Exception:  # noqa: BLE001
+                logger.debug("skill watcher start failed", exc_info=True)
 
     def _cancel_in_flight(self) -> None:
         """Force an in-flight LLM HTTP stream to abort. Called from
@@ -859,6 +883,26 @@ class Agent:
             return load_state(self._profile_dir())
         except Exception:
             return None
+
+    def reload_skills(self) -> None:
+        """Drop the skill-body cache and rebuild the system prompt in
+        place so a freshly-imported / edited skill becomes visible to
+        the model without a session restart. Mirrors :meth:`reload_goal`.
+
+        Called by the ``athena skill add`` CLI's in-session companion
+        (the ``/skill import`` slash) and by the filesystem watcher
+        (``skills/watcher.py``) when it detects an external change.
+        """
+        try:
+            from ..skills import loader as _skills_loader
+            _skills_loader._BODY_CACHE.clear()
+        except Exception:  # noqa: BLE001
+            logger.debug("skill body cache invalidate failed", exc_info=True)
+        if self.messages and self.messages[0].get("role") == "system":
+            self.messages[0] = {
+                "role": "system",
+                "content": self._build_system(),
+            }
 
     def reload_goal(self) -> None:
         """Re-read the persisted goal + state and rebuild the system
@@ -1893,6 +1937,13 @@ class Agent:
             _ih.unregister_cancel_hook(self._cancel_in_flight)
         except Exception:  # noqa: BLE001
             logger.debug("cancel hook unregistration failed", exc_info=True)
+        # Tear down the optional skill watcher (if running).
+        if getattr(self, "_skill_watcher", None) is not None:
+            try:
+                self._skill_watcher.stop()
+            except Exception:  # noqa: BLE001
+                logger.debug("skill watcher stop failed", exc_info=True)
+            self._skill_watcher = None
         # Plugin lifecycle end. Always fires when a session_id exists,
         # regardless of cleanup success below. The completed/interrupted
         # distinction is a Phase 10 concern (the gateway tracks it); for

@@ -1,4 +1,4 @@
-"""``athena skill {diff, rollback}`` — operate on a single skill."""
+"""``athena skill {add, diff, rollback, metrics}`` — operate on a single skill."""
 
 from __future__ import annotations
 
@@ -8,12 +8,74 @@ from pathlib import Path
 
 from ..config import load_config
 from ..skills.discovery import discover_skills
+from ..skills.importer import ImportResult, import_archive, import_skill
 from .rollback import (
     RollbackError,
     confirm_via_stdio,
     diff_target,
     rollback_target,
 )
+
+
+def _import_base(args: argparse.Namespace) -> Path:
+    """Pick the install root: user-global by default, workspace if
+    --workspace is set."""
+    if getattr(args, "workspace", False):
+        workspace = Path(args.cwd).resolve() if args.cwd else Path.cwd().resolve()
+        return workspace / ".athena" / "skills"
+    return Path.home() / ".athena" / "skills"
+
+
+def cmd_add(args: argparse.Namespace) -> int:
+    """``athena skill add <path>`` — import a SKILL.md, skill dir, or
+    archive into the user-global or workspace skills tree."""
+    source = Path(args.path).expanduser()
+    if not source.exists():
+        sys.stderr.write(f"error: {source} does not exist\n")
+        return 1
+    base = _import_base(args)
+    policy = (
+        "overwrite" if args.overwrite
+        else "rename" if args.rename
+        else "abort"
+    )
+
+    if source.is_file() and source.suffix.lower() in (".zip", ".tar", ".tgz") or (
+        source.is_file() and "".join(source.suffixes[-2:]).lower().endswith(".tar.gz")
+    ):
+        result = import_archive(source, base=base, on_conflict=policy)
+    else:
+        result = import_skill(source, base=base, on_conflict=policy)
+
+    return _print_import_result(result)
+
+
+def _print_import_result(result: ImportResult) -> int:
+    """Render an :class:`ImportResult` to stdout/stderr and return an
+    exit code matching its status (0 on installed/overwritten/renamed,
+    nonzero otherwise)."""
+    if result.status == "rejected":
+        sys.stderr.write(f"error: import rejected\n")
+        for e in result.errors:
+            sys.stderr.write(f"  - {e}\n")
+        return 1
+    if result.status == "skipped":
+        sys.stderr.write(
+            f"skipped: {result.name!r} already exists at {result.dest}. "
+            "Use --overwrite or --rename.\n"
+        )
+        for w in result.warnings:
+            sys.stderr.write(f"  - {w}\n")
+        return 2
+    verb = {
+        "installed": "installed",
+        "overwritten": "overwrote existing",
+        "renamed": "installed (renamed from collision)",
+    }.get(result.status, result.status)
+    sys.stdout.write(f"{verb}: {result.name} -> {result.dest}\n")
+    for w in result.warnings:
+        sys.stderr.write(f"  warning: {w}\n")
+    return 0
 
 
 def _resolve_skill_md(name: str, workspace: Path | None) -> Path | None:
@@ -120,6 +182,29 @@ def cmd_rollback(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="athena skill")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p_add = sub.add_parser(
+        "add",
+        help="Import a SKILL.md, skill dir, or archive (.zip / .tar.gz).",
+    )
+    p_add.add_argument("path", help="Source path: SKILL.md, skill dir, or archive.")
+    p_add.add_argument(
+        "--workspace",
+        action="store_true",
+        help="Install into <cwd>/.athena/skills/ instead of ~/.athena/skills/.",
+    )
+    p_add.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace an existing skill of the same name.",
+    )
+    p_add.add_argument(
+        "--rename",
+        action="store_true",
+        help="On name collision, install under <name>-N instead of aborting.",
+    )
+    p_add.add_argument("-C", "--cwd", help="Workspace directory (with --workspace).")
+    p_add.set_defaults(handler=cmd_add)
 
     p_diff = sub.add_parser("diff", help="Diff a skill against its most recent snapshot.")
     p_diff.add_argument("name")

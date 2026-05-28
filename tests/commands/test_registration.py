@@ -41,6 +41,7 @@ EXPECTED_SLASH_COMMANDS: dict[str, str] = {
     "resume": "athena/commands/resume.py",
     "review": "athena/commands/review.py",
     "save": "athena/commands/save_cmd.py",
+    "skill": "athena/commands/skill_cmd.py",
     "status": "athena/commands/status_cmd.py",
     "steer": "athena/commands/steer.py",
     "subgoal": "athena/commands/goal.py",

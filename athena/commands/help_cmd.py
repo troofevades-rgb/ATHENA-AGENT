@@ -49,6 +49,9 @@ SLASH_HELP = """\
 /theme set NAME      switch palette: phosphor/dusk/nord/dracula/synthwave/cyber
 /theme save          persist active theme to ~/.athena/config.toml
 /hooks               list configured hooks
+/skill import PATH   install a SKILL.md / dir / archive (user-global)
+/skill import-workspace PATH   install into this workspace's skill tree
+/skill reload        drop body cache + rebuild prompt (e.g. after edit)
 /exit                quit
 """
 

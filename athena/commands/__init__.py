@@ -60,6 +60,7 @@ from . import (
     resume,  # noqa: F401
     review,  # noqa: F401
     save_cmd,  # noqa: F401
+    skill_cmd,  # noqa: F401 — /skill import, /skill reload
     status_cmd,  # noqa: F401
     steer,  # noqa: F401
     theme_cmd,  # noqa: F401 — /theme inspect / switch / save

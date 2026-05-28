@@ -180,6 +180,18 @@ class Config:
     # before the allowlist; matching commands are rejected outright
     # by the Bash tool.
     bash_extra_denylist: list[str] = field(default_factory=list)
+    # When True, the Agent runs a polling watcher over the skill
+    # search paths and reloads the catalog in place whenever a
+    # SKILL.md is added, edited, or removed. OFF by default to avoid
+    # a per-session background thread for users who never edit
+    # skills mid-session; turn on if you want "drop a SKILL.md, the
+    # next prompt sees it" without restarting athena.
+    skills_autoload: bool = False
+    # Poll interval (seconds) for the skill watcher when
+    # ``skills_autoload`` is True. Default tuned low enough to feel
+    # interactive but high enough that the watch loop is invisible
+    # in profilers.
+    skills_autoload_interval: float = 2.0
     # Phase 17 [safety] settings. Keys preserved in a sub-dict so
     # athena.safety modules can read them without growing the top-
     # level Config surface for every new option.
