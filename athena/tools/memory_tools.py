@@ -96,6 +96,7 @@ def write_memory(filename: str, name: str, description: str, type: str, body: st
     toolset="memory",
     description="List all memory files for the current workspace, with their type and description.",
     parameters={"type": "object", "properties": {}},
+    parallel_safe=True,
 )
 def list_memories() -> str:
     entries = list_entries(_active_profile(), workspace=file_ops._WORKSPACE)

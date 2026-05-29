@@ -75,6 +75,7 @@ def _active_cfg_or_disk():
         },
         "required": ["paths"],
     },
+    parallel_safe=True,
 )
 def Diagnose(paths: list[str] | None = None, **_kwargs) -> str:
     paths = list(paths or [])

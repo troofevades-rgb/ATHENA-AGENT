@@ -92,6 +92,7 @@ def _resolve(path: str, *, intent: str) -> Path:
         "resolve against the `workspace` field returned here."
     ),
     parameters={"type": "object", "properties": {}},
+    parallel_safe=True,
 )
 def workspace_info() -> str:
     import json as _json
@@ -145,6 +146,7 @@ def workspace_info() -> str:
         },
         "required": ["file_path"],
     },
+    parallel_safe=True,
 )
 def Read(file_path: str, offset: int | None = None, limit: int | None = None, **legacy) -> str:
     # Back-compat: also accept path / start_line / end_line from old call sites.
@@ -380,6 +382,7 @@ def Edit(
             },
         },
     },
+    parallel_safe=True,
 )
 def list_dir(path: str = ".") -> str:
     p = _resolve(path, intent="read")

@@ -72,6 +72,7 @@ logger = logging.getLogger(__name__)
         },
         "required": ["username"],
     },
+    parallel_safe=True,
 )
 def lookup_x_user(
     username: str = "",

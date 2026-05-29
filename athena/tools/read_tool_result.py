@@ -45,6 +45,7 @@ from .registry import tool
         },
         "required": ["handle"],
     },
+    parallel_safe=True,
 )
 def read_tool_result(
     handle: str,

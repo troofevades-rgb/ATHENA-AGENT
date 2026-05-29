@@ -27,6 +27,18 @@ class Tool:
     requires_confirmation: bool = False
     check_fn: Callable[[], bool] | None = None
     aliases: tuple[str, ...] = field(default_factory=tuple)
+    # Phase 18.2: opt-in marker for parallel tool dispatch.
+    # ``True`` means the tool is safe to execute concurrently with
+    # other parallel-safe tools in the same tool-call round -- i.e. it
+    # is read-only with respect to athena's shared state (workspace
+    # files, messages, plan mode, goal state, session JSONL, etc.) and
+    # has no ordering dependency on a sibling call in the same batch.
+    # Conservative default: ``False``. A ``requires_confirmation=True``
+    # tool is always serial regardless of this flag (the prompt
+    # serializes naturally). Stage 1 of the parallel-tool-execution
+    # work adds the field + flags the obvious read-only surface; the
+    # actual batched dispatch lands in stage 3.
+    parallel_safe: bool = False
 
 
 _REGISTRY: dict[str, Tool] = {}
@@ -59,14 +71,19 @@ def tool(
     requires_confirmation: bool = False,
     check_fn: Callable[[], bool] | None = None,
     aliases: list[str] | None = None,
+    parallel_safe: bool = False,
 ) -> Callable[[Callable[..., str]], Callable[..., str]]:
     """Register a function as a tool.
 
     ``toolset`` groups the tool with peers; callers select active toolsets via
     ``enabled_toolsets``. ``check_fn`` is re-evaluated every time the schema
     is rendered so connection-state-dependent tools reflect current availability.
-    ``aliases`` registers additional dispatch names — aliases are NOT included
+    ``aliases`` registers additional dispatch names -- aliases are NOT included
     in the schema sent to the model.
+
+    ``parallel_safe`` (Phase 18.2) opts the tool into concurrent dispatch
+    with other parallel-safe siblings in the same tool-call round.
+    Defaults to ``False`` (serial). See :class:`Tool` for the contract.
     """
 
     def deco(fn: Callable[..., str]) -> Callable[..., str]:
@@ -79,6 +96,7 @@ def tool(
             requires_confirmation=requires_confirmation,
             check_fn=check_fn,
             aliases=tuple(aliases or ()),
+            parallel_safe=parallel_safe,
         )
         _REGISTRY[name] = t
         _TOOLSETS.setdefault(toolset, set()).add(name)

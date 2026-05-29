@@ -259,6 +259,7 @@ def _run(
         },
         "required": ["path"],
     },
+    parallel_safe=True,
 )
 def ocr(**kwargs: Any) -> str:
     return _run(**kwargs)

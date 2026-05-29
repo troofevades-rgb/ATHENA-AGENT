@@ -87,6 +87,7 @@ def _format_hits(query: str, hits: list[Any]) -> str:
         },
         "required": ["query"],
     },
+    parallel_safe=True,
 )
 def search_sessions(
     query: str,

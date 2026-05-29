@@ -76,6 +76,7 @@ def _build_llm_call(agent):
         },
         "required": ["question"],
     },
+    parallel_safe=True,
 )
 def memory_query(question: str) -> str:
     try:

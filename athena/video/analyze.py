@@ -725,6 +725,7 @@ from ..tools.registry import tool  # noqa: E402 — late import to avoid cycles
         },
         "required": ["mode", "path"],
     },
+    parallel_safe=True,
 )
 def video_analyze(**kwargs: Any) -> str:
     return _run(**kwargs)
