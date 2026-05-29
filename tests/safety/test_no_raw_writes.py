@@ -100,6 +100,27 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/cli/batch.py",
         "athena/cli/eval.py",
         "athena/eval/runner.py",
+        # T7-Task2 agent-eval harness — same shape as eval/runner.py
+        # above (operational test infrastructure that writes its own
+        # report JSON, task fixtures, and mock-MCP transcripts; not
+        # agent-driven mutation of user content).
+        "athena/eval/agent/report.py",  # eval report serialization
+        "athena/eval/agent/tasks/_mcp_helpers.py",  # writes workspace/mcp.json pointing at mock servers
+        "athena/eval/agent/tasks/file_ops.py",  # eval task fixtures into tempdir workspaces
+        "athena/eval/agent/tasks/mock_users_server.py",  # mock stdio MCP server transcripts
+        "athena/eval/agent/tasks/shell.py",  # shell eval task fixtures
+        "athena/eval/agent/tasks/structured.py",  # structured-output eval task fixtures
+        # Minimal reference MCP server (stdlib only) used by integration
+        # tests + as a copy-paste example. Same operational role as
+        # mock_users_server.py above.
+        "athena/mcp/demo_server.py",
+        # Skill ingestion (dbfaa09) -- import_skill / import_archive
+        # copy an external SKILL.md (or skill dir / archive) into the
+        # user-global or workspace skills tree. User-driven via
+        # /skill import or `athena skill add`; same provenance shape
+        # as migration/skills_mapper.py already allowlisted (operator-
+        # facing skill ingestion, not agent-driven mutation).
+        "athena/skills/importer.py",
         "athena/delegate/codex.py",
         # T6-05 xAI video adapter — fetch() writes the downloaded
         # MP4 to out_dir, same provenance shape as stub_local.py.
