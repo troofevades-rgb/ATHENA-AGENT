@@ -22,6 +22,7 @@ from ..providers.credential_pool import global_pool as _global_pool
 from ..providers.runtime_resolver import resolve_provider
 from ..safety.approval_callback import get_approval_callback
 from ..sessions.store import SessionMeta, SessionStore, new_session_id
+from .goal_integration import AgentGoalIntegration
 from .param_policy import ParamPolicy, PolicyInput, policy_from_config
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.S)
@@ -273,7 +274,7 @@ class Stats:
         }
 
 
-class Agent:
+class Agent(AgentGoalIntegration):
     def __init__(
         self,
         cfg: Config,
@@ -1065,126 +1066,9 @@ class Agent:
                 set_active_checkpoint_manager(None)
                 _current_agent.reset(token)
 
-    def _consult_goal_continuation(
-        self, *, tokens_at_loop_start: int
-    ) -> str | None:
-        """T5-07 hook called after each real assistant turn.
-
-        Returns the synthetic prompt to inject for the next
-        continuation, or None when the loop should stop. Handles
-        the four stop conditions:
-
-          interrupted     Ctrl+C anywhere → pause + return None
-          token cap       loop tokens > goal_max_tokens → exhaust
-          turn cap        turns_taken >= max_turns → exhausted
-          sentinel        GOAL ACHIEVED → achieved
-                          GOAL BLOCKED → paused + surface reason
-
-        The returned synthetic prompt is the continuation nudge —
-        run_turn will pass it to _run_turn_inner as the next
-        "user" message.
-        """
-        if self.goal_state is None:
-            return None
-
-        # Interrupt wins over every continuation decision. A user
-        # who hit Ctrl+C does not want another synthetic turn.
-        if self._last_turn_interrupted:
-            self.goal_state.status = "paused"
-            self._persist_goal_state()
-            ui.warn(
-                "goal paused (interrupt detected) — /goal resume to continue"
-            )
-            return None
-
-        # Token-cap check. The cap counts tokens consumed since
-        # run_turn entered THIS loop (so /goal set + user turn
-        # don't pre-consume the budget).
-        used_this_loop = (
-            self.stats.prompt_tokens + self.stats.eval_tokens
-        ) - tokens_at_loop_start
-        self._goal_loop_tokens_used = used_this_loop
-        token_cap = int(getattr(self.cfg, "goal_max_tokens", 200_000))
-        if token_cap > 0 and used_this_loop > token_cap:
-            self.goal_state.status = "exhausted"
-            self._persist_goal_state()
-            ui.warn(
-                f"goal exhausted (token cap {token_cap} exceeded — "
-                f"{used_this_loop} used). "
-                "/goal resume grants more, /goal status, or /goal clear."
-            )
-            return None
-
-        from ..goal.loop import maybe_continue_goal_after_turn
-
-        decision = maybe_continue_goal_after_turn(
-            profile_dir=self._profile_dir(),
-            state=self.goal_state,
-            last_assistant_text=self._last_assistant_text,
-            cfg=self.cfg,
-        )
-        if decision.should_continue:
-            ui.info(
-                f"[goal] continuing "
-                f"(turn {self.goal_state.turns_taken}/"
-                f"{self.goal_state.max_turns})"
-            )
-            return decision.synthetic_prompt
-
-        # Stop. Announce the reason.
-        if decision.stop_reason == "achieved":
-            # Distinguish "verified achievement" (verifier ran + passed)
-            # from "self-declared achievement" (no verifier configured —
-            # model said done, we believed it). This matters because a
-            # silent "Goal achieved" with no verifier looks identical to
-            # a properly-checked completion, masking the gap.
-            verifier_configured = bool(
-                getattr(self.cfg, "goal_verifier_command", None)
-            )
-            if verifier_configured:
-                ui.console.print(
-                    f"[bold green]Goal achieved[/] in "
-                    f"{self.goal_state.turns_taken} turn(s) "
-                    "[dim](verifier passed)[/]"
-                )
-            else:
-                ui.console.print(
-                    f"[bold green]Goal achieved[/] in "
-                    f"{self.goal_state.turns_taken} turn(s) "
-                    "[yellow](self-declared; no verifier configured — "
-                    "set cfg.goal_verifier_command to gate this)[/]"
-                )
-        elif decision.stop_reason == "blocked":
-            ui.warn(
-                f"goal blocked: {decision.blocked_reason}. "
-                "/goal resume when ready."
-            )
-        elif decision.stop_reason == "exhausted":
-            ui.warn(
-                f"goal not completed after {self.goal_state.max_turns} "
-                "turn(s). /goal resume (grants more), /goal status, "
-                "or /goal clear."
-            )
-        # Other stop_reasons (paused, no_state, disabled) are silent —
-        # the user either set them themselves (paused) or the loop
-        # isn't engaged (no_state, disabled).
-        return None
-
-    def _persist_goal_state(self) -> None:
-        """Best-effort write of self.goal_state. A disk error is
-        logged but never raised — the loop is already mid-stop."""
-        if self.goal_state is None:
-            return
-        try:
-            from ..goal.state import save_state
-
-            save_state(self._profile_dir(), self.goal_state)
-        except Exception:  # noqa: BLE001
-            import logging as _logging
-
-            _logging.getLogger(__name__).debug(
-                "could not persist goal state on stop", exc_info=True
-            )
+    # _consult_goal_continuation and _persist_goal_state moved to
+    # athena/agent/goal_integration.py:AgentGoalIntegration (R1 stage 1).
+    # Both methods are still on the Agent surface via the mixin.
 
     def _run_turn_inner(self, user_input: str) -> None:
         # Clear any stale cancel flag so a True left from a previous
