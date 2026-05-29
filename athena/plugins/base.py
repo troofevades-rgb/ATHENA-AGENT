@@ -70,6 +70,20 @@ class Plugin(ABC):
 
     # ---- Message hooks ----
 
+    def check_user_message(self, prompt: str) -> tuple[bool, str]:
+        """Decide whether a user prompt should be processed.
+
+        Return ``(False, reason)`` to cancel the turn before any modification
+        runs; ``(True, "")`` to allow it. Default is allow-through.
+
+        Distinct from :meth:`on_user_message`: cancellation is a boolean
+        decision, modification is a string transform. Plugins that want both
+        must implement both. Added so the legacy settings.json
+        ``UserPromptSubmit`` hook (exit code 1 cancels) has a plugin-shaped
+        equivalent.
+        """
+        return True, ""
+
     def on_user_message(self, prompt: str) -> str | None:
         """Return a modified prompt, or ``None`` to leave it unchanged.
 
@@ -80,3 +94,18 @@ class Plugin(ABC):
 
     def on_assistant_message(self, content: str) -> None:
         """Observe assistant messages after they're delivered."""
+
+    # ---- Turn lifecycle ----
+
+    def on_turn_end(self, reason: str, stats: dict[str, Any]) -> None:
+        """Observe the end of one model turn.
+
+        Fires once per ``run_turn`` cycle after the last model response,
+        regardless of how the turn ended. ``reason`` is one of
+        ``"completed"``, ``"cancelled"``, ``"step_limit"``. ``stats`` is a
+        snapshot dict with token + tool-call counters.
+
+        Distinct from :meth:`on_session_end` which fires once per session
+        on Agent.close, not per turn. Added so the legacy settings.json
+        ``Stop`` hook has a plugin-shaped equivalent.
+        """

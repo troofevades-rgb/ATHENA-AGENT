@@ -1,15 +1,19 @@
-"""``/hooks`` — list hooks loaded from settings.json."""
+"""``/hooks`` — list settings.json hooks the ShellHookPlugin loaded."""
 
 from __future__ import annotations
 
-from .. import hooks as hooks_mod
 from .. import ui
 from . import command
 
 
 @command("hooks")
 def cmd_hooks(agent, arg: str = "") -> str:
-    hs = hooks_mod.list_hooks()
+    plugin = None
+    for p in getattr(agent.plugin_hooks, "plugins", []):
+        if getattr(p, "name", "") == "shell_hook":
+            plugin = p
+            break
+    hs = list(getattr(plugin, "_hooks", []) or []) if plugin is not None else []
     if not hs:
         ui.info("no hooks configured. drop one in ~/.athena/settings.json")
         return ""

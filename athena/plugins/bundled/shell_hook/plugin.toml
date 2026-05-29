@@ -1,0 +1,5 @@
+[plugin]
+name = "shell_hook"
+version = "0.1.0"
+description = "Bridges settings.json hooks block (PreToolUse / PostToolUse / UserPromptSubmit / Stop) to plugin lifecycle events. Replaces the deprecated athena.hooks module."
+enabled_by_default = true

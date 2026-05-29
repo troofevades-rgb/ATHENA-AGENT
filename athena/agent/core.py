@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .. import hooks, tools, ui
+from .. import tools, ui
 from ..config import Config
 from ..config import profile_dir as _profile_dir
 from ..plugins.hooks import HookDispatcher
@@ -358,8 +358,11 @@ class Agent:
             Path(getattr(cfg, "tool_result_storage_path", "~/.athena/tool_results")).expanduser(),
             session_id="pending",  # rebound below once session_id is allocated
         )
-        # Load hooks from user + workspace settings.json
-        hooks.load_hooks(self.workspace)
+        # ShellHookPlugin (bundled, enabled by default) replaces the legacy
+        # athena.hooks settings.json reader. The plugin's
+        # ``configure_workspace`` call below runs AFTER plugin_hooks is
+        # built so workspace-local .athena/settings.json contributes
+        # alongside ~/.athena/settings.json.
         # Session lineage. Three modes:
         #   1. session_store passed (fork path) → use it for a new child session
         #      tagged with parent_session_id.
@@ -527,6 +530,9 @@ class Agent:
         # Fire on_session_start once the session_id exists.
         if self.session_id is not None:
             self.plugin_hooks.on_session_start(self.session_id, cfg.profile or "default")
+        # Wire ShellHookPlugin's workspace AFTER on_session_start so it
+        # can re-read settings.json with the correct workspace context.
+        self._configure_shell_hook_plugin()
         # Build initial system message
         self.messages.append({"role": "system", "content": self._build_system()})
 
@@ -884,6 +890,22 @@ class Agent:
         except Exception:
             return None
 
+    def _configure_shell_hook_plugin(self) -> None:
+        """Tell the bundled ShellHookPlugin which workspace it should consult
+        for workspace-local ``settings.json`` hooks. Called from ``__init__``
+        and from ``/cwd`` (after the workspace switch). Silent no-op when the
+        plugin is disabled or unloaded.
+        """
+        try:
+            for plugin in getattr(self.plugin_hooks, "plugins", []):
+                if getattr(plugin, "name", "") == "shell_hook":
+                    configure = getattr(plugin, "configure_workspace", None)
+                    if callable(configure):
+                        configure(self.workspace)
+                    return
+        except Exception:  # noqa: BLE001
+            logger.debug("shell_hook configure_workspace failed", exc_info=True)
+
     def reload_skills(self) -> None:
         """Drop the skill-body cache and rebuild the system prompt in
         place so a freshly-imported / edited skill becomes visible to
@@ -1123,10 +1145,14 @@ class Agent:
         # consults after this method returns. Reset on entry.
         self._last_assistant_text = ""
         self._last_turn_interrupted = False
-        # UserPromptSubmit hook — can cancel the turn
-        allow, msg = hooks.fire("UserPromptSubmit", payload={"prompt": user_input})
+        # Per-plugin veto on the user prompt. The first plugin to return
+        # (False, reason) cancels the turn. The bundled ShellHookPlugin
+        # bridges the settings.json UserPromptSubmit hook into this
+        # check, so existing user configs keep working without going
+        # through the legacy athena.hooks path.
+        allow, msg = self.plugin_hooks.check_user_message(user_input)
         if not allow:
-            ui.error(f"prompt cancelled by hook: {msg}")
+            ui.error(f"prompt cancelled by plugin: {msg}")
             return
         # Plugin chain: each plugin sees the output of the prior one. A
         # plugin returning None is a pass-through. The chained result is
@@ -1344,18 +1370,18 @@ class Agent:
         return stop
 
     def _fire_stop(self, reason: str) -> None:
-        hooks.fire(
-            "Stop",
-            payload={
-                "reason": reason,
-                "stats": {
-                    "turns": self.stats.turns,
-                    "tool_calls": self.stats.tool_calls,
-                    "prompt_tokens": self.stats.prompt_tokens,
-                    "eval_tokens": self.stats.eval_tokens,
-                },
-            },
-        )
+        stats = {
+            "turns": self.stats.turns,
+            "tool_calls": self.stats.tool_calls,
+            "prompt_tokens": self.stats.prompt_tokens,
+            "eval_tokens": self.stats.eval_tokens,
+        }
+        # Per-turn end-of-turn hook. The bundled ShellHookPlugin
+        # bridges the settings.json Stop event into this dispatch.
+        try:
+            self.plugin_hooks.on_turn_end(reason, stats)
+        except Exception:  # noqa: BLE001
+            logger.debug("plugin on_turn_end raised", exc_info=True)
         # Phase 16: refresh the on-disk status snapshot so
         # ``athena status`` (running in another terminal) sees the
         # post-turn counters.
@@ -1623,15 +1649,9 @@ class Agent:
                     self._record_tool_result(call, name, result)
                     return
 
-        # PreToolUse hook can block
-        allow, hook_msg = hooks.fire("PreToolUse", tool_name=name, payload={"tool_args": args})
-        if not allow:
-            blocked = f"BLOCKED by PreToolUse hook: {hook_msg}"
-            self._record_tool_result(call, name, blocked)
-            ui.warn(blocked)
-            return
-
-        # Plugin veto: first plugin to return False from pre_tool_call blocks.
+        # Plugin veto: first plugin to return False from pre_tool_call
+        # blocks. ShellHookPlugin bridges settings.json PreToolUse hooks
+        # into this path so existing user configs keep working.
         plugin_allow, blocker = self.plugin_hooks.pre_tool_call(name, args)
         if not plugin_allow:
             blocked = f"BLOCKED by plugin {blocker!r}"
@@ -1646,9 +1666,8 @@ class Agent:
         result = tools.dispatch(name, args)
         ui.tool_result(name, result)
 
-        # PostToolUse hook is informational only
-        hooks.fire("PostToolUse", tool_name=name, payload={"tool_args": args, "result": result})
-        # Plugin observation; cannot affect control flow.
+        # Plugin observation; cannot affect control flow. ShellHookPlugin
+        # bridges settings.json PostToolUse hooks here.
         self.plugin_hooks.post_tool_call(name, args, result)
 
         # T2-06: out-of-band storage for large tool outputs. The
