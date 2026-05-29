@@ -285,11 +285,66 @@ the pilot proves the shape; subsequent migrations are mechanical.
 
 ## Refactor 2 — Finish Phase 14 memory migration
 
-**Problem:** Two parallel memory APIs (legacy workspace-keyed in
-`memory/__init__.py`, profile-keyed in `memory/providers/`). The agent's
-system-prompt build reads via the legacy API; MCP server tools and the
-`athena memory` CLI read via the new provider. Round 4 of the audit added
-dual-write in `tools/memory_tools.py` to paper over the gap. CLAUDE.md says
+**Status: COMPLETE.** Landed across five staged commits on PR #12:
+
+1. **Stage 1 LANDED** -- ``BuiltinFileProvider`` learns the workspace
+   dimension. Optional ``workspace: Path | None = None`` threads
+   through every public method on the ABC + the file backend + the
+   ``athena.memory.store`` façade. ``workspace=None`` keeps the
+   single-store-per-profile layout (what MCP server tools and the
+   ``athena memory`` CLI use); ``workspace=<path>`` selects
+   ``<profile_dir>/memory/legacy/<workspace-slug>/`` (per-profile-per-
+   workspace isolation). A new ``workspace_slug`` classmethod exposes
+   a slug byte-identical to the legacy ``_slugify`` -- mandatory for
+   stage 4's data migration.
+
+2. **Stage 2 LANDED** -- agent system-prompt read flips to the
+   provider. ``agent/core.py`` reads via
+   ``memory.store.load_index(profile, workspace=workspace)``. A one-
+   release compatibility fallback kept the legacy on-disk path
+   readable so existing users didn't lose MEMORY.md injection before
+   the stage-4 migrator shipped.
+
+3. **Stage 3 LANDED** -- ``@tool`` + ``/memory`` slash migrate. The
+   model-callable surface and the slash command both write through
+   the provider exclusively, scoped to
+   ``(cfg.profile, agent.workspace)``. Round-4 dual-write retired.
+   Legacy ``write_memory`` / ``delete_memory`` / ``list_memories``
+   emit ``DeprecationWarning``. ``memory.store.memory_dir`` added as
+   a public helper.
+
+4. **Stage 4 LANDED** -- flag-gated one-shot migrator.
+   ``cfg.migrate_legacy_memory: bool = False`` (off by default).
+   ``athena/profiles/migration.py:migrate_workspace_memory`` copies
+   the legacy ``~/.athena/projects/<slug>/memory/`` tree into the
+   new sub-store, idempotent and per-workspace.
+   ``maybe_migrate_workspace_memory`` is the flag-gated wrapper
+   called opportunistically from ``Agent.__init__``.
+
+5. **Stage 5 LANDED** -- legacy code path retired. Slug algorithm
+   inlined into ``BuiltinFileProvider.workspace_slug`` (algorithm
+   preserved verbatim so existing data continues to map).
+   ``athena/memory/__init__.py`` hollowed out -- every workspace-
+   keyed legacy function removed (``load_memory_index``,
+   ``list_memories``, ``write_memory``, ``delete_memory``,
+   ``parse_memory_file``, ``memory_dir``, ``ensure_memory_dir``,
+   ``_refresh_index``, ``render_index_for_display``, ``MemoryFile``,
+   ``PROJECTS_DIR``, ``_slugify``, ``_deprecated``). Stage-2
+   fallback dropped from ``agent/core.py``.
+   ``athena/user_model/factory.py`` migrated to
+   ``memory.store.memory_dir``. ``tests/memory/test_legacy_workspace_api.py``
+   deleted. Documentation in CLAUDE.md and ATHENA.md updated.
+
+   The ``cfg.migrate_legacy_memory`` default stays at ``False``
+   intentionally -- the behavior flip is gated on actual operator
+   dogfood feedback, not bundled with the code retirement.
+
+**Original problem (kept for context):** Two parallel memory APIs
+(legacy workspace-keyed in ``memory/__init__.py``, profile-keyed in
+``memory/providers/``). The agent's system-prompt build reads via the
+legacy API; MCP server tools and the ``athena memory`` CLI read via
+the new provider. Round 4 of the audit added dual-write in
+``tools/memory_tools.py`` to paper over the gap. CLAUDE.md says
 Phase 14 will migrate; profiles shipped but the memory half did not.
 
 **Plan:**

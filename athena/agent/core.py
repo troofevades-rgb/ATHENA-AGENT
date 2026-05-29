@@ -858,19 +858,22 @@ class Agent:
 
         memory_index: str | None = None
         try:
-            # R2 stage 2: read through the profile-keyed provider so the
-            # agent's system-prompt build, the ``athena memory`` CLI, and
-            # MCP server tools all see the same store. Falls back to the
-            # legacy workspace-keyed location for one release so existing
-            # users keep getting MEMORY.md injected before the stage 4
-            # data migration runs. The fallback is removed at R2 stage 5.
-            from ..memory import load_memory_index as _legacy_load
+            # R2 stage 2 + 5: read through the profile-keyed provider.
+            # The stage-2 fallback to the legacy
+            # ``~/.athena/projects/<slug>/memory/MEMORY.md`` path retired
+            # at stage 5. Users with legacy data should set
+            # ``migrate_legacy_memory = true`` in config.toml -- the
+            # opportunistic call to
+            # :func:`~athena.profiles.migration.maybe_migrate_workspace_memory`
+            # above will copy their entries into the new sub-store on
+            # next session, at which point this read sees them. Until
+            # the flag flips on, untouched legacy data is still
+            # readable on-disk (it's a copy, not a move) and will be
+            # picked up the first time the operator opts in.
             from ..memory.store import load_index as _store_load
 
             profile = self.cfg.profile or "default"
             memory_index = _store_load(profile, workspace=self.workspace)
-            if memory_index is None:
-                memory_index = _legacy_load(self.workspace)
             if memory_index:
                 if len(memory_index) > _MAX_DOCUMENT_BYTES:
                     ui.warn(

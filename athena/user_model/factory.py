@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..config import profile_dir
-from ..memory import memory_dir
+from ..memory.store import memory_dir
 from .base import BackendHealth, IngestResult, QueryResult, UserModelBackend
 
 if TYPE_CHECKING:
@@ -86,7 +86,13 @@ def get_user_model_backend(
             storage_dir=_resolve_storage_dir(cfg),
             llm_call=llm_call or _missing_llm_call,
             authored_memory_dir=(
-                memory_dir(workspace) if workspace is not None else None
+                # R2 stage 5: the workspace-keyed legacy lookup retired.
+                # Use the profile-keyed provider's directory for this
+                # (profile, workspace) pair -- same on-disk location the
+                # /memory slash and the @tool surface write to.
+                memory_dir(cfg.profile or "default", workspace=workspace)
+                if workspace is not None
+                else None
             ),
         )
     if name == "honcho":

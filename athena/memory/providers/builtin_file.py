@@ -16,6 +16,7 @@ test path; production reindex is a Phase 16 concern.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
 from contextlib import closing
@@ -90,15 +91,24 @@ class BuiltinFileProvider(MemoryProvider):
     def workspace_slug(workspace: Path) -> str:
         """Stable, filesystem-safe slug for a workspace path.
 
-        Reuses the legacy :func:`athena.memory._slugify` so the on-disk
-        layout under ``<profile_dir>/memory/legacy/<slug>/`` (R2 stage 1)
-        stays compatible with the workspace-keyed store at
-        ``~/.athena/projects/<slug>/memory/``. Stage 4's data migration
-        depends on byte-identical slugs across the two roots.
-        """
-        from .. import _slugify  # canonical until R2 stage 5 cleanup
+        A short SHA-1 of the resolved path is appended so distinct
+        paths that share the same letterform (e.g. ``/a/b-c`` and
+        ``/a/b/c``) don't collide and share a memory directory.
 
-        return _slugify(workspace)
+        R2 stage 5 inlined this algorithm into the provider. Earlier
+        stages delegated to ``athena.memory._slugify`` so the new
+        ``<profile_dir>/memory/legacy/<slug>/`` layout and the legacy
+        ``~/.athena/projects/<slug>/memory/`` layout produced
+        byte-identical slugs (a hard requirement for the stage-4
+        migrator copying between them). Algorithm preserved verbatim
+        on the inline -- existing legacy data continues to map.
+        """
+        s = str(workspace.resolve())
+        base = re.sub(
+            r"[^a-zA-Z0-9._-]", "_", s.strip("/").replace("/", "-")
+        ) or "root"
+        h = hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
+        return f"{base}_{h}"
 
     def _memory_dir(self, profile: str, workspace: Path | None = None) -> Path:
         """Resolve the on-disk directory for this (profile, workspace).
