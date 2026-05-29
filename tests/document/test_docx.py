@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from athena.document.extractors.docx import extract
-from athena.document.result import DocumentResult
-from tests.document.conftest import make_docx_with_structure
+import pytest
+
+# python-docx is an optional dependency. Same reasoning as
+# tests/document/test_pdf.py: skip cleanly when the package isn't
+# installed rather than letting the extractor or fixture imports
+# raise at collection time.
+pytest.importorskip("docx")
+
+from athena.document.extractors.docx import extract  # noqa: E402
+from athena.document.result import DocumentResult  # noqa: E402
+from tests.document.conftest import make_docx_with_structure  # noqa: E402
 
 
 def test_docx_structure(tmp_path: Path):
