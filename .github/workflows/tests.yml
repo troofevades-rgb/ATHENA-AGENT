@@ -34,18 +34,23 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          # Install gateway, observability, vision, and browser
-          # extras alongside [dev] because the test suite (and
+          # Install gateway, observability, and vision extras
+          # alongside [dev] because the test suite (and
           # tools/__init__.py's side-effect import chain) reaches
           # them at collection time: discord/aiohttp/aiosmtplib
-          # (gateway), opentelemetry (observability), Pillow +
+          # (gateway), opentelemetry (observability), and Pillow +
           # imagehash (vision -- pulled in by vision/imageops.py
-          # which tools/__init__.py registers), playwright
-          # (browser -- pulled in by browser/session.py which
-          # Agent.__init__ binds for /browser tools). Without
-          # them, pytest 400's during collection with
-          # ModuleNotFoundError before a single test runs.
-          pip install -e ".[dev,gateway,observability,vision,browser]"
+          # which tools/__init__.py registers). Without them,
+          # pytest 400's during collection with ModuleNotFoundError
+          # before a single test runs. ``browser`` is intentionally
+          # left out: athena/browser/session.py lazy-imports
+          # playwright on first use, so the test suite collects
+          # fine without it -- and the chromium binary playwright
+          # needs isn't installed in CI, so installing playwright
+          # alone would make browser tests fail rather than skip.
+          # The browser tests' ``_playwright_available()`` gate
+          # skips them cleanly when the package isn't importable.
+          pip install -e ".[dev,gateway,observability,vision]"
       - name: Test
         env:
           PYTHONDONTWRITEBYTECODE: "1"

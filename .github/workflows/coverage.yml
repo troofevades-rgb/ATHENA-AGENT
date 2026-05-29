@@ -26,10 +26,11 @@ jobs:
       - run: |
           python -m pip install --upgrade pip
           # Match tests.yml -- coverage collection imports the same
-          # gateway, observability, vision, and browser deps the test
-          # suite does (tools/__init__.py side-effect imports pull in
-          # vision and browser at collection time).
-          pip install -e ".[dev,gateway,observability,vision,browser]"
+          # gateway, observability, and vision deps the test suite
+          # does (tools/__init__.py's side-effect import pulls in
+          # vision at collection time; browser is lazy-imported and
+          # gated by _playwright_available()).
+          pip install -e ".[dev,gateway,observability,vision]"
       - name: Run coverage
         run: |
           # T1-04: bumped from 60 to 65 once tests/agent/ landed.
