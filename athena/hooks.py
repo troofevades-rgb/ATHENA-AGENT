@@ -1,172 +1,92 @@
-"""Hook system. Mirrors Claude Code's hook events.
+"""DEPRECATED -- settings.json hook system.
 
-Configuration in ~/.athena/settings.json or <workspace>/.athena/settings.json:
+This module shipped in Phase 0 as athena's port of Claude Code's hook events
+(``PreToolUse`` / ``PostToolUse`` / ``UserPromptSubmit`` / ``Stop``). It now
+delegates entirely to the bundled :class:`ShellHookPlugin`
+(``athena/plugins/bundled/shell_hook/plugin.py``); the agent loop reads
+hooks via the plugin layer, not through this module.
 
-    {
-      "hooks": {
-        "PreToolUse": [
-          {
-            "matcher": "Bash",
-            "command": "echo \"$tool_name $tool_args\" >> ~/.athena/audit.log"
-          }
-        ],
-        "PostToolUse": [...],
-        "UserPromptSubmit": [...],
-        "Stop": [...]
-      }
-    }
+This file remains as a backward-compatibility shim for one release so any
+external code that imports ``athena.hooks.fire`` / ``athena.hooks.load_hooks``
+keeps working with a deprecation warning. Internal callers have already
+been migrated.
 
-Events:
-  PreToolUse        — runs before each tool call. Receives JSON on stdin:
-                      {"event": "PreToolUse", "tool_name": str, "tool_args": dict}
-                      Exit code 1 BLOCKS the tool call (the command's stderr is
-                      surfaced back to the model as the tool result).
-  PostToolUse       — runs after each tool call. Receives:
-                      {"event": "PostToolUse", "tool_name": str, "tool_args": dict, "result": str}
-                      Cannot block; output is logged but ignored.
-  UserPromptSubmit  — runs before each user prompt is sent to the model.
-                      Receives: {"event": "UserPromptSubmit", "prompt": str}
-                      Exit code 1 cancels the turn.
-  Stop              — runs at end of turn (after the model returns no tool calls).
-                      Receives: {"event": "Stop", "stats": {...}}
-
-`matcher` is a regex matched against tool_name (substring fallback if the
-regex fails to compile). Empty/missing matcher matches all tools.
+Deletion plan: drop this module the release after we cut next. The
+shim emits a ``DeprecationWarning`` on import so any holdout caller surfaces.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import re
-import subprocess
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from . import ui
-from .config import CONFIG_DIR
-
-SETTINGS_NAME = "settings.json"
-USER_SETTINGS = CONFIG_DIR / SETTINGS_NAME
+warnings.warn(
+    "athena.hooks is deprecated; the settings.json hooks block is now read "
+    "by athena/plugins/bundled/shell_hook/ (ShellHookPlugin). Internal "
+    "callers have been migrated; external imports should switch to the "
+    "plugin layer.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 @dataclass
 class Hook:
+    """Legacy hook record. Kept so external code that imports the dataclass
+    type still resolves -- the plugin uses its own internal record type."""
+
     event: str
-    matcher: str  # substring match against tool_name; "" = match all
+    matcher: str
     command: str
 
 
-_HOOKS: list[Hook] = []
-
-
-def settings_paths(workspace: Path) -> list[Path]:
-    """User-level then workspace-level. Later overrides earlier per-event,
-    but we just concatenate hook lists in order so all configured hooks fire.
-    """
-    return [
-        USER_SETTINGS,
-        workspace / ".athena" / SETTINGS_NAME,
-    ]
-
-
 def load_hooks(workspace: Path) -> list[Hook]:
-    """Read settings files, build the hook list. Resets module state."""
-    global _HOOKS
-    _HOOKS = []
-    for p in settings_paths(workspace):
-        if not p.exists():
-            continue
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as e:
-            ui.error(f"failed to parse {p}: {e}")
-            continue
-        hooks_block = data.get("hooks") or {}
-        if not isinstance(hooks_block, dict):
-            ui.error(f"{p}: 'hooks' must be an object")
-            continue
-        for event, entries in hooks_block.items():
-            if not isinstance(entries, list):
-                continue
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    continue
-                cmd = entry.get("command")
-                if not isinstance(cmd, str) or not cmd.strip():
-                    if cmd is not None:
-                        ui.error(
-                            f"{p}: hook command must be a non-empty string, got {type(cmd).__name__}"
-                        )
-                    continue
-                _HOOKS.append(
-                    Hook(
-                        event=event,
-                        matcher=entry.get("matcher", "") or "",
-                        command=cmd,
-                    )
-                )
-    if _HOOKS:
-        ui.info(f"loaded {len(_HOOKS)} hook(s)")
-    return _HOOKS
+    """Compat shim: load hooks via the plugin and return them in the legacy
+    :class:`Hook` shape.
 
-
-def _matches(hook: Hook, tool_name: str) -> bool:
-    if not hook.matcher:
-        return True
-    # Treat as regex; fall back to substring on regex error.
-    try:
-        return re.search(hook.matcher, tool_name) is not None
-    except re.error:
-        return hook.matcher in tool_name
-
-
-def fire(
-    event: str, *, tool_name: str = "", payload: dict[str, Any] | None = None
-) -> tuple[bool, str]:
-    """Fire all hooks matching this event.
-
-    Returns (allow, message). For PreToolUse / UserPromptSubmit, allow=False
-    blocks the action and message contains the reason (the hook's stderr).
-    For other events, allow is always True.
+    Internal callers no longer need this -- the bundled ``ShellHookPlugin``
+    loads its own hook list on ``on_session_start`` and re-reads on
+    ``configure_workspace``. This function is preserved so external scripts
+    that called ``athena.hooks.load_hooks(workspace)`` keep working.
     """
-    payload = payload or {}
-    payload["event"] = event
-    payload_json = json.dumps(payload, default=str)
-    blocking = event in ("PreToolUse", "UserPromptSubmit")
-    for hook in _HOOKS:
-        if hook.event != event:
-            continue
-        if not _matches(hook, tool_name):
-            continue
-        try:
-            proc = subprocess.run(
-                hook.command,
-                shell=True,
-                input=payload_json,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                env={
-                    **os.environ,
-                    "ATHENA_HOOK_EVENT": event,
-                    "ATHENA_TOOL_NAME": tool_name,
-                },
-            )
-        except subprocess.TimeoutExpired:
-            ui.warn(f"hook {event} timed out: {hook.command!r}")
-            if blocking:
-                # Fail closed: a blocking hook that hangs must not be a bypass.
-                return False, f"hook {event} timed out (treating as block)"
-            continue
-        if proc.stdout.strip():
-            ui.info(f"hook {event} stdout: {proc.stdout.strip()[:200]}")
-        if blocking and proc.returncode != 0:
-            msg = proc.stderr.strip() or f"hook {event} blocked the action (exit {proc.returncode})"
-            return False, msg
-    return True, ""
+    from .plugins.bundled.shell_hook.plugin import _load_hooks as _plugin_load
+
+    raw = _plugin_load(workspace)
+    return [Hook(event=h.event, matcher=h.matcher, command=h.command) for h in raw]
 
 
 def list_hooks() -> list[Hook]:
-    return list(_HOOKS)
+    """Compat shim: returns an empty list. The legacy module kept a
+    module-level ``_HOOKS`` populated by ``load_hooks``; the plugin owns
+    its own list now. Slash command ``/hooks`` reads directly from the
+    plugin (see ``athena/commands/hooks_cmd.py``).
+    """
+    return []
+
+
+def fire(
+    event: str, *, tool_name: str = "", payload: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    """Compat shim: dispatch through a fresh ShellHookPlugin run.
+
+    External callers that fire events directly (rare) still get the correct
+    side-effect behaviour, but at the cost of re-reading settings.json on
+    every call. Internal callers have moved to the plugin layer where the
+    settings load is cached.
+    """
+    from .plugins.bundled.shell_hook.plugin import (
+        _load_hooks as _plugin_load,
+        _run_shell_hooks as _plugin_run,
+    )
+
+    hooks = _plugin_load(None)
+    blocking = event in ("PreToolUse", "UserPromptSubmit")
+    return _plugin_run(
+        hooks,
+        event,
+        tool_name=tool_name,
+        payload=payload or {},
+        blocking=blocking,
+    )

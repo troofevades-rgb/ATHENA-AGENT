@@ -265,8 +265,12 @@
   calls `on_install()` once, tracked in `~/.athena/plugins_installed`.
   Enable state lives in `~/.athena/plugins_state.json` (machine-managed JSON);
   `config.toml` stays hand-edited.
-- The agent loop fires plugin hooks on top of the legacy `athena/hooks.py`
-  settings.json hook system — both run; settings hooks first, plugins second.
+- The agent loop fires lifecycle events through the plugin layer only.
+  The legacy `athena/hooks.py` settings.json hook system was retired in
+  Phase 18.1 Refactor 5; the bundled `ShellHookPlugin`
+  (`athena/plugins/bundled/shell_hook/`) reads the same settings.json
+  hooks block and dispatches via the plugin layer. `athena/hooks.py`
+  survives one release as a deprecation shim.
 - `/goal` is read at session start AND on every system-prompt rebuild
   (after `/cwd`, `/clear`, `Agent.reload_goal()` etc.) so the invariant
   is always re-injected.

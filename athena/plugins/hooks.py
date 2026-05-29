@@ -46,8 +46,10 @@ class HookDispatcher:
         "on_session_end",
         "pre_tool_call",
         "post_tool_call",
+        "check_user_message",
         "on_user_message",
         "on_assistant_message",
+        "on_turn_end",
     )
 
     def __init__(self, plugins: list[Plugin]):
@@ -118,6 +120,27 @@ class HookDispatcher:
 
     # ---- Messages ----
 
+    def check_user_message(self, prompt: str) -> tuple[bool, str]:
+        """Hard veto on a user prompt. First plugin returning ``(False, reason)``
+        wins; subsequent plugins still get called for observability but cannot
+        override. Returns ``(True, "")`` when every plugin allows the prompt.
+        """
+        targets = self._by_hook["check_user_message"]
+        if not targets:
+            return True, ""
+        allow = True
+        reason = ""
+        for p in targets:
+            try:
+                decision, why = p.check_user_message(prompt)
+            except Exception:
+                logger.exception("plugin %s check_user_message raised; allowing", p.name)
+                continue
+            if decision is False and allow:
+                allow = False
+                reason = why or f"blocked by plugin {p.name!r}"
+        return allow, reason
+
     def on_user_message(self, prompt: str) -> str:
         """Chain prompt through every plugin. Each ``None`` is a pass-through."""
         targets = self._by_hook["on_user_message"]
@@ -140,3 +163,12 @@ class HookDispatcher:
                 p.on_assistant_message(content)
             except Exception:
                 logger.exception("plugin %s on_assistant_message raised; continuing", p.name)
+
+    # ---- Turn lifecycle ----
+
+    def on_turn_end(self, reason: str, stats: dict[str, Any]) -> None:
+        for p in self._by_hook["on_turn_end"]:
+            try:
+                p.on_turn_end(reason, dict(stats))
+            except Exception:
+                logger.exception("plugin %s on_turn_end raised; continuing", p.name)
