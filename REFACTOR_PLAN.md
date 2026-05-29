@@ -391,9 +391,62 @@ operator dogfooding.
 
 ## Refactor 1 — Split `athena/agent/core.py` (2005 lines)
 
-**Status:** most expensive; do last. Worth doing iff Refactors 4 and 2 land
-first (Config decomposition makes the split lines cleaner; memory migration
-removes one of the heaviest legacy hookups).
+**Status: COMPLETE.** Landed across four staged commits on PR #12 using
+the mixin inheritance pattern the plan recommended for the pilot:
+
+1. **Stage 1 LANDED** -- ``AgentGoalIntegration`` mixin (174 LOC) at
+   ``athena/agent/goal_integration.py`` owns the two goal-loop hooks
+   (``_consult_goal_continuation``, ``_persist_goal_state``). Pilot
+   that proved the mechanical-move pattern.
+
+2. **Stage 2 LANDED** -- ``AgentLifecycle`` mixin (469 LOC initially)
+   at ``athena/agent/lifecycle.py`` pulled 12 smaller helpers:
+   ``_cancel_in_flight``, ``_build_plugin_hooks``,
+   ``_run_session_start_hooks``, ``_init_cross_session_cache``,
+   ``_build_system``, ``_profile_dir``, ``_load_goal``,
+   ``_load_goal_state``, ``_configure_shell_hook_plugin``,
+   ``reload_skills``, ``reload_goal``, ``reset``.
+
+3. **Stage 3 LANDED** -- ``AgentRuntime`` mixin (872 LOC) at
+   ``athena/agent/runtime.py`` extracted 17 per-turn hot-loop
+   methods: ``run_turn``, ``_run_turn_inner``, ``run_until_done``,
+   ``_stream_one``, ``_recover_tool_calls_from_text``,
+   ``_handle_tool_call``, ``_maybe_store_tool_result``,
+   ``_preview_write``, ``_record_tool_result``, ``_persist_message``,
+   ``_inject_pending_steers``, ``_maybe_compress_context``,
+   ``_messages_with_cache_markers``, ``_wait_for_background_review``,
+   ``_maybe_fire_review``, ``_start_progress_ticker``,
+   ``_fire_stop``. Companion: the ``_current_agent`` ContextVar and
+   ``get_current_agent`` moved to ``athena/agent/context.py`` (34
+   LOC) to break the ``runtime <-> core`` cycle the inheritance
+   creates.
+
+4. **Stage 4 LANDED** -- ``__init__`` (334 LOC) and ``close`` (66
+   LOC) folded into ``AgentLifecycle`` (now 877 LOC). The ``Stats``
+   dataclass moved to its own ``athena/agent/stats.py`` (89 LOC) so
+   ``AgentLifecycle`` can construct it from ``__init__`` without a
+   ``lifecycle -> core`` import cycle. Both ``Stats`` and
+   ``get_current_agent`` are re-exported from ``athena.agent.core``
+   so existing callers' imports keep working unchanged.
+
+**End state:**
+
+  ``agent/core.py`` -- 2072 -> 348 LOC. Holds the public ``Agent``
+  class declaration (inheriting ``(AgentLifecycle, AgentRuntime,
+  AgentGoalIntegration)``), the four small public methods
+  (``write_status_snapshot``, ``load_history_from_session``,
+  ``last_assistant_message``, ``tool_call_trace``), the module-level
+  tool-call recovery helpers (``_normalize_tool_call``,
+  ``_coerce_arg``, ``_extract_text_tool_calls`` + the regex
+  constants they consume), and the ``fork`` shim bound at module
+  load.
+
+The mixins reach into ~25 attributes on ``self`` that
+``AgentLifecycle.__init__`` populates -- TYPE_CHECKING blocks
+document each contract. The public ``Agent`` surface is unchanged:
+every method available on a pre-R1 ``Agent`` instance is still
+available via the MRO. Full non-e2e suite (4872 tests) green at
+every stage boundary.
 
 **Problem:** `agent/core.py` is 2005 lines. `Agent.__init__` alone runs from
 line 277 to line 575 — session lifecycle, history loading, browser session,
