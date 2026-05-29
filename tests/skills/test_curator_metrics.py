@@ -23,7 +23,9 @@ from athena.skills.metrics import SkillMetricsStore, metrics_path
 def _make_skill(workspace: Path, name: str) -> None:
     skill_dir = workspace / ".athena" / "skills" / name
     skill_dir.mkdir(parents=True, exist_ok=True)
-    (skill_dir / "skill.md").write_text(
+    # Canonical name is ``SKILL.md`` (uppercase); lowercase only
+    # resolves on case-insensitive filesystems.
+    (skill_dir / "SKILL.md").write_text(
         f"---\nname: {name}\ndescription: x\nstate: active\n"
         f"pinned: false\nwrite_origin: foreground\n---\n\nbody\n",
         encoding="utf-8",

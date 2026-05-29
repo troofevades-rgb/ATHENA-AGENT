@@ -32,7 +32,10 @@ def _make_skill(workspace: Path, name: str, description: str = "test skill") -> 
         f"\n"
         f"skill body for {name}\n"
     )
-    (skill_dir / "skill.md").write_text(body, encoding="utf-8")
+    # Canonical name is ``SKILL.md`` (uppercase). The loader looks
+    # for that exact name; lowercase only "works" on case-insensitive
+    # filesystems (Windows NTFS), not on CI's Linux runner.
+    (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
 
 
 def _make_audit_record(audit_dir: Path, **overrides) -> dict:

@@ -36,7 +36,10 @@ def test_tui_bundle_ships_with_package():
 def test_pyproject_includes_bundle_in_package_data():
     """The bundle is listed under ``[tool.setuptools.package-data]``
     so ``pip install`` ships it in the wheel."""
-    import tomllib
+    try:
+        import tomllib  # 3.11+ stdlib
+    except ImportError:
+        import tomli as tomllib  # 3.10 back-port; pyproject.toml lists it
 
     pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
     with pyproject_path.open("rb") as f:

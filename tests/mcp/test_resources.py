@@ -26,7 +26,12 @@ def _make_resources(workspace: Path, profile: Path, audit_dir: Path) -> AthenaMC
 def _make_skill(workspace: Path, name: str, description: str = "test skill") -> None:
     skill_dir = workspace / ".athena" / "skills" / name
     skill_dir.mkdir(parents=True, exist_ok=True)
-    (skill_dir / "skill.md").write_text(
+    # ``SKILL.md`` (uppercase) is the canonical name the loader looks
+    # for. Windows-host runs happen to find ``skill.md`` because NTFS
+    # is case-insensitive; the Linux CI runner does not, so the test
+    # only passed locally for that wrong reason. Use the canonical
+    # name everywhere.
+    (skill_dir / "SKILL.md").write_text(
         f"---\n"
         f"name: {name}\n"
         f"description: {description}\n"

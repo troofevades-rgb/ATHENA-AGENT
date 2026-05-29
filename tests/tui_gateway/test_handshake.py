@@ -67,6 +67,18 @@ def _build_stub_gateway(transport):
     gw._heartbeat_stop = threading.Event()
     gw._last_pong_at = 0.0
     gw._handshake_done = False
+    # Step 4b outbound writer machinery -- send_event reaches into all
+    # of these. test_outbound_queue's stub already wires them up; this
+    # stub originally predated the writer-thread split and worked on
+    # Windows-host CI because send_event was never exercised by the
+    # tests in this file, but ``test_heartbeat_and_seq_monotonic``
+    # calls ``send_event`` directly. Linux CI surfaces the missing
+    # attributes.
+    gw._outbound = srv._OutboundQueue()
+    gw._writer_thread = None
+    gw._writer_stop = threading.Event()
+    gw._conn_ready = threading.Event()
+    gw._ring = srv._EventRing()
     return gw
 
 
@@ -159,7 +171,14 @@ def test_hello_handshake_with_matching_version(fast_heartbeats):
         # The client saw the server's hello with our protocol_version.
         assert state["events"][0]["method"] == "hello"
         assert state["events"][0]["params"]["protocol_version"] == 2
-        assert state["events"][0]["params"]["capabilities"] == ["heartbeats", "seq"]
+        # _GATEWAY_CAPABILITIES in athena/tui_gateway/server.py grew
+        # ``coalesce`` when outbound batching shipped; the test wasn't
+        # updated then.
+        assert state["events"][0]["params"]["capabilities"] == [
+            "heartbeats",
+            "seq",
+            "coalesce",
+        ]
     finally:
         transport.close()
 
