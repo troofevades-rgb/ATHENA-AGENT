@@ -840,9 +840,19 @@ class Agent:
 
         memory_index: str | None = None
         try:
-            from ..memory import load_memory_index
+            # R2 stage 2: read through the profile-keyed provider so the
+            # agent's system-prompt build, the ``athena memory`` CLI, and
+            # MCP server tools all see the same store. Falls back to the
+            # legacy workspace-keyed location for one release so existing
+            # users keep getting MEMORY.md injected before the stage 4
+            # data migration runs. The fallback is removed at R2 stage 5.
+            from ..memory import load_memory_index as _legacy_load
+            from ..memory.store import load_index as _store_load
 
-            memory_index = load_memory_index(self.workspace)
+            profile = self.cfg.profile or "default"
+            memory_index = _store_load(profile, workspace=self.workspace)
+            if memory_index is None:
+                memory_index = _legacy_load(self.workspace)
             if memory_index:
                 if len(memory_index) > _MAX_DOCUMENT_BYTES:
                     ui.warn(
