@@ -78,6 +78,15 @@ class _ScriptedProvider:
 
 def _make_agent(workspace: Path, provider: Any, **cfg_overrides: Any) -> Agent:
     cfg = Config(model="scripted")
+    # This test runs 60 turns; with the default review nudge cadence
+    # of one fire per 10 turns, that's 6 background-review forks --
+    # each spawning a child Agent and joining for up to 3s in the
+    # next foreground turn's _wait_for_background_review(). On the
+    # GitHub Actions runner that fork + join chain pushes total
+    # runtime past the 60s pytest-timeout; locally it finishes in
+    # seconds. Reviews aren't what this test is asserting -- disable
+    # them so the compression watermark assertion is what runs.
+    cfg.review.nudge_interval = 0
     for k, v in cfg_overrides.items():
         setattr(cfg, k, v)
     return Agent(cfg, workspace, provider=provider)
