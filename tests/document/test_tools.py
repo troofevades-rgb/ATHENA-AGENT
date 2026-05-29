@@ -23,6 +23,14 @@ from typing import Any
 
 import pytest
 
+# document_analyze tool tests reach for the PyMuPDF / python-docx
+# fixtures in tests/document/conftest.py; skip the suite cleanly
+# when either dep isn't installed (matches test_pdf.py + test_docx.py).
+pytest.importorskip("fitz")
+pytest.importorskip("docx")
+
+import pytest
+
 from athena.document import tools as doc_tools
 from athena.document.tools import VALID_MODES, _run
 from tests.document.conftest import (
