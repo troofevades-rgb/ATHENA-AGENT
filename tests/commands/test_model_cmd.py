@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from athena.commands.model_cmd import cmd_model
+from athena.commands.model import cmd_model
 
 
 def _capture():
@@ -22,7 +22,7 @@ def _capture():
     for fn in ("info", "warn", "error"):
         patches.append(
             patch(
-                f"athena.commands.model_cmd.ui.{fn}",
+                f"athena.commands.model.ui.{fn}",
                 side_effect=lambda msg, *a, _n=fn, **kw:
                     lines.append(f"{_n}: {msg}"),
             )
@@ -73,7 +73,7 @@ def test_swap_within_same_provider_only_changes_model_name() -> None:
     agent = _fake_agent(model="qwen", provider_name="ollama")
     original_provider = agent.provider
     with patch(
-        "athena.commands.model_cmd._route",
+        "athena.commands.model._route",
         return_value="ollama",
     ):
         out = _run(agent, "llama3.2:3b")
@@ -85,7 +85,7 @@ def test_swap_within_same_provider_only_changes_model_name() -> None:
 
 def test_swap_strips_whitespace_from_name() -> None:
     agent = _fake_agent(model="qwen", provider_name="ollama")
-    with patch("athena.commands.model_cmd._route", return_value="ollama"):
+    with patch("athena.commands.model._route", return_value="ollama"):
         _run(agent, "  llama3.2:3b  ")
     assert agent.model == "llama3.2:3b"
 
@@ -101,9 +101,9 @@ def test_swap_across_providers_replaces_provider_object() -> None:
     new_provider = SimpleNamespace(name="anthropic", close=lambda: None)
 
     with patch(
-        "athena.commands.model_cmd._route", return_value="anthropic"
+        "athena.commands.model._route", return_value="anthropic"
     ), patch(
-        "athena.commands.model_cmd.resolve_provider",
+        "athena.commands.model.resolve_provider",
         return_value=(new_provider, "claude-opus-4"),
     ):
         out = _run(agent, "anthropic/claude-opus-4")
@@ -130,9 +130,9 @@ def test_swap_across_providers_closes_owned_client() -> None:
     new_provider = SimpleNamespace(name="anthropic", close=lambda: None)
 
     with patch(
-        "athena.commands.model_cmd._route", return_value="anthropic"
+        "athena.commands.model._route", return_value="anthropic"
     ), patch(
-        "athena.commands.model_cmd.resolve_provider",
+        "athena.commands.model.resolve_provider",
         return_value=(new_provider, "claude-opus-4"),
     ):
         _run(agent, "anthropic/claude-opus-4")
@@ -151,9 +151,9 @@ def test_swap_across_providers_skips_close_when_not_owner() -> None:
     agent._owns_client = False
     new_provider = SimpleNamespace(name="anthropic", close=lambda: None)
     with patch(
-        "athena.commands.model_cmd._route", return_value="anthropic"
+        "athena.commands.model._route", return_value="anthropic"
     ), patch(
-        "athena.commands.model_cmd.resolve_provider",
+        "athena.commands.model.resolve_provider",
         return_value=(new_provider, "claude"),
     ):
         _run(agent, "anthropic/claude")
@@ -170,9 +170,9 @@ def test_close_failure_during_swap_is_swallowed() -> None:
     agent._owns_client = True
     new_provider = SimpleNamespace(name="anthropic", close=lambda: None)
     with patch(
-        "athena.commands.model_cmd._route", return_value="anthropic"
+        "athena.commands.model._route", return_value="anthropic"
     ), patch(
-        "athena.commands.model_cmd.resolve_provider",
+        "athena.commands.model.resolve_provider",
         return_value=(new_provider, "claude"),
     ):
         # Must not raise.
@@ -188,9 +188,9 @@ def test_swap_resolve_failure_surfaces_error_and_leaves_state() -> None:
     agent = _fake_agent(model="qwen", provider_name="ollama")
     original_provider = agent.provider
     with patch(
-        "athena.commands.model_cmd._route", return_value="anthropic"
+        "athena.commands.model._route", return_value="anthropic"
     ), patch(
-        "athena.commands.model_cmd.resolve_provider",
+        "athena.commands.model.resolve_provider",
         side_effect=ValueError("no ATHENA_ANTHROPIC_API_KEY in ~/.athena/.env"),
     ):
         out = _run(agent, "anthropic/claude")

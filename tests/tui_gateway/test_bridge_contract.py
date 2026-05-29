@@ -304,7 +304,7 @@ def test_confirm_falls_back_to_input_when_no_gateway():
 
 def test_gateway_inspector_returns_active(gw):
     """``ui.gateway()`` should return whatever was set, so
-    consumers (e.g. theme_cmd) can branch on TUI-mode."""
+    consumers (e.g. /theme) can branch on TUI-mode."""
     assert ui.gateway() is gw
 
 

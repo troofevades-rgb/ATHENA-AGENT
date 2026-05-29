@@ -14,14 +14,14 @@ from unittest.mock import patch
 
 import pytest
 
-from athena.commands.status_cmd import cmd_status
+from athena.commands.status import cmd_status
 
 
 def _capture():
     lines: list[str] = []
     patches = [
         patch(
-            "athena.commands.status_cmd.ui.console.print",
+            "athena.commands.status.ui.console.print",
             side_effect=lambda *a, **kw:
                 lines.append(" ".join(str(x) for x in a)),
         ),

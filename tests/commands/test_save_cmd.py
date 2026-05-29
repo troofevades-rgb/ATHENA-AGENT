@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from athena.commands.save_cmd import cmd_save
+from athena.commands.save import cmd_save
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def _captured_info() -> tuple[list[str], list]:
     lines: list[str] = []
     patches = [
         patch(
-            "athena.commands.save_cmd.ui.info",
+            "athena.commands.save.ui.info",
             side_effect=lambda msg, *a, **kw: lines.append(msg),
         ),
     ]
@@ -103,7 +103,7 @@ def test_save_with_no_arg_uses_sessions_dir(
     Test patches SESSIONS_DIR to a tmp_path so we don't pollute the
     real ~/.athena/sessions."""
     monkeypatch.setattr(
-        "athena.commands.save_cmd.SESSIONS_DIR", tmp_path / "sessions",
+        "athena.commands.save.SESSIONS_DIR", tmp_path / "sessions",
     )
     out = _run(fake_agent, "")
     # Exactly one file written into the sessions dir.

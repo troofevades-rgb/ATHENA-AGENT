@@ -22,7 +22,7 @@ from io import StringIO
 import pytest
 from rich.console import Console
 
-from athena.commands import help_cmd
+from athena.commands import help as help_cmd
 
 
 PLACEHOLDERS = (
@@ -42,7 +42,7 @@ def _render_with_default_console(monkeypatch: pytest.MonkeyPatch) -> str:
     ``athena.ui.console``'s defaults (markup-on)."""
     buf = StringIO()
     fake = Console(file=buf, force_terminal=False, no_color=True, width=200)
-    monkeypatch.setattr("athena.commands.help_cmd.ui.console", fake)
+    monkeypatch.setattr("athena.commands.help.ui.console", fake)
 
     class _Stub:
         pass
@@ -72,6 +72,6 @@ def test_help_returns_empty_string(monkeypatch: pytest.MonkeyPatch) -> None:
     run_turn with the help text as the prompt."""
     buf = StringIO()
     fake = Console(file=buf)
-    monkeypatch.setattr("athena.commands.help_cmd.ui.console", fake)
+    monkeypatch.setattr("athena.commands.help.ui.console", fake)
     result = help_cmd.cmd_help(object(), "")
     assert result == ""

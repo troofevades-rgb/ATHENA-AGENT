@@ -79,7 +79,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/tools/file_ops.py",  # foreground Read/Edit/Write tools
         "athena/tools/tool_result_storage.py",  # content-addressed blob writes + append-only JSONL index (T2-06)
         "athena/tools/patch_apply.py",  # unified-diff write with per-file backup/restore (T2-07)
-        "athena/commands/save_cmd.py",  # /save slash dumps the transcript to JSON (user-driven, not an agent mutation)
+        "athena/commands/save.py",  # /save slash dumps the transcript to JSON (user-driven, not an agent mutation)
         "athena/transform/dataset.py",  # training dataset exports
         "athena/transform/deploy.py",  # deployment artefacts
         "athena/transform/review.py",  # review artefacts
@@ -107,7 +107,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         # /theme save writes the active theme name into config.toml
         # (one line, atomic rewrite). Config file is itself the
         # operator-facing surface, not user content.
-        "athena/commands/theme_cmd.py",
+        "athena/commands/theme.py",
         # User-modeling backend writes auto-extracted facts to
         # ``~/.athena/profiles/<profile>/user_model/<id>.md`` plus
         # an INDEX.md. These are machine-managed observation

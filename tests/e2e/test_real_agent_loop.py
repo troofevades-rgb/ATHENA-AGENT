@@ -329,7 +329,7 @@ def test_save_resume_preserves_messages_byte_for_byte(
     monkeypatch.setattr(_ui, "warn", lambda *a, **k: None)
     monkeypatch.setattr(_ui, "error", lambda *a, **k: None)
 
-    from athena.commands.save_cmd import cmd_save
+    from athena.commands.save import cmd_save
     from athena.commands.resume import cmd_resume
     from types import SimpleNamespace
 

@@ -46,7 +46,7 @@ describe("matchSlashCommands", () => {
     expect(hits).toContain("/model");
     expect(hits).toContain("/models");
     // The one without 's' should come first (defined earlier — matches
-    // the help text order from athena/commands/help_cmd.py)
+    // the help text order from athena/commands/help.py)
     expect(hits.indexOf("/model")).toBeLessThan(hits.indexOf("/models"));
   });
 

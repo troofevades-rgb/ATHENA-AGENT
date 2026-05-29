@@ -1,5 +1,5 @@
 """Drift guard: the TUI's slash-command catalog covers every command
-documented in ``athena/commands/help_cmd.py``.
+documented in ``athena/commands/help.py``.
 
 The TUI lives in TypeScript and has its own static catalog
 (``ui-tui/src/components/SlashPopup.tsx``) so the user can get
@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from athena.commands.help_cmd import SLASH_HELP
+from athena.commands.help import SLASH_HELP
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -43,7 +43,7 @@ def _typescript_command_names() -> set[str]:
 
 
 def test_typescript_catalog_covers_every_python_command() -> None:
-    """Every slash command documented in athena/commands/help_cmd.py
+    """Every slash command documented in athena/commands/help.py
     must appear in the TUI's static catalog so users get completion
     for it. Missing entries surface as 'I typed /foo and nothing
     suggested it'."""

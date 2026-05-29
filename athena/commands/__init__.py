@@ -37,33 +37,39 @@ def all_commands() -> dict[str, CommandFn]:
     return dict(_COMMANDS)
 
 
-# Import command modules so they register
+# Import command modules so they register.
+#
+# R3 (Phase 18.1): every slash-command module lives at a bare name --
+# matches the cli/ convention and the already-consolidated single-file
+# commands (computer, board, update). The directory itself signals
+# "this is a command"; the _cmd / _cmds / _command suffixes were
+# redundant noise.
 from . import (
     board,  # noqa: F401 — T6-06 /board view + /board clear
-    checkpoint_cmds,  # noqa: F401 — T3-03 /checkpoint, /rollback-to, /checkpoints
-    clear_cmd,  # noqa: F401
+    checkpoint,  # noqa: F401 — T3-03 /checkpoint, /rollback-to, /checkpoints
+    clear,  # noqa: F401
     compact,  # noqa: F401
     computer,  # noqa: F401 — /computer status
-    cost_cmd,  # noqa: F401
-    cwd_cmd,  # noqa: F401
-    dump_cmd,  # noqa: F401
+    cost,  # noqa: F401
+    cwd,  # noqa: F401
+    dump,  # noqa: F401
     goal,  # noqa: F401
-    help_cmd,  # noqa: F401
-    hooks_cmd,  # noqa: F401
+    help,  # noqa: F401
+    hooks,  # noqa: F401
     init,  # noqa: F401
     loop,  # noqa: F401
-    mcp_cmd,  # noqa: F401
-    memory_command,  # noqa: F401
-    model_cmd,  # noqa: F401
-    models_cmd,  # noqa: F401
-    plan_command,  # noqa: F401
+    mcp,  # noqa: F401
+    memory,  # noqa: F401
+    model,  # noqa: F401
+    models,  # noqa: F401
+    plan,  # noqa: F401
     resume,  # noqa: F401
     review,  # noqa: F401
-    save_cmd,  # noqa: F401
-    skill_cmd,  # noqa: F401 — /skill import, /skill reload
-    status_cmd,  # noqa: F401
+    save,  # noqa: F401
+    skill,  # noqa: F401 — /skill import, /skill reload
+    status,  # noqa: F401
     steer,  # noqa: F401
-    theme_cmd,  # noqa: F401 — /theme inspect / switch / save
-    tools_cmd,  # noqa: F401
+    theme,  # noqa: F401 — /theme inspect / switch / save
+    tools,  # noqa: F401
     video,  # noqa: F401 — /video set <backend> + auth status
 )

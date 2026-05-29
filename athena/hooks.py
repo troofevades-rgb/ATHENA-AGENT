@@ -61,7 +61,7 @@ def list_hooks() -> list[Hook]:
     """Compat shim: returns an empty list. The legacy module kept a
     module-level ``_HOOKS`` populated by ``load_hooks``; the plugin owns
     its own list now. Slash command ``/hooks`` reads directly from the
-    plugin (see ``athena/commands/hooks_cmd.py``).
+    plugin (see ``athena/commands/hooks.py``).
     """
     return []
 

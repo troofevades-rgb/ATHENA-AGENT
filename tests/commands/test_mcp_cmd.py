@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from athena.commands.mcp_cmd import cmd_mcp
+from athena.commands.mcp import cmd_mcp
 
 
 def _capture():
@@ -16,14 +16,14 @@ def _capture():
     for fn in ("info", "warn", "error"):
         patches.append(
             patch(
-                f"athena.commands.mcp_cmd.ui.{fn}",
+                f"athena.commands.mcp.ui.{fn}",
                 side_effect=lambda msg, *a, _n=fn, **kw:
                     lines.append(f"{_n}: {msg}"),
             )
         )
     patches.append(
         patch(
-            "athena.commands.mcp_cmd.ui.console.print",
+            "athena.commands.mcp.ui.console.print",
             side_effect=lambda *a, **kw:
                 lines.append(" ".join(str(x) for x in a)),
         )
@@ -36,7 +36,7 @@ def _run(arg: str, clients: list) -> str:
     for p in patches:
         p.start()
     try:
-        with patch("athena.commands.mcp_cmd.active_clients", return_value=clients):
+        with patch("athena.commands.mcp.active_clients", return_value=clients):
             cmd_mcp(SimpleNamespace(), arg)
     finally:
         for p in patches:

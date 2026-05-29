@@ -299,7 +299,7 @@ def test_save_resume_preserves_tool_call_messages(
     monkeypatch.setattr(_ui, "error", lambda *a, **k: None)
 
     from athena.commands.resume import cmd_resume
-    from athena.commands.save_cmd import cmd_save
+    from athena.commands.save import cmd_save
     from types import SimpleNamespace
 
     target = tmp_path / "session.json"

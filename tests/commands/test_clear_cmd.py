@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from athena.commands.clear_cmd import cmd_clear
+from athena.commands.clear import cmd_clear
 
 
 def test_clear_calls_agent_reset() -> None:

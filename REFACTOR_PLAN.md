@@ -194,11 +194,39 @@ callers, but the `__getattr__` shim absorbs the migration window.
 
 ## Refactor 3 — Unify `athena/commands/` and `athena/cli/`
 
-**Problem:** Slash commands (`athena/commands/`) and CLI subcommands
-(`athena/cli/`) are parallel structures. Most commands appear in both with
-different shapes; some (`athena/commands/computer.py` and
-`athena/commands/board.py`) are listed in `__main__._SUBCOMMANDS` as both
-surfaces simultaneously, which is the right idea but applied inconsistently.
+**Status: COMPLETE (re-scoped).** The original plan called for a heavy
+``CommandHandler`` Protocol unifying both surfaces. Audit found this was
+the wrong target: slash commands and CLI subcommands are intentionally
+separate surfaces with different concerns (live session state vs on-disk
+config), and where they share concepts they already converge through the
+underlying *module* (e.g., ``CheckpointManager``, ``render_status``) --
+exactly Claude Code's own pattern. No Protocol added; no module
+consolidation needed. The R3 closeout shipped two concrete deliverables:
+
+1. **Convention documented** in CLAUDE.md: separate surfaces, convergence
+   through shared modules not handler abstractions.
+2. **File-naming normalized.** Every module in ``athena/commands/`` is at
+   its bare name (matches ``cli/`` and the already-consolidated
+   ``computer.py`` / ``board.py`` / ``update.py``). Renamed 17 files:
+   ``checkpoint_cmds.py`` -> ``checkpoint.py``, ``clear_cmd.py`` ->
+   ``clear.py``, ``cost_cmd.py`` -> ``cost.py``, ``cwd_cmd.py`` ->
+   ``cwd.py``, ``dump_cmd.py`` -> ``dump.py``, ``help_cmd.py`` ->
+   ``help.py``, ``hooks_cmd.py`` -> ``hooks.py``, ``mcp_cmd.py`` ->
+   ``mcp.py``, ``memory_command.py`` -> ``memory.py``, ``model_cmd.py``
+   -> ``model.py``, ``models_cmd.py`` -> ``models.py``,
+   ``plan_command.py`` -> ``plan.py``, ``save_cmd.py`` -> ``save.py``,
+   ``skill_cmd.py`` -> ``skill.py``, ``status_cmd.py`` -> ``status.py``,
+   ``theme_cmd.py`` -> ``theme.py``, ``tools_cmd.py`` -> ``tools.py``.
+   ``commands/__init__.py`` side-effect import list updated; test files
+   that imported by dotted path or named import migrated; safety
+   allowlist and registration drift-test updated to match.
+
+**Original problem (kept for context):** Slash commands
+(``athena/commands/``) and CLI subcommands (``athena/cli/``) are parallel
+structures. Most commands appear in both with different shapes; some
+(``athena/commands/computer.py`` and ``athena/commands/board.py``) are
+listed in ``__main__._SUBCOMMANDS`` as both surfaces simultaneously,
+which is the right idea but applied inconsistently.
 
 **The right shape** is: one *handler* module per command, with two thin
 adapter functions — one for the slash surface, one for the CLI surface — both
