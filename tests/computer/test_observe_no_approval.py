@@ -70,14 +70,39 @@ class _StubBackend:
 
 
 def _cfg(tmp_path: Path, **overrides: Any) -> SimpleNamespace:
-    base = dict(
-        computer_use_enabled=True,
-        computer_audit_path=str(tmp_path / "audit.jsonl"),
-        computer_screenshots_dir=str(tmp_path / "shots"),
-        profile="default",
+    """Stub Config shaped for post-R4 nested ``cfg.computer.*`` reads."""
+    legacy_to_nested = {
+        "computer_use_enabled": "use_enabled",
+        "computer_audit_path": "audit_path",
+        "computer_screenshots_dir": "screenshots_dir",
+        "computer_permission_mode": "permission_mode",
+    }
+    computer_defaults = dict(
+        use_enabled=True,
+        permission_mode="observe_only",
+        app_allowlist=[],
+        app_denylist=[],
+        kill_hotkey="ctrl+alt+k",
+        max_actions_per_task=40,
+        max_actions_per_sec=2.0,
+        backend="auto",
+        dry_run=False,
+        audit_path=str(tmp_path / "audit.jsonl"),
+        screenshots_dir=str(tmp_path / "shots"),
+        deny_during_goal_loop=True,
     )
-    base.update(overrides)
-    return SimpleNamespace(**base)
+    top_defaults: dict = {"profile": "default"}
+    for k, v in overrides.items():
+        if k in legacy_to_nested:
+            computer_defaults[legacy_to_nested[k]] = v
+        elif k in computer_defaults:
+            computer_defaults[k] = v
+        else:
+            top_defaults[k] = v
+    return SimpleNamespace(
+        computer=SimpleNamespace(**computer_defaults),
+        **top_defaults,
+    )
 
 
 @pytest.fixture(autouse=True)

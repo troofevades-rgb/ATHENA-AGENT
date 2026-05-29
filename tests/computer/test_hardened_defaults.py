@@ -32,6 +32,48 @@ from athena.computer.permission import PermissionGate
 from athena.config import Config
 
 
+def _make_computer_cfg(**overrides) -> SimpleNamespace:
+    """Post-R4 nested ``cfg.computer.*`` stub. Accepts both legacy
+    ``computer_X`` flat names (translated) and bare ``X`` names."""
+    _legacy = {
+        "computer_use_enabled": "use_enabled",
+        "computer_permission_mode": "permission_mode",
+        "computer_app_allowlist": "app_allowlist",
+        "computer_app_denylist": "app_denylist",
+        "computer_audit_path": "audit_path",
+        "computer_screenshots_dir": "screenshots_dir",
+        "computer_deny_during_goal_loop": "deny_during_goal_loop",
+        "computer_kill_hotkey": "kill_hotkey",
+        "computer_max_actions_per_task": "max_actions_per_task",
+        "computer_max_actions_per_sec": "max_actions_per_sec",
+        "computer_backend": "backend",
+        "computer_dry_run": "dry_run",
+    }
+    cu = dict(
+        use_enabled=True,
+        permission_mode="per_action",
+        app_allowlist=["TestApp"],
+        app_denylist=[],
+        kill_hotkey="ctrl+alt+k",
+        max_actions_per_task=10,
+        max_actions_per_sec=10000.0,
+        backend="auto",
+        dry_run=False,
+        audit_path=None,
+        screenshots_dir=None,
+        deny_during_goal_loop=False,
+    )
+    top: dict = {"profile": "default"}
+    for k, v in overrides.items():
+        if k in _legacy:
+            cu[_legacy[k]] = v
+        elif k in cu:
+            cu[k] = v
+        else:
+            top[k] = v
+    return SimpleNamespace(computer=SimpleNamespace(**cu), **top)
+
+
 # ---------------------------------------------------------------------------
 # Backend stub
 # ---------------------------------------------------------------------------
@@ -115,7 +157,8 @@ def test_fresh_config_disables_every_tool(monkeypatch, tmp_path: Path):
 
     out1 = json.loads(tools_mod.computer_screenshot())
     assert out1["available"] is False
-    assert "computer_use_enabled" in out1["reason"]
+    # Post-R4 the message references the new nested path.
+    assert "use_enabled" in out1["reason"]
 
     out2 = json.loads(tools_mod.computer_observe(question="anything"))
     assert out2["available"] is False
@@ -162,13 +205,11 @@ def test_default_denylist_includes_credentials_apps():
 
 
 def test_observe_only_allows_screenshot(monkeypatch, tmp_path: Path):
-    cfg = SimpleNamespace(
-        computer_use_enabled=True,
-        computer_permission_mode="observe_only",
-        computer_app_allowlist=[],
-        computer_app_denylist=[],
-        computer_audit_path=str(tmp_path / "audit.jsonl"),
-        profile="default",
+    cfg = _make_computer_cfg(
+        permission_mode="observe_only",
+        app_allowlist=[],
+        app_denylist=[],
+        audit_path=str(tmp_path / "audit.jsonl"),
     )
     monkeypatch.setattr(tools_mod, "_load_cfg", lambda: cfg)
     monkeypatch.setattr(tools_mod, "select_backend", lambda c: _StubBackend())
@@ -178,13 +219,11 @@ def test_observe_only_allows_screenshot(monkeypatch, tmp_path: Path):
 
 
 def test_observe_only_blocks_every_input(monkeypatch, tmp_path: Path):
-    cfg = SimpleNamespace(
-        computer_use_enabled=True,
-        computer_permission_mode="observe_only",
-        computer_app_allowlist=["TestApp"],  # even when allowlisted
-        computer_app_denylist=[],
-        computer_audit_path=str(tmp_path / "audit.jsonl"),
-        profile="default",
+    cfg = _make_computer_cfg(
+        permission_mode="observe_only",
+        app_allowlist=["TestApp"],  # even when allowlisted
+        app_denylist=[],
+        audit_path=str(tmp_path / "audit.jsonl"),
     )
     monkeypatch.setattr(tools_mod, "_load_cfg", lambda: cfg)
     backend = _StubBackend()
@@ -206,13 +245,11 @@ def test_denylisted_app_refused_no_prompt(monkeypatch, tmp_path: Path):
     everything, a denylisted app's actions are refused without
     invoking the confirm callback."""
     confirmed: list = []
-    cfg = SimpleNamespace(
-        computer_use_enabled=True,
-        computer_permission_mode="per_action",
-        computer_app_allowlist=["1Password 7"],
-        computer_app_denylist=["1password"],
-        computer_audit_path=str(tmp_path / "audit.jsonl"),
-        profile="default",
+    cfg = _make_computer_cfg(
+        permission_mode="per_action",
+        app_allowlist=["1Password 7"],
+        app_denylist=["1password"],
+        audit_path=str(tmp_path / "audit.jsonl"),
     )
 
     # Build the gate manually so we can plant the confirm spy.
@@ -239,10 +276,10 @@ def test_per_action_destructive_always_prompts():
     in the same session prompts again. (Per_action means
     per-action; the test pins it doesn't accidentally batch.)"""
     prompts: list = []
-    cfg = SimpleNamespace(
-        computer_permission_mode="per_action",
-        computer_app_allowlist=["editor"],
-        computer_app_denylist=[],
+    cfg = _make_computer_cfg(
+        permission_mode="per_action",
+        app_allowlist=["editor"],
+        app_denylist=[],
     )
     from athena.safety.approval_callback import set_approval_callback
     set_approval_callback(
@@ -269,16 +306,14 @@ def test_kill_switch_halts_end_to_end(tmp_path: Path):
     Ctrl+C / hotkey fire from a different thread) → loop exits
     halted, NO subsequent perform calls."""
     backend = _StubBackend()
-    cfg = SimpleNamespace(
-        computer_use_enabled=True,
-        computer_permission_mode="per_action",
-        computer_app_allowlist=["TestApp"],
-        computer_app_denylist=[],
-        computer_audit_path=str(tmp_path / "audit.jsonl"),
-        computer_max_actions_per_task=10,
-        computer_max_actions_per_sec=10000.0,
-        computer_kill_hotkey=None,
-        profile="default",
+    cfg = _make_computer_cfg(
+        permission_mode="per_action",
+        app_allowlist=["TestApp"],
+        app_denylist=[],
+        audit_path=str(tmp_path / "audit.jsonl"),
+        max_actions_per_task=10,
+        max_actions_per_sec=10000.0,
+        kill_hotkey=None,
     )
     from athena.safety.approval_callback import set_approval_callback
     set_approval_callback(lambda _tool, _args: "allow")
@@ -336,16 +371,14 @@ def test_dry_run_end_to_end_never_performs(tmp_path: Path):
     confirm + allowlist, dry_run=True means backend.perform
     is never called."""
     backend = _StubBackend()
-    cfg = SimpleNamespace(
-        computer_use_enabled=True,
-        computer_permission_mode="per_action",
-        computer_app_allowlist=["TestApp"],
-        computer_app_denylist=[],
-        computer_audit_path=str(tmp_path / "audit.jsonl"),
-        computer_max_actions_per_task=3,
-        computer_max_actions_per_sec=10000.0,
-        computer_kill_hotkey=None,
-        profile="default",
+    cfg = _make_computer_cfg(
+        permission_mode="per_action",
+        app_allowlist=["TestApp"],
+        app_denylist=[],
+        audit_path=str(tmp_path / "audit.jsonl"),
+        max_actions_per_task=3,
+        max_actions_per_sec=10000.0,
+        kill_hotkey=None,
     )
     from athena.safety.approval_callback import set_approval_callback
     set_approval_callback(lambda _tool, _args: "allow")
@@ -403,13 +436,11 @@ def test_single_action_tools_refuse_without_confirm_ui(monkeypatch, tmp_path: Pa
     invoke a default-deny confirm callback because there's no
     REPL/ACP UI plumbed in. The user must wire a real confirm
     via the agent runtime (or the test harness)."""
-    cfg = SimpleNamespace(
-        computer_use_enabled=True,
-        computer_permission_mode="per_action",
-        computer_app_allowlist=["TestApp"],
-        computer_app_denylist=[],
-        computer_audit_path=str(tmp_path / "audit.jsonl"),
-        profile="default",
+    cfg = _make_computer_cfg(
+        permission_mode="per_action",
+        app_allowlist=["TestApp"],
+        app_denylist=[],
+        audit_path=str(tmp_path / "audit.jsonl"),
     )
     monkeypatch.setattr(tools_mod, "_load_cfg", lambda: cfg)
     backend = _StubBackend()

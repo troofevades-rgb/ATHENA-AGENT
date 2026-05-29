@@ -39,12 +39,17 @@ def _run(agent, arg: str) -> str:
 
 def _fake_agent(workspace: Path) -> SimpleNamespace:
     """Minimal agent for /cwd tests. Workspace mutation paths replace
-    messages[0] and call agent._build_system, so we stub all of those."""
+    messages[0] and call agent._build_system, so we stub all of those.
+
+    Post-R5: the handler also calls ``agent._configure_shell_hook_plugin()``
+    so the ShellHookPlugin re-reads workspace-local settings.json. The
+    stub is a no-op."""
     return SimpleNamespace(
         workspace=workspace,
         cfg=SimpleNamespace(max_file_read=64_000),
         messages=[{"role": "system", "content": "original"}],
         _build_system=lambda: "rebuilt-system",
+        _configure_shell_hook_plugin=lambda: None,
     )
 
 
@@ -72,19 +77,17 @@ def test_switch_to_existing_directory_updates_workspace(tmp_path: Path) -> None:
     new_dir.mkdir()
 
     set_ws_calls: list = []
-    load_hooks_calls: list = []
+    # Phase 18.1 R5 retired ``athena.hooks.load_hooks`` -- the cwd
+    # handler now calls ``agent._configure_shell_hook_plugin`` instead,
+    # which the _fake_agent fixture stubs as a no-op recorder.
     with patch(
         "athena.commands.cwd_cmd.tools.file_ops.set_workspace",
         side_effect=lambda p, max_read: set_ws_calls.append((p, max_read)),
-    ), patch(
-        "athena.commands.cwd_cmd.hooks_mod.load_hooks",
-        side_effect=lambda p: load_hooks_calls.append(p),
     ):
         out = _run(agent, str(new_dir))
 
     assert agent.workspace == new_dir.resolve()
     assert set_ws_calls == [(new_dir.resolve(), 64_000)]
-    assert load_hooks_calls == [new_dir.resolve()]
     # System message rebuilt
     assert agent.messages[0] == {"role": "system", "content": "rebuilt-system"}
     assert str(new_dir.resolve()) in out
@@ -98,8 +101,7 @@ def test_switch_expands_user_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     (tmp_path / "homedir-target").mkdir()
     agent = _fake_agent(tmp_path)
-    with patch("athena.commands.cwd_cmd.tools.file_ops.set_workspace"), \
-         patch("athena.commands.cwd_cmd.hooks_mod.load_hooks"):
+    with patch("athena.commands.cwd_cmd.tools.file_ops.set_workspace"):
         _run(agent, "~/homedir-target")
     assert agent.workspace == (tmp_path / "homedir-target").resolve()
 
@@ -133,11 +135,11 @@ def test_switch_handles_messages_without_system_prompt(tmp_path: Path) -> None:
         cfg=SimpleNamespace(max_file_read=64_000),
         messages=[{"role": "user", "content": "first message"}],
         _build_system=lambda: "should-not-be-used",
+        _configure_shell_hook_plugin=lambda: None,
     )
     new_dir = tmp_path / "another"
     new_dir.mkdir()
-    with patch("athena.commands.cwd_cmd.tools.file_ops.set_workspace"), \
-         patch("athena.commands.cwd_cmd.hooks_mod.load_hooks"):
+    with patch("athena.commands.cwd_cmd.tools.file_ops.set_workspace"):
         _run(agent, str(new_dir))
     # Workspace updated
     assert agent.workspace == new_dir.resolve()
@@ -152,10 +154,10 @@ def test_switch_handles_empty_messages(tmp_path: Path) -> None:
         cfg=SimpleNamespace(max_file_read=64_000),
         messages=[],
         _build_system=lambda: "unused",
+        _configure_shell_hook_plugin=lambda: None,
     )
     new_dir = tmp_path / "x"
     new_dir.mkdir()
-    with patch("athena.commands.cwd_cmd.tools.file_ops.set_workspace"), \
-         patch("athena.commands.cwd_cmd.hooks_mod.load_hooks"):
+    with patch("athena.commands.cwd_cmd.tools.file_ops.set_workspace"):
         _run(agent, str(new_dir))
     assert agent.workspace == new_dir.resolve()

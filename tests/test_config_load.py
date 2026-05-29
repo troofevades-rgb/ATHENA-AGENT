@@ -289,6 +289,74 @@ def test_safety_partial_override_keeps_other_defaults(isolated: Path) -> None:
     assert cfg.safety.snapshot_foreground is False  # default preserved
 
 
+# ---------------------------------------------------------------------------
+# Phase 18.1 R4 stage 3 -- ComputerConfig promotion
+# ---------------------------------------------------------------------------
+
+
+def test_computer_defaults_match_legacy_flat(isolated: Path) -> None:
+    """No [computer] table -> nested dataclass defaults match the
+    legacy flat-field defaults exactly."""
+    cfg = cfg_mod.load_config()
+    assert cfg.computer.use_enabled is False
+    assert cfg.computer.permission_mode == "observe_only"
+    assert cfg.computer.app_allowlist == []
+    assert cfg.computer.kill_hotkey == "ctrl+alt+k"
+    assert cfg.computer.max_actions_per_task == 40
+    assert cfg.computer.deny_during_goal_loop is True
+    # Default denylist still contains the password / finance apps.
+    deny = cfg.computer.app_denylist
+    assert any("password" in d.lower() for d in deny)
+
+
+def test_computer_table_loads_into_nested(isolated: Path) -> None:
+    _write_toml(isolated, """
+        [computer]
+        use_enabled = true
+        permission_mode = "per_action"
+        max_actions_per_task = 5
+        kill_hotkey = "ctrl+alt+q"
+    """)
+    cfg = cfg_mod.load_config()
+    assert cfg.computer.use_enabled is True
+    assert cfg.computer.permission_mode == "per_action"
+    assert cfg.computer.max_actions_per_task == 5
+    assert cfg.computer.kill_hotkey == "ctrl+alt+q"
+
+
+def test_legacy_flat_computer_read_emits_warning(
+    isolated: Path,
+) -> None:
+    """Reading cfg.computer_use_enabled still works for one release
+    but emits a DeprecationWarning routing the caller to the new path."""
+    import warnings
+
+    cfg = cfg_mod.Config()
+    cfg.computer.use_enabled = True
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert cfg.computer_use_enabled is True
+    assert any(
+        issubclass(w.category, DeprecationWarning)
+        and "computer_use_enabled" in str(w.message)
+        for w in caught
+    )
+
+
+def test_legacy_flat_computer_write_routes_to_nested(
+    isolated: Path,
+) -> None:
+    """Test fixtures and operator scripts commonly write
+    cfg.computer_X = Y. Config.__setattr__ routes those through to
+    the nested instance so canonical readers (cfg.computer.X) and
+    legacy reads (cfg.computer_X) see the same value."""
+    cfg = cfg_mod.Config()
+    cfg.computer_use_enabled = True
+    assert cfg.computer.use_enabled is True
+    cfg.computer_permission_mode = "per_action"
+    assert cfg.computer.permission_mode == "per_action"
+
+
 def test_snapshot_store_singleton_picks_up_safety_retention(
     isolated: Path, tmp_path: Path,
 ) -> None:

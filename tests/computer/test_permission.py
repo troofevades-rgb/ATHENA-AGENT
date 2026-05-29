@@ -58,11 +58,22 @@ def cfg(
     OFF by default in these tests because the legacy invariants
     target the bare-gate behavior; the goal-loop interaction is
     tested separately in test_gate_tiers.py."""
+    # Phase 18.1 R4 stage 3: cfg.computer is now a nested instance.
     return SimpleNamespace(
-        computer_permission_mode=mode,
-        computer_app_allowlist=allowlist or [],
-        computer_app_denylist=denylist or [],
-        computer_deny_during_goal_loop=deny_during_goal_loop,
+        computer=SimpleNamespace(
+            permission_mode=mode,
+            app_allowlist=allowlist or [],
+            app_denylist=denylist or [],
+            deny_during_goal_loop=deny_during_goal_loop,
+            use_enabled=True,
+            kill_hotkey="ctrl+alt+k",
+            max_actions_per_task=40,
+            max_actions_per_sec=2.0,
+            backend="auto",
+            dry_run=False,
+            audit_path=None,
+            screenshots_dir=None,
+        ),
         profile="default",
     )
 
