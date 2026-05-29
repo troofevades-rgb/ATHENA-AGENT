@@ -22,7 +22,6 @@ from pathlib import Path
 
 import pytest
 
-from athena.memory import _slugify
 from athena.memory.providers.builtin_file import BuiltinFileProvider
 from athena.memory.store import (
     delete_entry,
@@ -40,19 +39,28 @@ def provider(tmp_path: Path) -> BuiltinFileProvider:
 
 
 # ---------------------------------------------------------------------------
-# Slug stability -- byte-identical to legacy
+# Slug stability + algorithm contract
 # ---------------------------------------------------------------------------
 
 
-def test_workspace_slug_matches_legacy_slugify(tmp_path: Path) -> None:
-    """``BuiltinFileProvider.workspace_slug`` must match the legacy
-    ``athena.memory._slugify`` byte-for-byte. Stage 4's one-shot data
-    migration copies from
-    ``~/.athena/projects/<legacy-slug>/memory/`` to
-    ``<profile_dir>/memory/legacy/<stage-1-slug>/`` -- a slug drift
-    would leave existing memories stranded after migration."""
+def test_workspace_slug_is_stable_across_calls(tmp_path: Path) -> None:
+    """``BuiltinFileProvider.workspace_slug`` must be deterministic:
+    calling it twice on the same path yields the same slug. The
+    on-disk layout depends on this -- a drifting slug would leave
+    each session writing to a fresh sub-store."""
     for ws in [tmp_path, tmp_path / "nested", Path.home() / "projects" / "x"]:
-        assert BuiltinFileProvider.workspace_slug(ws) == _slugify(ws)
+        assert BuiltinFileProvider.workspace_slug(ws) == BuiltinFileProvider.workspace_slug(ws)
+
+
+def test_workspace_slug_ends_with_eight_hex_hash(tmp_path: Path) -> None:
+    """The algorithm appends an 8-char SHA-1 prefix so distinct paths
+    with the same letterform stay distinct. Pin the suffix shape so a
+    refactor of the slug function gets caught -- existing on-disk data
+    would silently strand otherwise."""
+    import re
+
+    slug = BuiltinFileProvider.workspace_slug(tmp_path / "ws")
+    assert re.search(r"_[0-9a-f]{8}$", slug), f"slug {slug!r} lost its hash suffix"
 
 
 def test_workspace_slug_distinguishes_collision_paths(tmp_path: Path) -> None:

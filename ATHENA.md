@@ -120,12 +120,13 @@
   - bundled/             plugins that ship in the package
     - shell_audit/       JSONL log per session for every Bash tool call
 - athena/memory/          persistent memory (Phase 5 made it a package)
-  - __init__.py          legacy workspace-keyed API (load_memory_index,
-                         list_memories, write_memory, delete_memory) — kept
-                         byte-for-byte; agent still uses this for the system
-                         prompt today
-  - store.py             profile-keyed facade over the active MemoryProvider;
-                         Phase 14 will migrate the legacy callers
+  - __init__.py          empty after R2 stage 5; legacy workspace-keyed API
+                         (load_memory_index, list_memories, write_memory,
+                         delete_memory, _slugify, MemoryFile) retired
+  - store.py             profile-keyed facade over the active MemoryProvider
+                         (load_index, write_entry, list_entries, read_entry,
+                         delete_entry, query, memory_dir); the canonical
+                         entry point
   - providers/base.py    `MemoryProvider` ABC + `MemoryEntry`
   - providers/builtin_file.py
                          Markdown-on-disk + SQLite ordering mirror under
