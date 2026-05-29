@@ -13,19 +13,40 @@ import pytest
 
 
 def _live_agent(**cfg_overrides):
-    """Mint an agent stub with a cfg that carries the overrides."""
-    cfg_attrs = dict(
-        video_generation_enabled=True,
-        video_backend=None,
-        video_backend_prefer="local",
-        video_confirm_over_seconds=60.0,
-        video_confirm_over_cost=1.0,
-        video_output_dir=None,
-        video_poll_interval_s=0.01,
+    """Mint an agent stub with a cfg that carries the overrides.
+    Post-R4 stage 5: video_* flat names are translated to the nested
+    cfg.video_generation namespace."""
+    legacy_to_nested = {
+        "video_generation_enabled": "enabled",
+        "video_backend": "backend",
+        "video_backend_prefer": "backend_prefer",
+        "video_confirm_over_seconds": "confirm_over_seconds",
+        "video_confirm_over_cost": "confirm_over_cost",
+        "video_output_dir": "output_dir",
+        "video_poll_interval_s": "poll_interval_s",
+    }
+    vg = dict(
+        enabled=True,
+        backend=None,
+        backend_prefer="local",
+        confirm_over_seconds=60.0,
+        confirm_over_cost=1.0,
+        output_dir=None,
+        poll_interval_s=0.01,
     )
-    cfg_attrs.update(cfg_overrides)
+    top: dict = {}
+    for k, v in cfg_overrides.items():
+        if k in legacy_to_nested:
+            vg[legacy_to_nested[k]] = v
+        elif k in vg:
+            vg[k] = v
+        else:
+            top[k] = v
     agent = MagicMock()
-    agent.cfg = SimpleNamespace(**cfg_attrs)
+    agent.cfg = SimpleNamespace(
+        video_generation=SimpleNamespace(**vg),
+        **top,
+    )
     return agent
 
 
@@ -40,7 +61,7 @@ def test_load_cfg_prefers_live_agent_cfg():
     ):
         cfg = tools_mod._load_cfg()
     assert cfg is agent.cfg
-    assert cfg.video_backend == "xai_video"
+    assert cfg.video_generation.backend == "xai_video"
 
 
 def test_load_cfg_falls_back_to_disk_load_when_no_agent():
@@ -48,7 +69,9 @@ def test_load_cfg_falls_back_to_disk_load_when_no_agent():
     test contexts still work."""
     from athena.videogen import tools as tools_mod
 
-    fake_disk_cfg = SimpleNamespace(video_backend=None)
+    fake_disk_cfg = SimpleNamespace(
+        video_generation=SimpleNamespace(backend=None),
+    )
     with patch(
         "athena.agent.core.get_current_agent", return_value=None,
     ), patch(
@@ -63,7 +86,9 @@ def test_load_cfg_falls_back_when_get_current_agent_raises():
     The defensive try/except in _load_cfg matters."""
     from athena.videogen import tools as tools_mod
 
-    fake_disk_cfg = SimpleNamespace(video_backend=None)
+    fake_disk_cfg = SimpleNamespace(
+        video_generation=SimpleNamespace(backend=None),
+    )
     with patch(
         "athena.agent.core.get_current_agent",
         side_effect=ImportError("simulated"),
@@ -116,4 +141,4 @@ def test_video_generate_routes_through_live_selector():
     # disk cfg.
     resolve_mock.assert_called_once()
     passed_cfg = resolve_mock.call_args[0][0]
-    assert passed_cfg.video_backend == "xai_video"
+    assert passed_cfg.video_generation.backend == "xai_video"

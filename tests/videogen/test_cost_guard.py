@@ -16,9 +16,12 @@ from athena.videogen.job import CostEstimate
 
 
 def _cfg(*, sec: float = 60.0, cost: float = 1.0) -> SimpleNamespace:
+    # Post-R4 stage 5: video_confirm_over_* moved to cfg.video_generation.
     return SimpleNamespace(
-        video_confirm_over_seconds=sec,
-        video_confirm_over_cost=cost,
+        video_generation=SimpleNamespace(
+            confirm_over_seconds=sec,
+            confirm_over_cost=cost,
+        ),
     )
 
 

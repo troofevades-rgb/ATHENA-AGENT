@@ -84,8 +84,9 @@ class CostEstimate:
         threshold. The check is conservative: EITHER threshold
         triggers (a 5-second job costing $50 still confirms; a
         free job that takes 10 minutes also confirms)."""
-        sec_threshold = float(getattr(cfg, "video_confirm_over_seconds", 60.0))
-        cost_threshold = float(getattr(cfg, "video_confirm_over_cost", 1.0))
+        vg = getattr(cfg, "video_generation", None)
+        sec_threshold = float(vg.confirm_over_seconds if vg is not None else 60.0)
+        cost_threshold = float(vg.confirm_over_cost if vg is not None else 1.0)
         if sec_threshold > 0 and self.seconds_est > sec_threshold:
             return True
         if (
@@ -213,7 +214,8 @@ def resolve_backend(cfg: Any) -> Optional["VideoGenerationBackend"]:
     # 1. Explicit selector wins. Unknown names log + fall through to
     #    the broker rather than failing — the operator still gets *a*
     #    backend instead of a hard error.
-    pinned_name = getattr(cfg, "video_backend", None)
+    vg = getattr(cfg, "video_generation", None)
+    pinned_name = vg.backend if vg is not None else None
     if pinned_name:
         try:
             pinned_cls = get_provider_class(pinned_name)
@@ -245,9 +247,8 @@ def resolve_backend(cfg: Any) -> Optional["VideoGenerationBackend"]:
     # this specific capability. The broker's preference field
     # is read off `cfg`, so we temporarily override it via a
     # shim Namespace — keeps the original cfg untouched.
-    prefer = getattr(cfg, "video_backend_prefer", None) or getattr(
-        cfg, "media_backend_prefer", "local"
-    )
+    vg_pref = (vg.backend_prefer if vg is not None else None) or None
+    prefer = vg_pref or getattr(cfg, "media_backend_prefer", "local")
     cfg_shim = type(
         "VideoBackendCfg",
         (),
@@ -390,7 +391,14 @@ def run_generation(
         )
 
     # 4. Poll until done or timeout.
-    poll_interval = max(0.1, float(getattr(cfg, "video_poll_interval_s", _POLL_FALLBACK_S)))
+    vg_for_poll = getattr(cfg, "video_generation", None)
+    poll_interval = max(
+        0.1,
+        float(
+            vg_for_poll.poll_interval_s if vg_for_poll is not None
+            else _POLL_FALLBACK_S
+        ),
+    )
     started_at = time.monotonic()
     while True:
         try:
@@ -480,7 +488,8 @@ def run_generation(
 
 
 def _resolve_out_dir(cfg: Any) -> Path:
-    explicit = getattr(cfg, "video_output_dir", None)
+    vg = getattr(cfg, "video_generation", None)
+    explicit = vg.output_dir if vg is not None else None
     if explicit:
         out = Path(str(explicit)).expanduser()
     else:

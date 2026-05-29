@@ -18,18 +18,39 @@ from athena.videogen import tools as tools_mod
 
 
 def _cfg(tmp_path: Path, **overrides) -> SimpleNamespace:
-    base = dict(
-        video_generation_enabled=True,
-        video_backend_prefer="local",
-        media_backend_prefer="local",
-        video_confirm_over_seconds=60.0,
-        video_confirm_over_cost=1.0,
-        video_output_dir=str(tmp_path / "videos"),
-        video_poll_interval_s=0.001,
-        profile="default",
+    """Stub Config shaped for post-R4 stage 5 nested ``cfg.video_generation.*``
+    reads. Test overrides can pass legacy flat names for back-compat;
+    they're translated to the nested namespace below."""
+    legacy_to_nested = {
+        "video_generation_enabled": "enabled",
+        "video_backend_prefer": "backend_prefer",
+        "video_confirm_over_seconds": "confirm_over_seconds",
+        "video_confirm_over_cost": "confirm_over_cost",
+        "video_output_dir": "output_dir",
+        "video_poll_interval_s": "poll_interval_s",
+        "video_backend": "backend",
+    }
+    vg_defaults = dict(
+        enabled=True,
+        backend_prefer="local",
+        confirm_over_seconds=60.0,
+        confirm_over_cost=1.0,
+        output_dir=str(tmp_path / "videos"),
+        poll_interval_s=0.001,
+        backend=None,
     )
-    base.update(overrides)
-    return SimpleNamespace(**base)
+    top: dict = {"profile": "default", "media_backend_prefer": "local"}
+    for k, v in overrides.items():
+        if k in legacy_to_nested:
+            vg_defaults[legacy_to_nested[k]] = v
+        elif k in vg_defaults:
+            vg_defaults[k] = v
+        else:
+            top[k] = v
+    return SimpleNamespace(
+        video_generation=SimpleNamespace(**vg_defaults),
+        **top,
+    )
 
 
 # ---------------------------------------------------------------------------

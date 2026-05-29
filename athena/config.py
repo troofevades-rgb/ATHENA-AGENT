@@ -101,6 +101,77 @@ class SafetyConfig:
 
 
 @dataclass
+class OcrConfig:
+    """OCR subsystem (Tesseract by default, capability-brokered).
+
+    Phase 18.1 R4 stage 5: promotes the five ``ocr_*`` flat fields.
+    Legacy reads/writes still resolve through the Config shim.
+    """
+
+    enabled: bool = True
+    backend_prefer: str = "local"
+    # ISO 639-2/T language codes -- tesseract joins with '+'. Each
+    # non-default language needs the matching tessdata file installed.
+    languages: list[str] = field(default_factory=lambda: ["eng"])
+    # Drop OCR blocks below this engine-reported confidence (0-100).
+    # 0 keeps everything; 60+ filters noisy recognitions.
+    min_confidence: int = 0
+    # Override the tesseract binary path. None -> PATH lookup.
+    tesseract_cmd: str | None = None
+
+
+@dataclass
+class VideoGenerationConfig:
+    """Native video generation broker (T6-05).
+
+    Phase 18.1 R4 stage 5: half the legacy ``video_*`` namespace --
+    the generation broker bits (``video_generation_enabled``,
+    ``video_backend*``, cost guards). The analysis half lives in
+    :class:`VideoAnalysisConfig`; this split keeps the two distinct
+    subsystems from sharing ambiguous field names.
+    """
+
+    enabled: bool = False
+    # Capability-broker preference order; "local" prefers in-tree
+    # backends, "remote" prefers hosted vendor adapters.
+    backend_prefer: str = "local"
+    # Cost guard. The model confirms before submitting any job
+    # exceeding either threshold; never silently spend.
+    confirm_over_seconds: float = 60.0
+    confirm_over_cost: float = 1.0
+    # Default <profile_dir>/videos when None.
+    output_dir: str | None = None
+    poll_interval_s: float = 5.0
+    # Pinned backend name (overrides the broker). None lets the
+    # broker pick via backend_prefer. Mutated by ``/video set <name>``.
+    backend: str | None = None
+
+
+@dataclass
+class VideoAnalysisConfig:
+    """video_analyze tool (T4-04).
+
+    Phase 18.1 R4 stage 5: the analysis half of the legacy ``video_*``
+    namespace. Wraps ffmpeg/ffprobe for frame extraction + per-frame
+    vision routing. The generation broker bits live in
+    :class:`VideoGenerationConfig`.
+    """
+
+    enabled: bool = True
+    ffmpeg_path: str = "ffmpeg"
+    ffprobe_path: str = "ffprobe"
+    # Default <profile_dir>/video/frames when None.
+    frames_dir: str | None = None
+    # Cap extracted frames per file -- vision context window protection.
+    max_frames: int = 200
+    # Default extract mode: ``"keyframes"`` | ``"sampled"`` | ``"range"``.
+    default_extract: str = "keyframes"
+    # Interval between sampled frames in seconds when default_extract
+    # == "sampled".
+    sampled_interval_s: float = 5.0
+
+
+@dataclass
 class PluginsConfig:
     """Plugin enable overrides + per-plugin config slices.
 
@@ -730,20 +801,12 @@ class Config:
     # configured thresholds — never silently spend. Outputs
     # land under video_output_dir + are hash-logged in
     # media_log.jsonl alongside.
-    video_generation_enabled: bool = False
-    video_backend_prefer: str = "local"
-    video_confirm_over_seconds: float = 60.0
-    video_confirm_over_cost: float = 1.0
-    video_output_dir: str | None = None  # default <profile_dir>/videos
-    video_poll_interval_s: float = 5.0
-    # Selected video-generation backend by name. When set, overrides
-    # the capability-broker resolution and pins exec to a specific
-    # registered backend (e.g. ``stub_video_local``, ``xai_video``,
-    # ``runway``, ``pika``). Switch interactively with ``/video set
-    # <name>`` — that mutates this field in the live cfg without
-    # touching the TOML on disk. Persist via /video persist if you
-    # want the choice to survive restart. None = let the broker pick.
-    video_backend: str | None = None
+    # Video generation broker config (T6-05). Phase 18.1 R4 stage 5
+    # promoted the seven ``video_generation_*`` / ``video_backend*`` /
+    # ``video_confirm_over_*`` / ``video_output_dir`` / ``video_poll_*``
+    # flat fields into VideoGenerationConfig. The legacy names still
+    # resolve through Config.__getattr__ + __setattr__.
+    video_generation: VideoGenerationConfig = field(default_factory=VideoGenerationConfig)
     # T6-06: auto kanban. Promotes the in-memory TaskCreate /
     # TaskUpdate / TaskList tracker to a persisted store + a
     # board view. Single backing store also receives goal-loop
@@ -799,13 +862,13 @@ class Config:
     # ffprobe drives the codec / encoder / GOP modes. Atoms parser
     # is pure Python — the most useful container-tampering signal
     # remains available even on a host without ffmpeg.
-    video_enabled: bool = True
-    video_ffmpeg_path: str = "ffmpeg"
-    video_ffprobe_path: str = "ffprobe"
-    video_frames_dir: str | None = None  # default <profile_dir>/video/frames
-    video_max_frames: int = 200
-    video_default_extract: str = "keyframes"  # keyframes | sampled | range
-    video_sampled_interval_s: float = 5.0
+    # Video analysis config (T4-04). Phase 18.1 R4 stage 5 promoted
+    # the seven ``video_enabled`` / ``video_ffmpeg_path`` /
+    # ``video_ffprobe_path`` / ``video_frames_dir`` / ``video_max_frames``
+    # / ``video_default_extract`` / ``video_sampled_interval_s`` flat
+    # fields into VideoAnalysisConfig. Legacy reads/writes resolve
+    # through Config.__getattr__ + __setattr__.
+    video_analysis: VideoAnalysisConfig = field(default_factory=VideoAnalysisConfig)
     # T4-03: persistent CDP browser tools (Playwright). One
     # browser context per athena session — cookies/storage
     # survive across tool calls within the session. Lazy
@@ -912,23 +975,10 @@ class Config:
     # document_analyze for scanned PDF pages and callable from
     # T4-01 vision when "what does the text in this image say"
     # is the question (OCR reads; vision describes).
-    ocr_enabled: bool = True
-    ocr_backend_prefer: str = "local"
-    # Languages passed to tesseract: ISO 639-2/T codes, one or
-    # more (tesseract joins with '+'). "eng" is the default;
-    # "eng+fra" recognises both English and French in the same
-    # image. Each non-default language requires the matching
-    # tessdata file installed.
-    ocr_languages: list[str] = field(default_factory=lambda: ["eng"])
-    # Drop blocks below this OCR-engine-reported confidence
-    # (0-100). 0 keeps everything (default); 60+ is a good
-    # filter for "treat noisy recognitions as 'unreadable'".
-    ocr_min_confidence: int = 0
-    # Path override to the tesseract binary. None → use the
-    # system PATH lookup (default; works when tesseract is
-    # installed via scoop / brew / apt). Set explicitly when
-    # the binary isn't on PATH.
-    ocr_tesseract_cmd: str | None = None
+    # OCR subsystem (T4-06). Phase 18.1 R4 stage 5 promoted the five
+    # ``ocr_*`` flat fields into OcrConfig. Legacy reads/writes
+    # resolve through Config.__getattr__ + __setattr__.
+    ocr: OcrConfig = field(default_factory=OcrConfig)
 
     def __getattr__(self, name: str) -> Any:
         """Resolve legacy flat field names to their new nested locations.
@@ -1010,6 +1060,28 @@ _LEGACY_FIELD_MAP: dict[str, tuple[str, str]] = {
     "computer_audit_path": ("computer", "audit_path"),
     "computer_screenshots_dir": ("computer", "screenshots_dir"),
     "computer_deny_during_goal_loop": ("computer", "deny_during_goal_loop"),
+    # R4 stage 5 -- OCR
+    "ocr_enabled": ("ocr", "enabled"),
+    "ocr_backend_prefer": ("ocr", "backend_prefer"),
+    "ocr_languages": ("ocr", "languages"),
+    "ocr_min_confidence": ("ocr", "min_confidence"),
+    "ocr_tesseract_cmd": ("ocr", "tesseract_cmd"),
+    # R4 stage 5 -- Video generation broker
+    "video_generation_enabled": ("video_generation", "enabled"),
+    "video_backend_prefer": ("video_generation", "backend_prefer"),
+    "video_confirm_over_seconds": ("video_generation", "confirm_over_seconds"),
+    "video_confirm_over_cost": ("video_generation", "confirm_over_cost"),
+    "video_output_dir": ("video_generation", "output_dir"),
+    "video_poll_interval_s": ("video_generation", "poll_interval_s"),
+    "video_backend": ("video_generation", "backend"),
+    # R4 stage 5 -- Video analysis
+    "video_enabled": ("video_analysis", "enabled"),
+    "video_ffmpeg_path": ("video_analysis", "ffmpeg_path"),
+    "video_ffprobe_path": ("video_analysis", "ffprobe_path"),
+    "video_frames_dir": ("video_analysis", "frames_dir"),
+    "video_max_frames": ("video_analysis", "max_frames"),
+    "video_default_extract": ("video_analysis", "default_extract"),
+    "video_sampled_interval_s": ("video_analysis", "sampled_interval_s"),
 }
 
 

@@ -494,6 +494,91 @@ def test_plugins_as_dict_for_loader_reconstitutes_envelope(
     assert cfg.plugins.per_plugin["shell_audit"] == {"log_root": "/tmp/x"}
 
 
+# ---------------------------------------------------------------------------
+# Phase 18.1 R4 stage 5 -- OcrConfig + VideoGenerationConfig + VideoAnalysisConfig
+# ---------------------------------------------------------------------------
+
+
+def test_ocr_defaults_match_legacy_flat(isolated: Path) -> None:
+    cfg = cfg_mod.load_config()
+    assert cfg.ocr.enabled is True
+    assert cfg.ocr.backend_prefer == "local"
+    assert cfg.ocr.languages == ["eng"]
+    assert cfg.ocr.min_confidence == 0
+    assert cfg.ocr.tesseract_cmd is None
+
+
+def test_ocr_table_loads_into_dataclass(isolated: Path) -> None:
+    _write_toml(isolated, """
+        [ocr]
+        enabled = false
+        languages = ["eng", "fra"]
+        min_confidence = 60
+    """)
+    cfg = cfg_mod.load_config()
+    assert cfg.ocr.enabled is False
+    assert cfg.ocr.languages == ["eng", "fra"]
+    assert cfg.ocr.min_confidence == 60
+
+
+def test_video_generation_defaults_match_legacy_flat(isolated: Path) -> None:
+    cfg = cfg_mod.load_config()
+    assert cfg.video_generation.enabled is False
+    assert cfg.video_generation.backend_prefer == "local"
+    assert cfg.video_generation.confirm_over_seconds == 60.0
+    assert cfg.video_generation.confirm_over_cost == 1.0
+    assert cfg.video_generation.poll_interval_s == 5.0
+    assert cfg.video_generation.backend is None
+
+
+def test_video_analysis_defaults_match_legacy_flat(isolated: Path) -> None:
+    cfg = cfg_mod.load_config()
+    assert cfg.video_analysis.enabled is True
+    assert cfg.video_analysis.ffmpeg_path == "ffmpeg"
+    assert cfg.video_analysis.ffprobe_path == "ffprobe"
+    assert cfg.video_analysis.max_frames == 200
+    assert cfg.video_analysis.default_extract == "keyframes"
+    assert cfg.video_analysis.sampled_interval_s == 5.0
+
+
+def test_video_tables_load_into_correct_subsystem(isolated: Path) -> None:
+    """[video_generation] vs [video_analysis] map to distinct
+    dataclasses -- the legacy ``video_*`` namespace was actually two
+    subsystems sharing a prefix."""
+    _write_toml(isolated, """
+        [video_generation]
+        enabled = true
+        backend = "xai_video"
+        confirm_over_cost = 5.0
+
+        [video_analysis]
+        ffmpeg_path = "/usr/local/bin/ffmpeg"
+        max_frames = 50
+    """)
+    cfg = cfg_mod.load_config()
+    assert cfg.video_generation.enabled is True
+    assert cfg.video_generation.backend == "xai_video"
+    assert cfg.video_generation.confirm_over_cost == 5.0
+    assert cfg.video_analysis.ffmpeg_path == "/usr/local/bin/ffmpeg"
+    assert cfg.video_analysis.max_frames == 50
+
+
+def test_legacy_flat_video_writes_route_to_correct_subsystem(
+    isolated: Path,
+) -> None:
+    """``cfg.video_backend = "xai_video"`` legacy write must route to
+    the generation half (not analysis); ``cfg.video_ffmpeg_path = X``
+    must route to the analysis half. The __setattr__ shim uses the
+    _LEGACY_FIELD_MAP to disambiguate by name."""
+    cfg = cfg_mod.Config()
+    cfg.video_backend = "xai_video"
+    cfg.video_ffmpeg_path = "/opt/ffmpeg"
+    assert cfg.video_generation.backend == "xai_video"
+    assert cfg.video_analysis.ffmpeg_path == "/opt/ffmpeg"
+    # And the analysis half wasn't touched by the generation write.
+    assert cfg.video_analysis.enabled is True
+
+
 def test_snapshot_store_singleton_picks_up_safety_retention(
     isolated: Path, tmp_path: Path,
 ) -> None:

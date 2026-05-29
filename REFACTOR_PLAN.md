@@ -152,8 +152,16 @@ them would mean another nested dataclass and the current style is inconsistent.
       contract both keep working. ``_merge_plugin_state`` signature
       changed from ``dict -> dict`` to ``PluginsConfig -> None``
       (in-place mutation) so call sites don't need to swap a reference.
-   5. OcrConfig, VideoConfig (the `ocr_*` and `video_*` prefixes;
-      least-touched, smallest blast radius).
+   5. **LANDED** -- OcrConfig + VideoGenerationConfig +
+      VideoAnalysisConfig. The five ``ocr_*`` fields promoted into
+      OcrConfig. The 14 ``video_*`` fields turned out to be TWO
+      conceptually distinct subsystems sharing a prefix -- video
+      generation (T6-05 broker + cost guards) and video analysis
+      (T4-04 ffmpeg/ffprobe wrapper). Split into
+      VideoGenerationConfig + VideoAnalysisConfig accordingly; the
+      _LEGACY_FIELD_MAP routes each legacy ``video_*`` name to the
+      correct subsystem so reads/writes stay coherent. 19 new
+      _LEGACY_FIELD_MAP entries (5 OCR + 7 generation + 7 analysis).
    6. ProvidersConfig (touches routing + credential pool -- leave for
       last because the routing dict has more user-visible shape than
       the other dicts).

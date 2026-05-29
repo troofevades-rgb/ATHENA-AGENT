@@ -31,21 +31,44 @@ _NEED_FFPROBE = pytest.mark.skipif(
 
 
 def _cfg(tmp_path: Path, **overrides: Any) -> SimpleNamespace:
-    base = dict(
-        profile="default",
-        video_enabled=True,
-        vision_enabled=True,
-        video_ffmpeg_path="ffmpeg",
-        video_ffprobe_path="ffprobe",
-        video_frames_dir=str(tmp_path / "frames"),
-        video_max_frames=200,
-        video_default_extract="keyframes",
-        video_sampled_interval_s=5.0,
-        provider="ollama",
-        model="stub-vision-model",
+    """Post-R4 stage 5: video_* analysis fields moved into nested
+    cfg.video_analysis. Test overrides may use either flat or
+    new names."""
+    legacy_to_nested = {
+        "video_enabled": "enabled",
+        "video_ffmpeg_path": "ffmpeg_path",
+        "video_ffprobe_path": "ffprobe_path",
+        "video_frames_dir": "frames_dir",
+        "video_max_frames": "max_frames",
+        "video_default_extract": "default_extract",
+        "video_sampled_interval_s": "sampled_interval_s",
+    }
+    va = dict(
+        enabled=True,
+        ffmpeg_path="ffmpeg",
+        ffprobe_path="ffprobe",
+        frames_dir=str(tmp_path / "frames"),
+        max_frames=200,
+        default_extract="keyframes",
+        sampled_interval_s=5.0,
     )
-    base.update(overrides)
-    return SimpleNamespace(**base)
+    top: dict = {
+        "profile": "default",
+        "vision_enabled": True,
+        "provider": "ollama",
+        "model": "stub-vision-model",
+    }
+    for k, v in overrides.items():
+        if k in legacy_to_nested:
+            va[legacy_to_nested[k]] = v
+        elif k in va:
+            va[k] = v
+        else:
+            top[k] = v
+    return SimpleNamespace(
+        video_analysis=SimpleNamespace(**va),
+        **top,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -69,7 +92,8 @@ def test_video_disabled_short_circuits(tmp_path: Path):
         _cfg=_cfg(tmp_path, video_enabled=False),
     ))
     assert "error" in out
-    assert "video_enabled=False" in out["error"]
+    # Post-R4 the error message references the new nested path.
+    assert "video_analysis.enabled=False" in out["error"]
     # No audit row should have been written.
     assert not (tmp_path / "video_audit.jsonl").exists()
 

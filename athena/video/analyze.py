@@ -113,7 +113,9 @@ def _default_audio_transcribe_fn(cfg: Any) -> AudioTranscribeFn | None:
     if not getattr(cfg, "audio_analyze_enabled", True):
         return None
     import shutil as _shutil
-    if not _shutil.which(getattr(cfg, "video_ffmpeg_path", "ffmpeg")):
+    va = getattr(cfg, "video_analysis", None)
+    ffmpeg_path = va.ffmpeg_path if va is not None else "ffmpeg"
+    if not _shutil.which(ffmpeg_path):
         return None
 
     def _fn(video_path: Path) -> dict[str, Any] | None:
@@ -150,7 +152,8 @@ def _extract_audio_track(
     import subprocess
     import tempfile
 
-    ffmpeg = getattr(cfg, "video_ffmpeg_path", "ffmpeg")
+    va = getattr(cfg, "video_analysis", None)
+    ffmpeg = va.ffmpeg_path if va is not None else "ffmpeg"
     tmp = (
         Path(tempfile.gettempdir())
         / f"athena_audio_{video_path.stem}_{video_path.stat().st_size}.wav"
@@ -183,9 +186,10 @@ def _extract_audio_track(
 
 def _resolve_paths(cfg: Any) -> dict[str, Path]:
     pdir = profile_dir(getattr(cfg, "profile", "default"))
+    va = getattr(cfg, "video_analysis", None)
     frames_root = (
-        Path(cfg.video_frames_dir)
-        if getattr(cfg, "video_frames_dir", None)
+        Path(va.frames_dir)
+        if va is not None and va.frames_dir
         else pdir / "video" / "frames"
     )
     return {
@@ -204,7 +208,7 @@ def _handle_probe(path: Path, cfg: Any, log: HashLogger) -> dict[str, Any]:
     sha = sha256_file(path)
     try:
         probe = probe_mod.ffprobe_json(
-            path, ffprobe=cfg.video_ffprobe_path,
+            path, ffprobe=cfg.video_analysis.ffprobe_path,
         )
     except probe_mod.FFprobeMissing as e:
         return {"mode": "probe", "path": str(path), "sha256": sha,
@@ -236,7 +240,7 @@ def _handle_gop(path: Path, cfg: Any, log: HashLogger) -> dict[str, Any]:
     sha = sha256_file(path)
     try:
         gop = probe_mod.gop_structure(
-            path, ffprobe=cfg.video_ffprobe_path,
+            path, ffprobe=cfg.video_analysis.ffprobe_path,
         )
     except probe_mod.FFprobeMissing as e:
         return {"mode": "gop", "path": str(path), "sha256": sha,
@@ -252,7 +256,7 @@ def _handle_encoder_fingerprint(
     sha = sha256_file(path)
     try:
         probe = probe_mod.ffprobe_json(
-            path, ffprobe=cfg.video_ffprobe_path,
+            path, ffprobe=cfg.video_analysis.ffprobe_path,
         )
     except probe_mod.FFprobeMissing as e:
         return {"mode": "encoder_fingerprint", "path": str(path),
@@ -281,7 +285,7 @@ def _handle_inspect(path: Path, cfg: Any, log: HashLogger) -> dict[str, Any]:
     sig = atoms_mod.faststart_remux_signature(a)
     try:
         probe = probe_mod.ffprobe_json(
-            path, ffprobe=cfg.video_ffprobe_path,
+            path, ffprobe=cfg.video_analysis.ffprobe_path,
         )
     except probe_mod.FFprobeMissing:
         probe = {}
@@ -289,7 +293,7 @@ def _handle_inspect(path: Path, cfg: Any, log: HashLogger) -> dict[str, Any]:
     fp = probe_mod.encoder_fingerprint(probe) if probe else {}
     try:
         gop = probe_mod.gop_structure(
-            path, ffprobe=cfg.video_ffprobe_path,
+            path, ffprobe=cfg.video_analysis.ffprobe_path,
         )
     except probe_mod.FFprobeMissing:
         gop = {"error": "ffprobe missing"}
@@ -341,17 +345,19 @@ def _do_extract(
     interval_s: float, start: str | None, end: str | None,
     out_dir: Path,
 ) -> list[Path]:
-    cap = cfg.video_max_frames
+    va = cfg.video_analysis
+    cap = va.max_frames
+    ffmpeg_path = va.ffmpeg_path
     if mode == "keyframes":
         return extract_mod.extract_keyframes(
-            path, out_dir, ffmpeg=cfg.video_ffmpeg_path,
+            path, out_dir, ffmpeg=ffmpeg_path,
             max_frames=cap,
         )
     if mode == "sampled":
         return extract_mod.extract_sampled(
             path, out_dir,
             interval_s=interval_s,
-            ffmpeg=cfg.video_ffmpeg_path,
+            ffmpeg=ffmpeg_path,
             max_frames=cap,
         )
     if mode == "range":
@@ -359,7 +365,7 @@ def _do_extract(
             raise ValueError("extract=range requires start and end")
         return extract_mod.extract_range(
             path, out_dir, start=start, end=end,
-            ffmpeg=cfg.video_ffmpeg_path,
+            ffmpeg=ffmpeg_path,
             max_frames=cap,
         )
     raise ValueError(f"unknown extract mode {mode!r}")
@@ -509,9 +515,10 @@ def _run(
     """Body of the video_analyze tool, factored out so tests
     call it directly with stubs without going through @tool."""
     cfg = _cfg if _cfg is not None else load_config()
-    if not getattr(cfg, "video_enabled", True):
+    va = getattr(cfg, "video_analysis", None)
+    if va is not None and not va.enabled:
         return json.dumps({
-            "error": "video_enabled=False; operator disabled video_analyze",
+            "error": "cfg.video_analysis.enabled=False; operator disabled video_analyze",
             "mode": mode,
         })
     if mode not in VALID_MODES:
@@ -528,7 +535,9 @@ def _run(
     paths_resolved = _resolve_paths(cfg)
     log = HashLogger(paths_resolved["audit"])
 
-    chosen_extract = extract or getattr(cfg, "video_default_extract", "keyframes")
+    chosen_extract = extract or (
+        va.default_extract if va is not None else "keyframes"
+    )
     if chosen_extract not in VALID_EXTRACT:
         return json.dumps({
             "error": f"unknown extract {chosen_extract!r}; "
@@ -537,7 +546,7 @@ def _run(
         })
     interval = (
         interval_s if interval_s is not None
-        else getattr(cfg, "video_sampled_interval_s", 5.0)
+        else (va.sampled_interval_s if va is not None else 5.0)
     )
 
     try:

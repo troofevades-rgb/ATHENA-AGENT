@@ -16,17 +16,34 @@ from tests.ocr.conftest import StubOCRBackend
 
 
 def _cfg(**overrides: Any) -> SimpleNamespace:
-    base = dict(
-        profile="default",
-        ocr_enabled=True,
-        ocr_backend_prefer="local",
-        ocr_languages=["eng"],
-        ocr_min_confidence=0,
-        ocr_tesseract_cmd=None,
-        media_backend_prefer="local",
+    """Post-R4 stage 5: ocr_* moved into nested cfg.ocr. Legacy
+    overrides translated for back-compat."""
+    legacy_to_nested = {
+        "ocr_enabled": "enabled",
+        "ocr_backend_prefer": "backend_prefer",
+        "ocr_languages": "languages",
+        "ocr_min_confidence": "min_confidence",
+        "ocr_tesseract_cmd": "tesseract_cmd",
+    }
+    ocr_defaults = dict(
+        enabled=True,
+        backend_prefer="local",
+        languages=["eng"],
+        min_confidence=0,
+        tesseract_cmd=None,
     )
-    base.update(overrides)
-    return SimpleNamespace(**base)
+    top: dict = {"profile": "default", "media_backend_prefer": "local"}
+    for k, v in overrides.items():
+        if k in legacy_to_nested:
+            ocr_defaults[legacy_to_nested[k]] = v
+        elif k in ocr_defaults:
+            ocr_defaults[k] = v
+        else:
+            top[k] = v
+    return SimpleNamespace(
+        ocr=SimpleNamespace(**ocr_defaults),
+        **top,
+    )
 
 
 # ---------------------------------------------------------------
@@ -68,7 +85,8 @@ def test_ocr_disabled_short_circuits(tmp_path: Path):
         _backend=StubOCRBackend(),
     ))
     assert out["available"] is False
-    assert "ocr_enabled=False" in out["error"]
+    # Post-R4 the error message references the new nested path.
+    assert "cfg.ocr.enabled=False" in out["error"]
 
 
 def test_missing_path_rejected():

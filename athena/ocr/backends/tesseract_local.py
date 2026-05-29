@@ -89,7 +89,8 @@ class TesseractLocalBackend(Provider):
         except Exception:
             return False
         cfg = self._load_cfg()
-        cmd_override = getattr(cfg, "ocr_tesseract_cmd", None)
+        ocr_cfg = getattr(cfg, "ocr", None)
+        cmd_override = ocr_cfg.tesseract_cmd if ocr_cfg is not None else None
         if cmd_override:
             return Path(cmd_override).exists()
         return shutil.which("tesseract") is not None
@@ -111,7 +112,8 @@ class TesseractLocalBackend(Provider):
             return OCRResult(blocks=[])
 
         cfg = self._load_cfg()
-        cmd_override = getattr(cfg, "ocr_tesseract_cmd", None)
+        ocr_cfg = getattr(cfg, "ocr", None)
+        cmd_override = ocr_cfg.tesseract_cmd if ocr_cfg is not None else None
         if cmd_override:
             pytesseract.pytesseract.tesseract_cmd = str(cmd_override)
 

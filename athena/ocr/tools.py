@@ -113,7 +113,10 @@ def ocr_recognize(
     if backend is None:
         return OCRResult(blocks=[])
 
-    langs = languages or list(getattr(cfg, "ocr_languages", ["eng"]) or ["eng"])
+    ocr_cfg = getattr(cfg, "ocr", None)
+    langs = languages or list(
+        (ocr_cfg.languages if ocr_cfg is not None else ["eng"]) or ["eng"]
+    )
 
     try:
         result = backend.recognize(p, langs=langs, with_boxes=with_boxes)
@@ -123,7 +126,9 @@ def ocr_recognize(
 
     threshold = (
         min_confidence if min_confidence is not None
-        else float(getattr(cfg, "ocr_min_confidence", 0) or 0)
+        else float(
+            (ocr_cfg.min_confidence if ocr_cfg is not None else 0) or 0
+        )
     )
     if threshold > 0:
         filtered = [b for b in result.blocks if b.confidence >= threshold]
@@ -147,10 +152,11 @@ def _run(
     _backend: OCRBackend | None = None,
 ) -> str:
     cfg = _cfg if _cfg is not None else load_config()
-    if not getattr(cfg, "ocr_enabled", True):
+    ocr_cfg = getattr(cfg, "ocr", None)
+    if ocr_cfg is not None and not ocr_cfg.enabled:
         return json.dumps({
             "available": False,
-            "error": "ocr_enabled=False; operator disabled OCR",
+            "error": "cfg.ocr.enabled=False; operator disabled OCR",
         })
     if not path:
         return json.dumps({
