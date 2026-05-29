@@ -652,10 +652,19 @@ class Agent:
             from ..plugins.loader import load_plugins
 
             manifests = discover()
-            cfg_dict = {
-                "plugins": getattr(self.cfg, "plugins", {}) or {},
-            }
-            instances = load_plugins(manifests, config=cfg_dict)
+            # The plugin loader's contract is a dict-shaped config; the
+            # PluginsConfig dataclass exposes ``as_dict_for_loader`` to
+            # reconstitute the legacy envelope. Defensive fallback for
+            # SimpleNamespace stubs in tests that don't carry the
+            # PluginsConfig instance.
+            plugins_field = getattr(self.cfg, "plugins", None)
+            if plugins_field is None:
+                plugins_block: dict = {}
+            elif hasattr(plugins_field, "as_dict_for_loader"):
+                plugins_block = plugins_field.as_dict_for_loader()
+            else:
+                plugins_block = dict(plugins_field)
+            instances = load_plugins(manifests, config={"plugins": plugins_block})
             if instances:
                 ui.info(
                     f"loaded {len(instances)} plugin(s): {', '.join(p.name for p in instances)}"

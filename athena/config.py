@@ -101,6 +101,61 @@ class SafetyConfig:
 
 
 @dataclass
+class PluginsConfig:
+    """Plugin enable overrides + per-plugin config slices.
+
+    Phase 18.1 R4 stage 4b: promotes ``cfg.plugins: dict[str, Any]`` to
+    a typed dataclass. The dict had two roles -- an ``"enabled"`` key
+    mapping ``plugin_name -> bool`` AND arbitrary other keys (one per
+    plugin) carrying per-plugin config. The dataclass splits those:
+
+    - :attr:`enabled` -- ``{plugin_name: bool}`` override map. Managed
+      by ``athena plugins {enable,disable}`` writing to
+      ``~/.athena/plugins_state.json``.
+    - :attr:`per_plugin` -- ``{plugin_name: {key: value, ...}}`` for
+      the slice the plugin's ``Plugin.__init__`` receives as
+      ``config``.
+
+    Implements ``__getitem__`` + ``get`` so existing dict-style readers
+    (``cfg.plugins.get("enabled")``, ``cfg.plugins["plugin_name"]``)
+    keep working without changes. Internal helpers
+    (:meth:`as_dict_for_loader`) bridge to call sites that need the
+    legacy dict envelope.
+    """
+
+    enabled: dict[str, bool] = field(default_factory=dict)
+    per_plugin: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Dict-style read. ``"enabled"`` returns the enable map;
+        anything else returns the per-plugin slice if present, else
+        ``default``."""
+        if key == "enabled":
+            return self.enabled
+        return self.per_plugin.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        if key == "enabled":
+            return self.enabled
+        return self.per_plugin[key]
+
+    def __contains__(self, key: str) -> bool:
+        if key == "enabled":
+            return True
+        return key in self.per_plugin
+
+    def as_dict_for_loader(self) -> dict[str, Any]:
+        """Reconstitute the legacy ``{"enabled": ..., "<name>": ...}``
+        envelope the plugin loader expects. Kept narrow on purpose --
+        ad-hoc dict conversions across the rest of the codebase should
+        prefer :meth:`get` / attribute access."""
+        return {
+            "enabled": dict(self.enabled),
+            **{k: dict(v) for k, v in self.per_plugin.items()},
+        }
+
+
+@dataclass
 class ParseltongueConfig:
     """Parseltongue inference-param policy config.
 
@@ -356,10 +411,11 @@ class Config:
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     # Hard cap on tool-call rounds per user turn. Stops runaway loops.
     max_turn_steps: int = 25
-    # Plugin configuration. ``plugins["enabled"]`` is a {plugin_name: bool}
-    # override map maintained by ``athena plugins enable|disable``. Per-plugin
-    # config slices live under ``plugins[<plugin_name>]``.
-    plugins: dict[str, Any] = field(default_factory=dict)
+    # Plugin enable map + per-plugin config slices. Promoted from
+    # dict[str, Any] to PluginsConfig in Phase 18.1 R4 stage 4b. The
+    # dataclass implements __getitem__ / get / __contains__ so existing
+    # dict-style readers keep working without modification.
+    plugins: PluginsConfig = field(default_factory=PluginsConfig)
     # Parseltongue: context-aware inference param policy. Promoted
     # from dict[str, Any] to a real dataclass in Phase 18.1 R4 stage
     # 4. See athena/agent/param_policy.py for the policy classes.
@@ -992,11 +1048,28 @@ def load_config() -> Config:
                 f"move to [{nested_name}] table with key '{sub_name}'.",
                 file=sys.stderr,
             )
+        # Phase 18.1 R4 stage 4b: PluginsConfig needs custom TOML
+        # translation. The block has two layers -- a fixed ``enabled``
+        # sub-table (plugin_name -> bool) plus arbitrary ``<name>``
+        # sub-tables (per-plugin config slice). Translate it explicitly
+        # here BEFORE the generic _assign_field loop so the loop's
+        # dataclass-merge logic doesn't try to setattr() arbitrary
+        # plugin names onto the PluginsConfig dataclass.
+        plugins_block = data.pop("plugins", None)
+        if isinstance(plugins_block, dict):
+            enabled_block = plugins_block.pop("enabled", None)
+            if isinstance(enabled_block, dict):
+                cfg.plugins.enabled.update(
+                    {k: bool(v) for k, v in enabled_block.items()}
+                )
+            for plugin_name, plugin_cfg in plugins_block.items():
+                if isinstance(plugin_cfg, dict):
+                    cfg.plugins.per_plugin[plugin_name] = dict(plugin_cfg)
         for k, v in data.items():
             if hasattr(cfg, k):
                 _assign_field(cfg, k, v)
     # Merge plugin enable state from the machine-managed sidecar file.
-    cfg.plugins = _merge_plugin_state(cfg.plugins)
+    _merge_plugin_state(cfg.plugins)
     if env := os.environ.get("ATHENA_MODEL"):
         cfg.model = env
     if env := os.environ.get("OLLAMA_HOST"):
@@ -1104,16 +1177,20 @@ def save_plugin_state(state: dict[str, Any]) -> None:
     )
 
 
-def _merge_plugin_state(plugins_cfg: dict[str, Any]) -> dict[str, Any]:
-    """Overlay plugins_state.json onto plugin config from config.toml."""
+def _merge_plugin_state(plugins_cfg: PluginsConfig) -> None:
+    """Overlay plugins_state.json onto the PluginsConfig in place.
+
+    R4 stage 4b: signature changed from ``dict -> dict`` to
+    ``PluginsConfig -> None`` (mutation). The sidecar file is
+    machine-managed by ``athena plugins {enable,disable}``; merging
+    it in place keeps every caller's reference to ``cfg.plugins``
+    valid without any swap-the-reference dance.
+    """
     state = load_plugin_state()
     if not state:
-        return plugins_cfg
-    merged = dict(plugins_cfg)
+        return
     state_enabled = state.get("enabled")
     if isinstance(state_enabled, dict):
-        existing_enabled = merged.get("enabled")
-        if not isinstance(existing_enabled, dict):
-            existing_enabled = {}
-        merged["enabled"] = {**existing_enabled, **state_enabled}
-    return merged
+        plugins_cfg.enabled.update(
+            {k: bool(v) for k, v in state_enabled.items()}
+        )

@@ -46,7 +46,7 @@ def _list_cmd() -> int:
         print("(no plugins discovered)")
         return 0
     cfg = load_config()
-    overrides = cfg.plugins.get("enabled") or {}
+    overrides = dict(cfg.plugins.enabled)
     rows: list[tuple[str, str, str, str]] = []
     for m in manifests:
         rows.append(
@@ -98,7 +98,7 @@ def _info_cmd(name: str) -> int:
         )
         return 2
     cfg = load_config()
-    overrides = cfg.plugins.get("enabled") or {}
+    overrides = dict(cfg.plugins.enabled)
     state = "enabled" if _is_enabled(target, overrides) else "disabled"
     print(f"name:        {target.name}")
     print(f"version:     {target.version}")

@@ -141,15 +141,17 @@ them would mean another nested dataclass and the current style is inconsistent.
       shadow attributes and silently break canonical readers. Six
       production call sites migrated to ``cfg.computer.X``; eight test
       cfg helpers consolidated to the new shape.
-   4. **LANDED** -- ParseltongueConfig promotion (one half of stage 4).
-      The ``cfg.parseltongue: dict[str, Any]`` blob is now a real
-      ParseltongueConfig dataclass with ``policy``, ``defaults``,
-      ``user_rules``, ``classifier_model`` fields. ``policy_from_config``
-      accepts both the dataclass and a plain dict for one release so
-      external callers (eval runner, etc.) keep working. PluginsConfig
-      deferred to stage 4b -- the per-plugin config slices are arbitrary
-      dicts keyed by plugin name which needs a slightly different shape
-      than the other nested configs.
+   4. **LANDED** -- ParseltongueConfig + PluginsConfig promotions.
+      Stage 4a: ``cfg.parseltongue: dict[str, Any]`` -> real dataclass;
+      ``policy_from_config`` accepts dataclass + dict + SimpleNamespace.
+      Stage 4b: ``cfg.plugins: dict[str, Any]`` -> PluginsConfig with
+      ``enabled`` (the override map) split from ``per_plugin`` (per-plugin
+      config slices). The dataclass implements ``__getitem__`` /
+      ``get`` / ``__contains__`` / ``as_dict_for_loader`` shims so
+      existing dict-style readers and the plugin loader's dict-shaped
+      contract both keep working. ``_merge_plugin_state`` signature
+      changed from ``dict -> dict`` to ``PluginsConfig -> None``
+      (in-place mutation) so call sites don't need to swap a reference.
    5. OcrConfig, VideoConfig (the `ocr_*` and `video_*` prefixes;
       least-touched, smallest blast radius).
    6. ProvidersConfig (touches routing + credential pool -- leave for

@@ -411,6 +411,89 @@ def test_policy_from_config_still_accepts_dict_for_back_compat() -> None:
     assert policy.defaults == {"temperature": 0.3}
 
 
+# ---------------------------------------------------------------------------
+# Phase 18.1 R4 stage 4b -- PluginsConfig promotion
+# ---------------------------------------------------------------------------
+
+
+def test_plugins_defaults_match_legacy_dict(isolated: Path) -> None:
+    """No [plugins] table -> PluginsConfig has empty enabled +
+    empty per_plugin. Matches the legacy ``dict[str, Any] = {}``
+    behaviour."""
+    cfg = cfg_mod.load_config()
+    assert isinstance(cfg.plugins, cfg_mod.PluginsConfig)
+    assert cfg.plugins.enabled == {}
+    assert cfg.plugins.per_plugin == {}
+
+
+def test_plugins_table_loads_enabled_and_per_plugin(isolated: Path) -> None:
+    """The [plugins] block splits into ``enabled`` and per-plugin
+    sub-tables. Each ``[plugins.<name>]`` (not "enabled") goes into
+    PluginsConfig.per_plugin[<name>]."""
+    _write_toml(isolated, """
+        [plugins.enabled]
+        observability = true
+        shell_audit = false
+
+        [plugins.observability]
+        metrics_console = true
+        export_interval_s = 30
+    """)
+    cfg = cfg_mod.load_config()
+    assert cfg.plugins.enabled == {"observability": True, "shell_audit": False}
+    assert cfg.plugins.per_plugin["observability"] == {
+        "metrics_console": True,
+        "export_interval_s": 30,
+    }
+
+
+def test_plugins_dict_style_readers_still_work(isolated: Path) -> None:
+    """Existing readers do ``cfg.plugins.get("enabled")`` and
+    ``cfg.plugins["plugin_name"]``. The dataclass implements
+    __getitem__ / get / __contains__ so they keep working."""
+    cfg = cfg_mod.Config()
+    cfg.plugins.enabled["observability"] = True
+    cfg.plugins.per_plugin["shell_audit"] = {"log_root": "/tmp/x"}
+
+    # ``cfg.plugins.get("enabled")`` returns the enable map.
+    assert cfg.plugins.get("enabled") == {"observability": True}
+    # ``cfg.plugins.get("<plugin_name>")`` returns the per-plugin slice.
+    assert cfg.plugins.get("shell_audit") == {"log_root": "/tmp/x"}
+    assert cfg.plugins.get("missing") is None
+    assert cfg.plugins.get("missing", {"default": True}) == {"default": True}
+    # ``"enabled" in cfg.plugins`` is always True; arbitrary plugin
+    # names test against per_plugin.
+    assert "enabled" in cfg.plugins
+    assert "shell_audit" in cfg.plugins
+    assert "missing" not in cfg.plugins
+    # __getitem__ honours the same routing.
+    assert cfg.plugins["enabled"] == {"observability": True}
+    assert cfg.plugins["shell_audit"] == {"log_root": "/tmp/x"}
+
+
+def test_plugins_as_dict_for_loader_reconstitutes_envelope(
+    isolated: Path,
+) -> None:
+    """The plugin loader takes a dict-shaped config. PluginsConfig
+    exposes ``as_dict_for_loader`` so the agent's _build_plugin_hooks
+    can hand the loader the legacy envelope without leaking the
+    dataclass through the loader's interface."""
+    cfg = cfg_mod.Config()
+    cfg.plugins.enabled = {"observability": True}
+    cfg.plugins.per_plugin = {"shell_audit": {"log_root": "/tmp/x"}}
+    out = cfg.plugins.as_dict_for_loader()
+    assert out == {
+        "enabled": {"observability": True},
+        "shell_audit": {"log_root": "/tmp/x"},
+    }
+    # ``as_dict_for_loader`` returns COPIES so the loader can't mutate
+    # the live PluginsConfig.
+    out["enabled"]["observability"] = False
+    out["shell_audit"]["log_root"] = "/somewhere/else"
+    assert cfg.plugins.enabled == {"observability": True}
+    assert cfg.plugins.per_plugin["shell_audit"] == {"log_root": "/tmp/x"}
+
+
 def test_snapshot_store_singleton_picks_up_safety_retention(
     isolated: Path, tmp_path: Path,
 ) -> None:
@@ -526,44 +609,52 @@ def test_save_plugin_state_writes_pretty_sorted(isolated: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_merge_plugin_state_no_sidecar_returns_config_unchanged(
+def test_merge_plugin_state_no_sidecar_leaves_config_unchanged(
     isolated: Path,
 ) -> None:
-    base = {"observability": {"metrics_console": False}}
-    out = cfg_mod._merge_plugin_state(base)
-    assert out == base
+    """R4 stage 4b changed _merge_plugin_state's signature from
+    ``dict -> dict`` to ``PluginsConfig -> None`` (in-place mutation)."""
+    plugins = cfg_mod.PluginsConfig()
+    plugins.per_plugin["observability"] = {"metrics_console": False}
+    cfg_mod._merge_plugin_state(plugins)
+    # No sidecar file present in isolated -> nothing to overlay.
+    assert plugins.enabled == {}
+    assert plugins.per_plugin["observability"] == {"metrics_console": False}
 
 
 def test_merge_plugin_state_overlays_enabled_dict(isolated: Path) -> None:
-    """plugins_state.json's `enabled` map overlays config.toml's
-    enable settings. Sidecar wins for keys it specifies; config
-    keys not in the sidecar are preserved."""
+    """plugins_state.json's ``enabled`` map overlays the PluginsConfig's
+    enable settings. Sidecar wins for keys it specifies; config keys
+    not in the sidecar are preserved."""
     cfg_mod.save_plugin_state({"enabled": {"observability": False}})
-    cfg = {"enabled": {"observability": True, "shell_audit": True}}
-    out = cfg_mod._merge_plugin_state(cfg)
-    assert out["enabled"]["observability"] is False  # sidecar wins
-    assert out["enabled"]["shell_audit"] is True  # preserved from cfg
+    plugins = cfg_mod.PluginsConfig(
+        enabled={"observability": True, "shell_audit": True},
+    )
+    cfg_mod._merge_plugin_state(plugins)
+    assert plugins.enabled["observability"] is False  # sidecar wins
+    assert plugins.enabled["shell_audit"] is True  # preserved
 
 
-def test_merge_plugin_state_handles_missing_cfg_enabled(
+def test_merge_plugin_state_handles_empty_initial_enabled(
     isolated: Path,
 ) -> None:
-    """Config has no [plugins.enabled] section but sidecar does —
+    """Config has no [plugins.enabled] section but sidecar does --
     overlay still works, doesn't crash."""
     cfg_mod.save_plugin_state({"enabled": {"new_plugin": True}})
-    out = cfg_mod._merge_plugin_state({})
-    assert out["enabled"]["new_plugin"] is True
+    plugins = cfg_mod.PluginsConfig()
+    cfg_mod._merge_plugin_state(plugins)
+    assert plugins.enabled["new_plugin"] is True
 
 
 def test_merge_plugin_state_ignores_non_dict_state_enabled(
     isolated: Path,
 ) -> None:
-    """If the sidecar has `enabled` as a non-dict (corruption /
-    schema drift), don't crash — just don't overlay."""
+    """If the sidecar has ``enabled`` as a non-dict (corruption /
+    schema drift), don't crash -- just don't overlay."""
     cfg_mod.save_plugin_state({"enabled": "not a dict"})
-    cfg = {"enabled": {"x": True}}
-    out = cfg_mod._merge_plugin_state(cfg)
-    assert out["enabled"] == {"x": True}
+    plugins = cfg_mod.PluginsConfig(enabled={"x": True})
+    cfg_mod._merge_plugin_state(plugins)
+    assert plugins.enabled == {"x": True}
 
 
 # ---------------------------------------------------------------------------
