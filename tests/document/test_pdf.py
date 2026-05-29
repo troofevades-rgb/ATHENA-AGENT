@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from athena.document.extractors.pdf import (
+# PyMuPDF (``fitz``) is an optional dependency -- the extractor and
+# its test fixture both call into it. When the binary wheel isn't
+# installed (e.g., CI's slim test image), skip the suite cleanly
+# rather than letting the imports below blow up at collection time.
+pytest.importorskip("fitz")
+
+from athena.document.extractors.pdf import (  # noqa: E402
     extract,
     rasterize_page,
 )
