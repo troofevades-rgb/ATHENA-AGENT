@@ -79,19 +79,49 @@ class _SpyBackend:
 
 
 def _cfg(tmp_path: Path, **overrides) -> SimpleNamespace:
-    base = dict(
-        computer_use_enabled=True,
-        computer_permission_mode="per_action",
-        computer_app_allowlist=["TestApp"],
-        computer_app_denylist=[],
-        computer_audit_path=str(tmp_path / "audit.jsonl"),
-        computer_max_actions_per_task=10,
-        computer_max_actions_per_sec=10000.0,  # fast tests
-        computer_kill_hotkey=None,
-        profile="default",
+    """Stub Config shaped for post-R4 nested ``cfg.computer.*`` reads.
+    Legacy flat overrides are translated for back-compat with the
+    existing test cases."""
+    legacy_to_nested = {
+        "computer_use_enabled": "use_enabled",
+        "computer_permission_mode": "permission_mode",
+        "computer_app_allowlist": "app_allowlist",
+        "computer_app_denylist": "app_denylist",
+        "computer_kill_hotkey": "kill_hotkey",
+        "computer_max_actions_per_task": "max_actions_per_task",
+        "computer_max_actions_per_sec": "max_actions_per_sec",
+        "computer_backend": "backend",
+        "computer_dry_run": "dry_run",
+        "computer_audit_path": "audit_path",
+        "computer_screenshots_dir": "screenshots_dir",
+        "computer_deny_during_goal_loop": "deny_during_goal_loop",
+    }
+    computer_defaults = dict(
+        use_enabled=True,
+        permission_mode="per_action",
+        app_allowlist=["TestApp"],
+        app_denylist=[],
+        kill_hotkey=None,
+        max_actions_per_task=10,
+        max_actions_per_sec=10000.0,  # fast tests
+        backend="auto",
+        dry_run=False,
+        audit_path=str(tmp_path / "audit.jsonl"),
+        screenshots_dir=None,
+        deny_during_goal_loop=True,
     )
-    base.update(overrides)
-    return SimpleNamespace(**base)
+    top_defaults: dict = {"profile": "default"}
+    for k, v in overrides.items():
+        if k in legacy_to_nested:
+            computer_defaults[legacy_to_nested[k]] = v
+        elif k in computer_defaults:
+            computer_defaults[k] = v
+        else:
+            top_defaults[k] = v
+    return SimpleNamespace(
+        computer=SimpleNamespace(**computer_defaults),
+        **top_defaults,
+    )
 
 
 def _gate(cfg: Any, *, confirm_returns: bool = True) -> PermissionGate:
