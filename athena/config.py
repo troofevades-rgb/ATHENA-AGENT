@@ -47,6 +47,49 @@ def mcp_config_paths(workspace: Path) -> list[Path]:
 
 
 @dataclass
+class SkillsConfig:
+    """Skills subsystem config.
+
+    Pilot for the Phase 18.1 R4 nested-config migration: the legacy
+    ``cfg.skills_autoload`` + ``cfg.skills_autoload_interval`` flat
+    fields are still accessible via ``Config.__getattr__`` shims that
+    emit a ``DeprecationWarning`` and resolve through this nested
+    instance. New code should read ``cfg.skills.autoload`` directly.
+    """
+
+    # When True, the Agent runs a polling watcher over the skill search
+    # paths and reloads the catalog in place whenever a SKILL.md is
+    # added, edited, or removed. OFF by default to avoid a per-session
+    # background thread for users who never edit skills mid-session.
+    autoload: bool = False
+    # Poll interval (seconds) for the skill watcher when ``autoload`` is
+    # True. Default tuned low enough to feel interactive but high enough
+    # that the watch loop is invisible in profilers.
+    autoload_interval: float = 2.0
+
+
+@dataclass
+class BashConfig:
+    """Bash gate config -- allowlist + extra denylist patterns.
+
+    Pilot for the Phase 18.1 R4 nested-config migration: the legacy
+    ``cfg.bash_allowlist`` + ``cfg.bash_extra_denylist`` flat fields
+    are still accessible via ``Config.__getattr__`` shims. New code
+    should read ``cfg.bash.allowlist`` / ``cfg.bash.extra_denylist``.
+    """
+
+    # Per-Bash command allowlist; entries are word-boundary matched
+    # against the binary token. E.g. ``["git", "ls", "cat"]``.
+    # Allowlisted commands skip the confirmation prompt even when
+    # ``auto_approve_tools`` is False.
+    allowlist: list[str] = field(default_factory=list)
+    # Additional regex denylist patterns appended to
+    # ``athena.safety.shell_policy.DEFAULT_DENYLIST``. Always enforced
+    # before the allowlist; matching commands are rejected outright.
+    extra_denylist: list[str] = field(default_factory=list)
+
+
+@dataclass
 class ReviewConfig:
     """Per-turn background review settings."""
 
@@ -170,28 +213,15 @@ class Config:
     # athena/prompts/system.py SECTIONS (e.g. "executing_with_care",
     # "session_guidance", "memory_header"). Combines with lean_prompt.
     disabled_prompt_sections: list[str] = field(default_factory=list)
-    # Per-Bash command allowlist; entries are word-boundary matched
-    # against the binary token (Phase 17 ShellPolicy). E.g.
-    # ["git", "ls", "cat"]. Allowlisted commands skip the
-    # confirmation prompt even when auto_approve_tools is False.
-    bash_allowlist: list[str] = field(default_factory=list)
-    # Additional regex denylist patterns appended to
-    # athena.safety.shell_policy.DEFAULT_DENYLIST. Always enforced
-    # before the allowlist; matching commands are rejected outright
-    # by the Bash tool.
-    bash_extra_denylist: list[str] = field(default_factory=list)
-    # When True, the Agent runs a polling watcher over the skill
-    # search paths and reloads the catalog in place whenever a
-    # SKILL.md is added, edited, or removed. OFF by default to avoid
-    # a per-session background thread for users who never edit
-    # skills mid-session; turn on if you want "drop a SKILL.md, the
-    # next prompt sees it" without restarting athena.
-    skills_autoload: bool = False
-    # Poll interval (seconds) for the skill watcher when
-    # ``skills_autoload`` is True. Default tuned low enough to feel
-    # interactive but high enough that the watch loop is invisible
-    # in profilers.
-    skills_autoload_interval: float = 2.0
+    # Bash gate config (Phase 17 ShellPolicy). Nested per Phase 18.1
+    # R4; legacy flat names ``bash_allowlist`` / ``bash_extra_denylist``
+    # still resolve via ``Config.__getattr__`` with a deprecation
+    # warning.
+    bash: BashConfig = field(default_factory=BashConfig)
+    # Skills subsystem config. Nested per Phase 18.1 R4; legacy flat
+    # names ``skills_autoload`` / ``skills_autoload_interval`` still
+    # resolve via ``Config.__getattr__`` with a deprecation warning.
+    skills: SkillsConfig = field(default_factory=SkillsConfig)
     # Phase 17 [safety] settings. Keys preserved in a sub-dict so
     # athena.safety modules can read them without growing the top-
     # level Config surface for every new option.
@@ -761,6 +791,47 @@ class Config:
     # the binary isn't on PATH.
     ocr_tesseract_cmd: str | None = None
 
+    def __getattr__(self, name: str) -> Any:
+        """Resolve legacy flat field names to their new nested locations.
+
+        Phase 18.1 R4 promoted several subsystems' flat fields into
+        nested dataclasses (``cfg.bash_allowlist`` -> ``cfg.bash.allowlist``,
+        ``cfg.skills_autoload`` -> ``cfg.skills.autoload``, etc.). For one
+        release the legacy names keep working but emit a deprecation
+        warning so callers can update at their own pace.
+
+        Important: ``__getattr__`` is only called when normal attribute
+        lookup fails, so this never shadows the actual nested dataclass
+        attributes (``cfg.bash``, ``cfg.skills``) -- those resolve via the
+        dataclass-generated ``__init__`` normally and never reach here.
+        """
+        mapping = _LEGACY_FIELD_MAP.get(name)
+        if mapping is None:
+            raise AttributeError(
+                f"{type(self).__name__!r} object has no attribute {name!r}"
+            )
+        import warnings as _warnings
+
+        nested_name, sub_name = mapping
+        _warnings.warn(
+            f"Config.{name} is deprecated; read cfg.{nested_name}.{sub_name} "
+            "instead (Phase 18.1 R4 nested-config migration).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(getattr(self, nested_name), sub_name)
+
+
+# Map legacy flat-field name -> (nested_dataclass_field, attribute_on_nested).
+# Add new entries here as subsystems migrate. The Config.__getattr__ shim
+# walks this table to resolve legacy reads with a DeprecationWarning.
+_LEGACY_FIELD_MAP: dict[str, tuple[str, str]] = {
+    "skills_autoload": ("skills", "autoload"),
+    "skills_autoload_interval": ("skills", "autoload_interval"),
+    "bash_allowlist": ("bash", "allowlist"),
+    "bash_extra_denylist": ("bash", "extra_denylist"),
+}
+
 
 def load_config() -> Config:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -775,6 +846,26 @@ def load_config() -> Config:
             print(
                 f"warning: {CONFIG_PATH}: 'auto_approve_bash' is deprecated; "
                 "rename to 'auto_approve_tools'.",
+                file=sys.stderr,
+            )
+        # Phase 18.1 R4: legacy flat keys (skills_autoload, bash_allowlist,
+        # ...) are accepted with a one-line stderr note and folded into
+        # their new nested home. ``[skills]`` and ``[bash]`` tables take
+        # precedence when both shapes appear -- explicit new-shape wins.
+        for legacy_key, (nested_name, sub_name) in _LEGACY_FIELD_MAP.items():
+            if legacy_key not in data:
+                continue
+            nested_block = data.get(nested_name)
+            already_set_in_new_shape = (
+                isinstance(nested_block, dict) and sub_name in nested_block
+            )
+            if already_set_in_new_shape:
+                data.pop(legacy_key)
+                continue
+            data.setdefault(nested_name, {})[sub_name] = data.pop(legacy_key)
+            print(
+                f"warning: {CONFIG_PATH}: '{legacy_key}' is deprecated; "
+                f"move to [{nested_name}] table with key '{sub_name}'.",
                 file=sys.stderr,
             )
         for k, v in data.items():

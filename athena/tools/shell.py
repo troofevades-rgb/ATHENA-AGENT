@@ -60,8 +60,17 @@ def _policy_for_config() -> ShellPolicy:
     from ._active_cfg import active_cfg
 
     cfg = active_cfg()
-    deny = tuple(DEFAULT_DENYLIST) + tuple(getattr(cfg, "bash_extra_denylist", ()))
-    return ShellPolicy(allowlist=cfg.bash_allowlist, denylist=deny)
+    bash_cfg = getattr(cfg, "bash", None)
+    if bash_cfg is not None:
+        deny = tuple(DEFAULT_DENYLIST) + tuple(bash_cfg.extra_denylist or ())
+        return ShellPolicy(allowlist=bash_cfg.allowlist, denylist=deny)
+    # Defensive fallback for stub cfg objects in tests that don't carry
+    # the nested BashConfig instance (SimpleNamespace fixtures).
+    deny = tuple(DEFAULT_DENYLIST) + tuple(getattr(cfg, "bash_extra_denylist", ()) or ())
+    return ShellPolicy(
+        allowlist=getattr(cfg, "bash_allowlist", []) or [],
+        denylist=deny,
+    )
 
 
 _IS_WINDOWS = sys.platform == "win32"

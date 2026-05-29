@@ -78,6 +78,11 @@ shim preserves backward compat for one release.
 
 ## Refactor 4 — Decompose `Config` into nested per-subsystem classes
 
+**Status: Stage 1 LANDED** (commit on PR #12). SkillsConfig + BashConfig
+pilot promoted; `__getattr__` shim + TOML loader handle both shapes; agent,
+shell tool, and sandbox runner read through the nested dataclasses
+directly. Stages 2-5 below remain to do.
+
 **Problem:** `athena/config.py:Config` is a 40+ flat-field dataclass that's
 already half-decomposed (it has `review: ReviewConfig`, `curator: CuratorConfig`,
 `gateway: GatewayConfig`, `user_model: UserModelConfig` as nested dataclasses,
@@ -119,11 +124,21 @@ them would mean another nested dataclass and the current style is inconsistent.
    old one. After one release, drop the flat shape.
 
 4. **Sequence by subsystem risk:**
-   1. SafetyConfig, BashConfig (most-touched, but already half-organized)
-   2. SkillsConfig, ComputerConfig (newest, smallest blast radius)
-   3. ParseltongueConfig, PluginsConfig (sub-dicts upgraded to dataclasses)
-   4. OcrConfig, VideoConfig (least-touched, last)
-   5. ProvidersConfig (touches routing + credential pool — leave for last)
+   1. **LANDED** -- SkillsConfig + BashConfig pilot. Single commit;
+      proved the pattern (`__getattr__` shim + TOML loader mapping).
+   2. SafetyConfig (`cfg.safety` is currently `dict[str, Any]` with
+      ad-hoc keys -- promote to a real dataclass with the documented
+      fields; biggest reader is the snapshot/audit subsystem).
+   3. ComputerConfig (the `computer_*` flat fields -- already grouped
+      by prefix; mechanical rename).
+   4. ParseltongueConfig, PluginsConfig (sub-dicts upgraded to
+      dataclasses; the parseltongue dict is structured per a documented
+      schema so the upgrade is mechanical).
+   5. OcrConfig, VideoConfig (the `ocr_*` and `video_*` prefixes;
+      least-touched, smallest blast radius).
+   6. ProvidersConfig (touches routing + credential pool -- leave for
+      last because the routing dict has more user-visible shape than
+      the other dicts).
 
 **Files touched:**
 - `athena/config.py` (904 lines) → `athena/config/` package

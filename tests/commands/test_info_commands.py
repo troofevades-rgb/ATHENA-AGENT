@@ -120,26 +120,31 @@ def test_dump_errors_when_messages_empty() -> None:
 
 
 def test_hooks_no_hooks_message() -> None:
+    """No hooks configured -> the slash command surfaces a "no hooks"
+    message that mentions settings.json so the user knows where to
+    drop one. Plugin-driven path post-R5."""
     from athena.commands.hooks_cmd import cmd_hooks
 
-    with patch("athena.commands.hooks_cmd.hooks_mod.list_hooks", return_value=[]):
-        out = _run(cmd_hooks, SimpleNamespace(), "", "athena.commands.hooks_cmd")
+    fake_plugin = SimpleNamespace(name="shell_hook", _hooks=[])
+    agent = SimpleNamespace(plugin_hooks=SimpleNamespace(plugins=[fake_plugin]))
+    out = _run(cmd_hooks, agent, "", "athena.commands.hooks_cmd")
     assert "no hooks" in out.lower()
-    assert "settings.json" in out  # tells user where to put them
+    assert "settings.json" in out
 
 
 def test_hooks_lists_configured_hooks() -> None:
+    """``/hooks`` reads from the bundled ShellHookPlugin's ``_hooks`` list.
+    Phase 18.1 R5 retired the legacy ``athena.hooks.list_hooks`` path; the
+    slash handler now looks at the plugin's internal hook list directly."""
     from athena.commands.hooks_cmd import cmd_hooks
 
     fake_hooks = [
         SimpleNamespace(event="PostToolUse", matcher="Bash", command="echo done"),
         SimpleNamespace(event="UserPromptSubmit", matcher=".*", command="logger -t athena"),
     ]
-    with patch(
-        "athena.commands.hooks_cmd.hooks_mod.list_hooks",
-        return_value=fake_hooks,
-    ):
-        out = _run(cmd_hooks, SimpleNamespace(), "", "athena.commands.hooks_cmd")
+    fake_plugin = SimpleNamespace(name="shell_hook", _hooks=fake_hooks)
+    agent = SimpleNamespace(plugin_hooks=SimpleNamespace(plugins=[fake_plugin]))
+    out = _run(cmd_hooks, agent, "", "athena.commands.hooks_cmd")
     assert "PostToolUse" in out
     assert "Bash" in out
     assert "echo done" in out
