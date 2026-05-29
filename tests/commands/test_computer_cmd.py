@@ -40,18 +40,53 @@ def _capture():
 
 
 def _fake_cfg(**overrides) -> SimpleNamespace:
-    base = dict(
-        computer_use_enabled=False,
-        computer_permission_mode="observe_only",
-        computer_app_allowlist=[],
-        computer_app_denylist=[],
-        computer_kill_hotkey="ctrl+alt+k",
-        computer_max_actions_per_task=40,
-        computer_max_actions_per_sec=2.0,
-        profile="default",
+    """Stub Config shaped like the post-R4 nested layout.
+
+    R4 stage 3 promoted the ``computer_*`` flat fields into a nested
+    ``computer`` dataclass. Test overrides can still pass the legacy
+    flat names for convenience -- they get translated to the nested
+    SimpleNamespace below.
+    """
+    legacy_to_nested = {
+        "computer_use_enabled": "use_enabled",
+        "computer_permission_mode": "permission_mode",
+        "computer_app_allowlist": "app_allowlist",
+        "computer_app_denylist": "app_denylist",
+        "computer_kill_hotkey": "kill_hotkey",
+        "computer_max_actions_per_task": "max_actions_per_task",
+        "computer_max_actions_per_sec": "max_actions_per_sec",
+        "computer_backend": "backend",
+        "computer_dry_run": "dry_run",
+        "computer_audit_path": "audit_path",
+        "computer_screenshots_dir": "screenshots_dir",
+        "computer_deny_during_goal_loop": "deny_during_goal_loop",
+    }
+    computer_defaults = dict(
+        use_enabled=False,
+        permission_mode="observe_only",
+        app_allowlist=[],
+        app_denylist=[],
+        kill_hotkey="ctrl+alt+k",
+        max_actions_per_task=40,
+        max_actions_per_sec=2.0,
+        backend="auto",
+        dry_run=False,
+        audit_path=None,
+        screenshots_dir=None,
+        deny_during_goal_loop=True,
     )
-    base.update(overrides)
-    return SimpleNamespace(**base)
+    top_defaults: dict = {"profile": "default"}
+    for k, v in overrides.items():
+        if k in legacy_to_nested:
+            computer_defaults[legacy_to_nested[k]] = v
+        elif k in computer_defaults:
+            computer_defaults[k] = v
+        else:
+            top_defaults[k] = v
+    return SimpleNamespace(
+        computer=SimpleNamespace(**computer_defaults),
+        **top_defaults,
+    )
 
 
 def _fake_backend(name: str = "stub", *, available: bool = True, supports=()):

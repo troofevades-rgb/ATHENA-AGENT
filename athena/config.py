@@ -101,6 +101,66 @@ class SafetyConfig:
 
 
 @dataclass
+class ComputerConfig:
+    """Computer-use subsystem config (T6-04 + T6-04R).
+
+    Phase 18.1 R4 stage 3: promotes the 12 flat ``computer_*`` Config
+    fields into one nested dataclass. Legacy reads (``cfg.computer_use_enabled``)
+    keep working for one release via ``Config.__getattr__``; legacy
+    writes (``cfg.computer_use_enabled = True``, common in test fixtures)
+    route through ``Config.__setattr__`` to the nested instance so
+    canonical readers and test mutations agree.
+    """
+
+    # Master enable. Disabled by default -- the model gets a structured
+    # "computer use is disabled" tool result on every input call until
+    # the operator turns this on.
+    use_enabled: bool = False
+    # Permission gate mode:
+    #   "observe_only"  watches + advises, never inputs (default)
+    #   "per_action"    confirm every input event (safest active mode)
+    #   "per_session"   confirm input once per task; destructive STILL
+    #                   confirms individually in every mode
+    permission_mode: str = "observe_only"
+    app_allowlist: list[str] = field(default_factory=list)
+    app_denylist: list[str] = field(
+        default_factory=lambda: [
+            # Sensible defaults -- denylist wins, so even when the user
+            # opts in to control they must explicitly REMOVE one of
+            # these to touch it.
+            "1password",
+            "bitwarden",
+            "lastpass",
+            "keychain",
+            "keepass",
+            "banking",
+            "wallet",
+            "ledger live",
+            "metamask",
+        ]
+    )
+    kill_hotkey: str = "ctrl+alt+k"
+    max_actions_per_task: int = 40
+    max_actions_per_sec: float = 2.0
+    backend: str = "auto"
+    dry_run: bool = False
+    audit_path: str | None = None  # default <profile_dir>/computer_audit.jsonl
+    # T6-04.4 follow-up: screenshots are written to disk (NOT inlined
+    # as base64 -- a 4K screen would be ~30 MB of base64 -> ~10M tokens,
+    # way beyond local-model context windows). Default location is
+    # <profile_dir>/screenshots/<ts>-<sha8>.bmp.
+    screenshots_dir: str | None = None
+    # T6-04R: refuse input + destructive when the autonomous /goal
+    # continuation loop is driving turns. The goal loop runs in
+    # FOREGROUND origin (not BACKGROUND_REVIEW), so approval_guard's
+    # background-deny alone wouldn't catch it; this is the
+    # computer-use-specific extra check. Default True -- the
+    # autonomous loop never gets to drive the desktop unless the
+    # operator deliberately disables this.
+    deny_during_goal_loop: bool = True
+
+
+@dataclass
 class BashConfig:
     """Bash gate config -- allowlist + extra denylist patterns.
 
@@ -572,45 +632,12 @@ class Config:
     #   "per_action"    confirm every input event (safest active mode)
     #   "per_session"   confirm input once per task; destructive STILL
     #                   confirms individually in every mode
-    computer_use_enabled: bool = False
-    computer_permission_mode: str = "observe_only"
-    computer_app_allowlist: list[str] = field(default_factory=list)
-    computer_app_denylist: list[str] = field(
-        default_factory=lambda: [
-            # Sensible defaults — denylist wins, so even when the
-            # user opts in to control they must explicitly REMOVE
-            # one of these to touch it.
-            "1password",
-            "bitwarden",
-            "lastpass",
-            "keychain",
-            "keepass",
-            "banking",
-            "wallet",
-            "ledger live",
-            "metamask",
-        ]
-    )
-    computer_kill_hotkey: str = "ctrl+alt+k"
-    computer_max_actions_per_task: int = 40
-    computer_max_actions_per_sec: float = 2.0
-    computer_backend: str = "auto"
-    computer_dry_run: bool = False
-    computer_audit_path: str | None = None  # default <profile_dir>/computer_audit.jsonl
-    # T6-04.4 follow-up: screenshots are written to disk
-    # (NOT inlined as base64 in the tool result — a 4K screen
-    # would be ~30 MB of base64 → ~10M tokens, way beyond
-    # local-model context windows). Default location is
-    # <profile_dir>/screenshots/<ts>-<sha8>.bmp.
-    computer_screenshots_dir: str | None = None
-    # T6-04R: refuse input + destructive when the autonomous
-    # /goal continuation loop is driving turns. The goal loop
-    # runs in FOREGROUND origin (not BACKGROUND_REVIEW), so
-    # approval_guard's background-deny alone wouldn't catch it;
-    # this is the computer-use-specific extra check. Default
-    # True — the autonomous loop never gets to drive the
-    # desktop unless the operator deliberately disables this.
-    computer_deny_during_goal_loop: bool = True
+    # Computer-use subsystem config (T6-04 + T6-04R). Promoted to a
+    # nested dataclass in Phase 18.1 R4 stage 3. The legacy flat
+    # ``computer_*`` names still resolve via Config.__getattr__ +
+    # __setattr__ shims for one release; new code should read
+    # ``cfg.computer.use_enabled`` etc.
+    computer: ComputerConfig = field(default_factory=ComputerConfig)
     # T6-05: native video generation. video_generate +
     # animate_image tools backed by the T5-05 media broker
     # (video_generation capability). Cost / latency guard
@@ -848,15 +875,56 @@ class Config:
         )
         return getattr(getattr(self, nested_name), sub_name)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Route legacy flat-name writes to their new nested locations.
+
+        Test fixtures commonly mutate Config via
+        ``cfg.computer_use_enabled = True`` etc. After the R4 promotion
+        those flat names no longer correspond to fields; without this
+        shim such writes would create *new* attributes on the Config
+        instance, shadowing the nested dataclass and silently breaking
+        canonical readers that go through ``cfg.computer.use_enabled``.
+
+        Unlike :meth:`__getattr__`, this DOESN'T warn -- once a caller
+        emits a deprecation warning on read, double-warning on every
+        corresponding write is noise. The plain read-side warning is
+        enough signal.
+        """
+        mapping = _LEGACY_FIELD_MAP.get(name)
+        if mapping is not None:
+            nested_name, sub_name = mapping
+            nested = self.__dict__.get(nested_name)
+            if nested is not None:
+                setattr(nested, sub_name, value)
+                return
+            # Nested instance not yet constructed (e.g. during the
+            # dataclass-generated __init__, before all fields are set).
+            # Fall through to the normal setattr so the bookkeeping
+            # works; the dataclass __init__ will populate the nested
+            # instance shortly.
+        super().__setattr__(name, value)
+
 
 # Map legacy flat-field name -> (nested_dataclass_field, attribute_on_nested).
-# Add new entries here as subsystems migrate. The Config.__getattr__ shim
-# walks this table to resolve legacy reads with a DeprecationWarning.
+# Add new entries here as subsystems migrate. The Config.__getattr__ /
+# __setattr__ shims walk this table to translate legacy access at runtime.
 _LEGACY_FIELD_MAP: dict[str, tuple[str, str]] = {
     "skills_autoload": ("skills", "autoload"),
     "skills_autoload_interval": ("skills", "autoload_interval"),
     "bash_allowlist": ("bash", "allowlist"),
     "bash_extra_denylist": ("bash", "extra_denylist"),
+    "computer_use_enabled": ("computer", "use_enabled"),
+    "computer_permission_mode": ("computer", "permission_mode"),
+    "computer_app_allowlist": ("computer", "app_allowlist"),
+    "computer_app_denylist": ("computer", "app_denylist"),
+    "computer_kill_hotkey": ("computer", "kill_hotkey"),
+    "computer_max_actions_per_task": ("computer", "max_actions_per_task"),
+    "computer_max_actions_per_sec": ("computer", "max_actions_per_sec"),
+    "computer_backend": ("computer", "backend"),
+    "computer_dry_run": ("computer", "dry_run"),
+    "computer_audit_path": ("computer", "audit_path"),
+    "computer_screenshots_dir": ("computer", "screenshots_dir"),
+    "computer_deny_during_goal_loop": ("computer", "deny_during_goal_loop"),
 }
 
 

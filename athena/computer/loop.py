@@ -173,9 +173,15 @@ def computer_do(
                  BUT backend.perform is not called. T6-04.6
                  surfaces this flag from cfg.computer_dry_run.
     """
-    killswitch.arm(hotkey=getattr(cfg, "computer_kill_hotkey", None))
-    max_actions = int(getattr(cfg, "computer_max_actions_per_task", 40))
-    max_per_sec = float(getattr(cfg, "computer_max_actions_per_sec", 2.0))
+    computer = getattr(cfg, "computer", None)
+    if computer is not None:
+        killswitch.arm(hotkey=computer.kill_hotkey)
+        max_actions = int(computer.max_actions_per_task)
+        max_per_sec = float(computer.max_actions_per_sec)
+    else:
+        killswitch.arm(hotkey=None)
+        max_actions = 40
+        max_per_sec = 2.0
     delay = 1.0 / max_per_sec if max_per_sec > 0 else 0.0
     history: list[dict] = []
     actions_taken = 0

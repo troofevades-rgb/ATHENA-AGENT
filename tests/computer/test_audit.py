@@ -160,7 +160,9 @@ def test_tail_skips_malformed_rows(tmp_path: Path):
 def test_default_audit_path_uses_cfg_override(tmp_path: Path):
     from types import SimpleNamespace
 
-    cfg = SimpleNamespace(computer_audit_path=str(tmp_path / "explicit.jsonl"))
+    cfg = SimpleNamespace(
+        computer=SimpleNamespace(audit_path=str(tmp_path / "explicit.jsonl")),
+    )
     p = default_audit_path(cfg, tmp_path / "profile")
     assert p == tmp_path / "explicit.jsonl"
 
@@ -168,6 +170,6 @@ def test_default_audit_path_uses_cfg_override(tmp_path: Path):
 def test_default_audit_path_falls_back_to_profile_dir(tmp_path: Path):
     from types import SimpleNamespace
 
-    cfg = SimpleNamespace(computer_audit_path=None)
+    cfg = SimpleNamespace(computer=SimpleNamespace(audit_path=None))
     p = default_audit_path(cfg, tmp_path / "profile")
     assert p == tmp_path / "profile" / "computer_audit.jsonl"

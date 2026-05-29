@@ -36,7 +36,8 @@ def select_backend(cfg: Any) -> DesktopBackend:
     to :class:`NoOpBackend` which reports ``is_available=False``
     + an empty supports list.
     """
-    pref = str(getattr(cfg, "computer_backend", "auto")).lower()
+    computer = getattr(cfg, "computer", None)
+    pref = str(computer.backend if computer is not None else "auto").lower()
 
     if pref == "noop":
         return _noop()

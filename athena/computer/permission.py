@@ -234,7 +234,8 @@ def _goal_loop_active(cfg: Any) -> bool:
 
     Defensive: any exception in the path returns False so a goal-
     module bug never auto-engages the deny. Pinned by test."""
-    if not getattr(cfg, "computer_deny_during_goal_loop", True):
+    computer = getattr(cfg, "computer", None)
+    if computer is not None and not computer.deny_during_goal_loop:
         return False
     try:
         from ..config import profile_dir
@@ -312,7 +313,8 @@ class PermissionGate:
             )
             return False
 
-        mode = getattr(self.cfg, "computer_permission_mode", "observe_only")
+        computer = getattr(self.cfg, "computer", None)
+        mode = computer.permission_mode if computer is not None else "observe_only"
 
         # observe_only mode blocks every input regardless of
         # allowlist — no prompt burned. Unknown modes (typos in
@@ -384,14 +386,16 @@ class PermissionGate:
     # ----- internals -----
 
     def _denylisted(self, app: str | None) -> bool:
-        deny = list(getattr(self.cfg, "computer_app_denylist", []) or [])
+        computer = getattr(self.cfg, "computer", None)
+        deny = list(computer.app_denylist or []) if computer is not None else []
         if not deny or not app:
             return False
         haystack = app.lower()
         return any(d.lower() in haystack for d in deny)
 
     def _allowlisted(self, app: str | None) -> bool:
-        allow = list(getattr(self.cfg, "computer_app_allowlist", []) or [])
+        computer = getattr(self.cfg, "computer", None)
+        allow = list(computer.app_allowlist or []) if computer is not None else []
         if not allow:
             return False
         if not app:

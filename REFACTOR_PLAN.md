@@ -133,8 +133,14 @@ them would mean another nested dataclass and the current style is inconsistent.
       the user's TOML was a promise the code didn't keep until R4
       stage 2). The duplicate `extra_denylist` key was dropped (the
       canonical one lives in `BashConfig`).
-   3. ComputerConfig (the `computer_*` flat fields -- already grouped
-      by prefix; mechanical rename).
+   3. **LANDED** -- ComputerConfig promotion. Twelve flat ``computer_*``
+      fields promoted to a single nested dataclass. Required adding
+      ``Config.__setattr__`` (alongside the read-side ``__getattr__``)
+      so test fixtures' legacy ``cfg.computer_X = Y`` writes route to
+      the nested instance -- without it, those writes would create flat
+      shadow attributes and silently break canonical readers. Six
+      production call sites migrated to ``cfg.computer.X``; eight test
+      cfg helpers consolidated to the new shape.
    4. ParseltongueConfig, PluginsConfig (sub-dicts upgraded to
       dataclasses; the parseltongue dict is structured per a documented
       schema so the upgrade is mechanical).

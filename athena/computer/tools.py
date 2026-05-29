@@ -78,6 +78,12 @@ def _load_cfg():
     return load_config()
 
 
+def _cu_enabled(cfg: Any) -> bool:
+    """``cfg.computer.use_enabled`` with a safe fallback for stub cfgs."""
+    computer = getattr(cfg, "computer", None)
+    return bool(computer.use_enabled) if computer is not None else False
+
+
 def _disabled_payload(reason: str) -> str:
     return json.dumps(
         {
@@ -109,8 +115,8 @@ def _disabled_payload(reason: str) -> str:
 )
 def computer_screenshot(**_kwargs: Any) -> str:
     cfg = _load_cfg()
-    if not getattr(cfg, "computer_use_enabled", False):
-        return _disabled_payload("computer_use_enabled is False")
+    if not _cu_enabled(cfg):
+        return _disabled_payload("cfg.computer.use_enabled is False")
 
     backend = _resolve_backend(cfg)
     if not backend.is_available():
@@ -203,8 +209,8 @@ def computer_screenshot(**_kwargs: Any) -> str:
 )
 def computer_observe(question: str = "", **_kwargs: Any) -> str:
     cfg = _load_cfg()
-    if not getattr(cfg, "computer_use_enabled", False):
-        return _disabled_payload("computer_use_enabled is False")
+    if not _cu_enabled(cfg):
+        return _disabled_payload("cfg.computer.use_enabled is False")
 
     if not question or not question.strip():
         return json.dumps(
@@ -354,7 +360,8 @@ def _persist_screenshot(shot: Screenshot, *, cfg: Any) -> str:
 
     from .audit import hash_screenshot
 
-    explicit = getattr(cfg, "computer_screenshots_dir", None)
+    computer = getattr(cfg, "computer", None)
+    explicit = computer.screenshots_dir if computer is not None else None
     if explicit:
         base = Path(str(explicit)).expanduser()
     else:
@@ -410,8 +417,8 @@ def _single_action_path(action: Action) -> str:
     use; the real path is computer_do which runs the loop. We
     still expose them — the gate semantics are identical."""
     cfg = _load_cfg()
-    if not getattr(cfg, "computer_use_enabled", False):
-        return _disabled_payload("computer_use_enabled is False")
+    if not _cu_enabled(cfg):
+        return _disabled_payload("cfg.computer.use_enabled is False")
 
     backend = _resolve_backend(cfg)
     if not backend.is_available():

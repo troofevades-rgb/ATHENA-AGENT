@@ -24,7 +24,7 @@ def test_select_backend_auto_returns_backend():
     """Auto-select always returns *something* — never raises.
     On hosts without a usable platform backend, falls through
     to NoOpBackend."""
-    cfg = SimpleNamespace(computer_backend="auto")
+    cfg = SimpleNamespace(computer=SimpleNamespace(backend="auto"))
     backend = select_backend(cfg)
     assert backend is not None
     assert hasattr(backend, "is_available")
@@ -33,7 +33,7 @@ def test_select_backend_auto_returns_backend():
 
 
 def test_select_backend_noop_forced():
-    cfg = SimpleNamespace(computer_backend="noop")
+    cfg = SimpleNamespace(computer=SimpleNamespace(backend="noop"))
     backend = select_backend(cfg)
     assert backend.name == "noop"
     assert backend.is_available() is False
@@ -43,7 +43,7 @@ def test_select_backend_noop_forced():
 def test_select_backend_unknown_falls_through_to_noop():
     """A typo in computer_backend should NOT crash — it should
     fall through to the noop stub."""
-    cfg = SimpleNamespace(computer_backend="zarquon")
+    cfg = SimpleNamespace(computer=SimpleNamespace(backend="zarquon"))
     backend = select_backend(cfg)
     # Either the requested backend resolved (unlikely for
     # "zarquon") or the noop fallback. Both are acceptable; the

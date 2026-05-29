@@ -20,28 +20,28 @@ from . import command
 
 def _print_status(*, tail_n: int = 5) -> None:
     cfg = load_config()
-    enabled = bool(getattr(cfg, "computer_use_enabled", False))
+    cu = cfg.computer
+    enabled = bool(cu.use_enabled)
     ui.console.print(
         f"[bold]computer use:[/] "
         f"{'[green]enabled[/]' if enabled else '[red]disabled[/]'} "
-        f"(computer_use_enabled={enabled})"
+        f"(use_enabled={enabled})"
     )
 
-    mode = getattr(cfg, "computer_permission_mode", "observe_only")
-    ui.console.print(f"  mode: [bold]{mode}[/]")
+    ui.console.print(f"  mode: [bold]{cu.permission_mode}[/]")
 
-    allow = list(getattr(cfg, "computer_app_allowlist", []) or [])
-    deny = list(getattr(cfg, "computer_app_denylist", []) or [])
+    allow = list(cu.app_allowlist or [])
+    deny = list(cu.app_denylist or [])
     ui.console.print(
         f"  allowlist: {allow if allow else '[dim](empty — no app may be controlled)[/]'}"
     )
     ui.console.print(f"  denylist:  {deny}")
     ui.console.print(
-        f"  kill hotkey: {getattr(cfg, 'computer_kill_hotkey', 'ctrl+alt+k')} (Ctrl+C always active)"
+        f"  kill hotkey: {cu.kill_hotkey} (Ctrl+C always active)"
     )
     ui.console.print(
-        f"  caps: max_actions/task={getattr(cfg, 'computer_max_actions_per_task', 40)}, "
-        f"max_actions/sec={getattr(cfg, 'computer_max_actions_per_sec', 2.0)}"
+        f"  caps: max_actions/task={cu.max_actions_per_task}, "
+        f"max_actions/sec={cu.max_actions_per_sec}"
     )
 
     backend = select_backend(cfg)

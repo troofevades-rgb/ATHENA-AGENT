@@ -160,9 +160,10 @@ def hash_screenshot(shot: Screenshot) -> str:
 def default_audit_path(cfg: Any, profile_dir: Path) -> Path:
     """Resolve the audit-log path for a given profile + cfg.
 
-    ``cfg.computer_audit_path`` wins when set; otherwise
+    ``cfg.computer.audit_path`` wins when set; otherwise
     ``<profile_dir>/computer_audit.jsonl``."""
-    explicit = getattr(cfg, "computer_audit_path", None)
+    computer = getattr(cfg, "computer", None)
+    explicit = computer.audit_path if computer is not None else None
     if explicit:
         return Path(str(explicit)).expanduser()
     return Path(profile_dir) / _AUDIT_FILENAME
