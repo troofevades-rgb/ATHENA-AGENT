@@ -148,3 +148,122 @@ def maybe_run_migration(home: Path | None = None) -> bool:
         return False
     run_migration(home)
     return True
+
+
+# ---------------------------------------------------------------------------
+# R2 stage 4 -- workspace-keyed legacy memory -> profile-keyed sub-store
+# ---------------------------------------------------------------------------
+
+
+def migrate_workspace_memory(
+    *,
+    profile: str,
+    workspace: Path,
+    home: Path | None = None,
+    dry_run: bool = False,
+) -> dict[str, list[str] | bool]:
+    """Copy legacy workspace-keyed memory into the new sub-store.
+
+    Source: ``<home>/.athena/projects/<workspace-slug>/memory/`` --
+    where every previous athena release wrote memories for this
+    workspace.
+
+    Target: ``<profile_dir>/memory/legacy/<workspace-slug>/`` --
+    the R2-stage-1 layout the new provider reads from.
+
+    Behaviour:
+
+    * If the source dir doesn't exist, the migration is a no-op and
+      returns ``{"copied": [], "skipped": [], "ran": False}``.
+    * If the target dir ALREADY exists (the user, or a previous run,
+      already migrated this workspace), the migration is a no-op too
+      -- returning the same shape. This makes the function safely
+      idempotent; calling it on every session is cheap.
+    * Otherwise, every regular file under the source dir is copied
+      verbatim into the target dir. The ``MEMORY.md`` index comes
+      along so the agent's system-prompt build sees the migrated
+      entries on the next session without needing a re-index. The
+      provider's SQLite mirror gets rebuilt on first
+      :meth:`list_entries` via ``_reconcile_from_disk``.
+    * ``dry_run=True`` reports what WOULD copy without touching disk.
+
+    Returns ``{"copied": [<filename>, ...], "skipped": [...],
+    "ran": True/False, "source": <str>, "target": <str>}``. Callers
+    (typically :class:`~athena.agent.core.Agent`'s opportunistic
+    ``__init__`` invocation) can log the summary.
+    """
+    from ..config import profile_dir as _profile_dir
+    from ..memory.providers.builtin_file import BuiltinFileProvider
+
+    slug = BuiltinFileProvider.workspace_slug(workspace)
+    # ``home`` is the same override the provider uses. ``None`` means
+    # "production CONFIG_DIR" (resolves to ``~/.athena/`` -- the legacy
+    # ``projects/<slug>/memory/`` root sits next to ``profiles/``). A
+    # non-None ``home`` (used by tests + the future operator CLI) lays
+    # out ``<home>/projects/...`` and ``<home>/profiles/...`` parallel
+    # so the two roots agree.
+    base = home if home is not None else CONFIG_DIR
+    source = base / "projects" / slug / "memory"
+    # Pass ``base`` (not ``home``) to ``_profile_dir`` so target and
+    # source share a single resolved root. Otherwise ``home=None`` +
+    # a monkey-patched ``migration.CONFIG_DIR`` would route source to
+    # the patched root but target to the original ``athena.config.
+    # CONFIG_DIR`` -- they'd disagree, defeating the migration.
+    target = _profile_dir(profile, home=base) / "memory" / "legacy" / slug
+
+    if not source.exists():
+        return {"copied": [], "skipped": [], "ran": False, "source": str(source), "target": str(target)}
+
+    if target.exists():
+        # Someone already migrated this workspace -- maybe a prior
+        # session under the same profile + workspace, or the user
+        # copied it by hand. Skip to keep the function idempotent.
+        return {"copied": [], "skipped": [], "ran": False, "source": str(source), "target": str(target)}
+
+    copied: list[str] = []
+    skipped: list[str] = []
+    if not dry_run:
+        target.mkdir(parents=True, exist_ok=True)
+    for entry in sorted(source.iterdir()):
+        if not entry.is_file():
+            skipped.append(entry.name)
+            continue
+        if dry_run:
+            copied.append(entry.name)
+            continue
+        try:
+            shutil.copy2(str(entry), str(target / entry.name))
+            copied.append(entry.name)
+        except Exception:
+            logger.exception(
+                "memory migration: failed to copy %s for workspace %s",
+                entry.name,
+                workspace,
+            )
+            skipped.append(entry.name)
+
+    logger.info(
+        "memory migration: %s %d file(s) for profile=%s workspace=%s",
+        "would copy" if dry_run else "copied",
+        len(copied),
+        profile,
+        workspace,
+    )
+    return {
+        "copied": copied,
+        "skipped": skipped,
+        "ran": True,
+        "source": str(source),
+        "target": str(target),
+    }
+
+
+def maybe_migrate_workspace_memory(cfg, workspace: Path) -> dict[str, list[str] | bool] | None:
+    """Convenience wrapper called from :class:`~athena.agent.core.Agent`
+    construction. Returns ``None`` when the flag is off (the common
+    case during the dogfood window); otherwise returns the
+    :func:`migrate_workspace_memory` summary."""
+    if not getattr(cfg, "migrate_legacy_memory", False):
+        return None
+    profile = (getattr(cfg, "profile", None) or "default")
+    return migrate_workspace_memory(profile=profile, workspace=workspace)

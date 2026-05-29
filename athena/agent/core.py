@@ -838,6 +838,24 @@ class Agent:
             except OSError:
                 pass
 
+        # R2 stage 4: opportunistic one-shot migration of this
+        # workspace's legacy memory tree into the new sub-store. No-op
+        # when ``cfg.migrate_legacy_memory`` is False (default during
+        # the dogfood window) or when the target already exists.
+        # Failures inside the migrator are logged but do not break
+        # session start.
+        try:
+            from ..profiles.migration import maybe_migrate_workspace_memory
+
+            summary = maybe_migrate_workspace_memory(self.cfg, self.workspace)
+            if summary and summary.get("ran") and summary.get("copied"):
+                ui.info(
+                    f"migrated {len(summary['copied'])} legacy memory file(s) "
+                    f"into {summary['target']}"
+                )
+        except Exception as e:
+            ui.info(f"legacy memory migration skipped: {e}")
+
         memory_index: str | None = None
         try:
             # R2 stage 2: read through the profile-keyed provider so the

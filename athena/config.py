@@ -520,6 +520,16 @@ class Config:
     # contexts (default / personal / client-foo) separated without juggling
     # ATHENA_HOME values.
     profile: str = "default"
+    # R2 stage 4: opt-in one-shot migration of legacy workspace-keyed
+    # memory at ``~/.athena/projects/<slug>/memory/`` into the new
+    # profile-keyed location at
+    # ``<profile_dir>/memory/legacy/<workspace-slug>/``. Off by default
+    # for a release so operators dogfood; flip to True in config.toml
+    # to opt in. Idempotent (skips if target exists), per-workspace
+    # (only migrates the active workspace's slug per session). Removal:
+    # default flips to True at R2 stage 5; flag retires together with
+    # the legacy ``athena.memory`` module.
+    migrate_legacy_memory: bool = False
     review: ReviewConfig = field(default_factory=ReviewConfig)
     curator: CuratorConfig = field(default_factory=CuratorConfig)
     gateway: GatewayConfig = field(default_factory=GatewayConfig)

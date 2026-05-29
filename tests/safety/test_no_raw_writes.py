@@ -66,6 +66,14 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/plugins/loader.py",  # plugin state file
         "athena/profiles/manager.py",  # atomic profile metadata writes
         "athena/profiles/resolution.py",  # active-profile pointer
+        # R2 stage 4 -- one-shot, idempotent copy of legacy
+        # ``~/.athena/projects/<slug>/memory/`` into the new
+        # ``<profile_dir>/memory/legacy/<slug>/`` sub-store. Operator-
+        # facing migration parallel in shape to migration/memory_exporter.py
+        # above; runs at most once per (profile, workspace) pair and is
+        # flag-gated (``cfg.migrate_legacy_memory``) for the dogfood
+        # window.
+        "athena/profiles/migration.py",
         "athena/safety/audit.py",  # the audit log itself
         "athena/safety/snapshots.py",  # the snapshot store itself
         "athena/sessions/jsonl.py",  # session transcript append
