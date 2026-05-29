@@ -580,21 +580,20 @@ class Agent:
         except Exception:  # noqa: BLE001
             logger.debug("cancel hook registration failed", exc_info=True)
 
-        # Optional skill watcher (cfg.skills_autoload). Kicks off a
+        # Optional skill watcher (cfg.skills.autoload). Kicks off a
         # daemon thread that polls the skill search paths and triggers
         # reload_skills() when a SKILL.md is added, edited, or
         # removed. OFF by default to avoid the background thread for
         # users who never edit skills mid-session.
-        if getattr(cfg, "skills_autoload", False):
+        skills_cfg = getattr(cfg, "skills", None)
+        if skills_cfg is not None and skills_cfg.autoload:
             try:
                 from ..skills.watcher import SkillWatcher
 
                 self._skill_watcher = SkillWatcher(
                     workspace=self.workspace,
                     on_change=self.reload_skills,
-                    poll_interval=float(
-                        getattr(cfg, "skills_autoload_interval", 2.0),
-                    ),
+                    poll_interval=float(skills_cfg.autoload_interval),
                 )
                 self._skill_watcher.start()
             except Exception:  # noqa: BLE001
@@ -1636,10 +1635,9 @@ class Agent:
                 cmd = (args.get("command") or "").strip()
                 # Word-boundary match via ShellPolicy: prefix "ls"
                 # must not allow "lsof"; "git" must not allow "gitleaks".
-                deny = tuple(DEFAULT_DENYLIST) + tuple(
-                    getattr(self.cfg, "bash_extra_denylist", ()) or ()
-                )
-                policy = ShellPolicy(self.cfg.bash_allowlist, deny)
+                bash_cfg = self.cfg.bash
+                deny = tuple(DEFAULT_DENYLIST) + tuple(bash_cfg.extra_denylist or ())
+                policy = ShellPolicy(bash_cfg.allowlist, deny)
                 allowed = policy.evaluate(cmd).allowed
             if not allowed:
                 preview = args.get("command") or json.dumps(args)

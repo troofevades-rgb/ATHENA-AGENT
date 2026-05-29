@@ -155,6 +155,94 @@ def test_new_name_wins_when_both_present(
 
 
 # ---------------------------------------------------------------------------
+# Phase 18.1 R4 -- nested config migration (SkillsConfig + BashConfig pilot)
+# ---------------------------------------------------------------------------
+
+
+def test_skills_table_loads_into_nested_dataclass(isolated: Path) -> None:
+    """The new ``[skills]`` table sets the nested SkillsConfig directly --
+    no deprecation warning, no legacy shim involvement."""
+    _write_toml(isolated, """
+        [skills]
+        autoload = true
+        autoload_interval = 5.0
+    """)
+    cfg = cfg_mod.load_config()
+    assert cfg.skills.autoload is True
+    assert cfg.skills.autoload_interval == 5.0
+
+
+def test_legacy_flat_skills_keys_fold_into_nested(
+    isolated: Path, capsys: pytest.CaptureFixture,
+) -> None:
+    """Legacy flat ``skills_autoload`` at TOML root is folded into the new
+    nested location with a one-line stderr deprecation note."""
+    _write_toml(isolated, """
+        skills_autoload = true
+        skills_autoload_interval = 7.5
+    """)
+    cfg = cfg_mod.load_config()
+    assert cfg.skills.autoload is True
+    assert cfg.skills.autoload_interval == 7.5
+    captured = capsys.readouterr()
+    assert "skills_autoload" in captured.err
+    assert "deprecated" in captured.err.lower()
+
+
+def test_legacy_flat_attribute_read_emits_deprecation_warning(
+    isolated: Path,
+) -> None:
+    """Reading ``cfg.skills_autoload`` still works (one release) but warns."""
+    import warnings
+
+    cfg = cfg_mod.Config()
+    cfg.skills.autoload = True
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert cfg.skills_autoload is True  # legacy attribute read
+    assert any(
+        issubclass(w.category, DeprecationWarning)
+        and "skills_autoload" in str(w.message)
+        for w in caught
+    )
+
+
+def test_unknown_attribute_still_raises_attributeerror() -> None:
+    """The __getattr__ shim only resolves NAMES in ``_LEGACY_FIELD_MAP``;
+    truly unknown attrs must still raise so callers don't get a silent
+    surprise."""
+    cfg = cfg_mod.Config()
+    with pytest.raises(AttributeError):
+        cfg.this_attribute_does_not_exist  # noqa: B018
+
+
+def test_bash_table_loads_into_nested_dataclass(isolated: Path) -> None:
+    _write_toml(isolated, """
+        [bash]
+        allowlist = ["git", "ls"]
+        extra_denylist = ["rm.*-rf"]
+    """)
+    cfg = cfg_mod.load_config()
+    assert cfg.bash.allowlist == ["git", "ls"]
+    assert cfg.bash.extra_denylist == ["rm.*-rf"]
+
+
+def test_new_table_wins_over_legacy_flat_for_same_field(
+    isolated: Path,
+) -> None:
+    """If both ``[skills] autoload = true`` AND legacy ``skills_autoload``
+    appear, the new-shape entry wins. No warning for the explicit
+    new-shape user."""
+    _write_toml(isolated, """
+        skills_autoload = false
+        [skills]
+        autoload = true
+    """)
+    cfg = cfg_mod.load_config()
+    assert cfg.skills.autoload is True
+
+
+# ---------------------------------------------------------------------------
 # Theme application
 # ---------------------------------------------------------------------------
 
