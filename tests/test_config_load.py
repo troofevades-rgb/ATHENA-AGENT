@@ -357,6 +357,60 @@ def test_legacy_flat_computer_write_routes_to_nested(
     assert cfg.computer.permission_mode == "per_action"
 
 
+# ---------------------------------------------------------------------------
+# Phase 18.1 R4 stage 4 -- ParseltongueConfig promotion
+# ---------------------------------------------------------------------------
+
+
+def test_parseltongue_defaults_to_heuristic_policy(isolated: Path) -> None:
+    """No [parseltongue] table -> dataclass defaults match the dict
+    behaviour: heuristic policy with empty defaults / user_rules."""
+    cfg = cfg_mod.load_config()
+    assert cfg.parseltongue.policy == "heuristic"
+    assert cfg.parseltongue.defaults == {}
+    assert cfg.parseltongue.user_rules == []
+    assert cfg.parseltongue.classifier_model == "qwen2.5:1.5b"
+
+
+def test_parseltongue_table_loads_into_dataclass(isolated: Path) -> None:
+    _write_toml(isolated, """
+        [parseltongue]
+        policy = "static"
+
+        [parseltongue.defaults]
+        temperature = 0.2
+        top_p = 0.9
+    """)
+    cfg = cfg_mod.load_config()
+    assert cfg.parseltongue.policy == "static"
+    assert cfg.parseltongue.defaults == {"temperature": 0.2, "top_p": 0.9}
+
+
+def test_policy_from_config_accepts_dataclass(isolated: Path) -> None:
+    """The promoted ParseltongueConfig instance is accepted by
+    policy_from_config directly -- canonical readers don't need to
+    convert to a dict first."""
+    from athena.agent.param_policy import policy_from_config, StaticPolicy
+
+    cfg = cfg_mod.Config()
+    cfg.parseltongue.policy = "static"
+    cfg.parseltongue.defaults = {"temperature": 0.1}
+    policy = policy_from_config(cfg.parseltongue)
+    assert isinstance(policy, StaticPolicy)
+    assert policy.defaults == {"temperature": 0.1}
+
+
+def test_policy_from_config_still_accepts_dict_for_back_compat() -> None:
+    """One-release back-compat: the eval runner + external scripts
+    can still pass a plain dict to policy_from_config so the migration
+    can happen at the caller's pace."""
+    from athena.agent.param_policy import policy_from_config, StaticPolicy
+
+    policy = policy_from_config({"policy": "static", "defaults": {"temperature": 0.3}})
+    assert isinstance(policy, StaticPolicy)
+    assert policy.defaults == {"temperature": 0.3}
+
+
 def test_snapshot_store_singleton_picks_up_safety_retention(
     isolated: Path, tmp_path: Path,
 ) -> None:

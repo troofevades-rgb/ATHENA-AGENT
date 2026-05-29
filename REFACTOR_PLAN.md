@@ -141,9 +141,15 @@ them would mean another nested dataclass and the current style is inconsistent.
       shadow attributes and silently break canonical readers. Six
       production call sites migrated to ``cfg.computer.X``; eight test
       cfg helpers consolidated to the new shape.
-   4. ParseltongueConfig, PluginsConfig (sub-dicts upgraded to
-      dataclasses; the parseltongue dict is structured per a documented
-      schema so the upgrade is mechanical).
+   4. **LANDED** -- ParseltongueConfig promotion (one half of stage 4).
+      The ``cfg.parseltongue: dict[str, Any]`` blob is now a real
+      ParseltongueConfig dataclass with ``policy``, ``defaults``,
+      ``user_rules``, ``classifier_model`` fields. ``policy_from_config``
+      accepts both the dataclass and a plain dict for one release so
+      external callers (eval runner, etc.) keep working. PluginsConfig
+      deferred to stage 4b -- the per-plugin config slices are arbitrary
+      dicts keyed by plugin name which needs a slightly different shape
+      than the other nested configs.
    5. OcrConfig, VideoConfig (the `ocr_*` and `video_*` prefixes;
       least-touched, smallest blast radius).
    6. ProvidersConfig (touches routing + credential pool -- leave for

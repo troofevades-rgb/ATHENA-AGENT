@@ -443,16 +443,38 @@ def user_rules_from_config(entries: list[dict[str, Any]]) -> list[Rule]:
 # ---- Factory from config ----------------------------------------------
 
 
-def policy_from_config(config_section: dict[str, Any] | None) -> ParamPolicy:
-    """Build the active policy from a config dict matching the shape
-    of the ``[parseltongue]`` TOML section.
+def policy_from_config(config_section: Any) -> ParamPolicy:
+    """Build the active policy from either a ``ParseltongueConfig``
+    dataclass instance or a dict matching the shape of the
+    ``[parseltongue]`` TOML section (back-compat for callers like
+    ``eval/agent/runner.py`` that construct configs programmatically).
 
     ``None`` or an empty dict picks the heuristic policy with default
     rules — the same behaviour as ``policy = "heuristic"`` explicitly.
     To opt out, set ``policy = "static"``.
+
+    Phase 18.1 R4 stage 4 promoted the underlying ``cfg.parseltongue``
+    field to a dataclass; the dict path stays so external callers
+    don't break.
     """
-    cfg = dict(config_section or {})
-    name = cfg.get("policy", "heuristic")
+    # Normalise to a dict so the lookups below don't care which shape
+    # the caller passed. ``dataclasses.asdict`` would also work but
+    # explicit ``getattr`` lets a plain SimpleNamespace stub through
+    # (useful for tests that pass a fake parseltongue cfg).
+    if config_section is None:
+        cfg: dict[str, Any] = {}
+    elif isinstance(config_section, dict):
+        cfg = dict(config_section)
+    else:
+        cfg = {
+            "policy": getattr(config_section, "policy", "heuristic"),
+            "defaults": getattr(config_section, "defaults", {}),
+            "user_rules": getattr(config_section, "user_rules", []),
+            "classifier_model": getattr(
+                config_section, "classifier_model", "qwen2.5:1.5b",
+            ),
+        }
+    name = cfg.get("policy") or "heuristic"
     user_rules = user_rules_from_config(cfg.get("user_rules") or [])
 
     if name == "static":

@@ -62,7 +62,15 @@ def _default_agent_factory(
     if enabled_toolsets:
         cfg.enabled_toolsets = list(enabled_toolsets)
     if policy_config is not None:
-        cfg.parseltongue = dict(policy_config)
+        # ``cfg.parseltongue`` was promoted to ParseltongueConfig in
+        # R4 stage 4. Merge the dict the test/operator passed into the
+        # existing dataclass instance so downstream readers (which now
+        # use attribute access) see the override. ``policy_from_config``
+        # still tolerates either shape for one release, but merging
+        # keeps the type clean.
+        for k, v in policy_config.items():
+            if hasattr(cfg.parseltongue, k):
+                setattr(cfg.parseltongue, k, v)
 
     return Agent(cfg, workspace, model=model)
 

@@ -101,6 +101,39 @@ class SafetyConfig:
 
 
 @dataclass
+class ParseltongueConfig:
+    """Parseltongue inference-param policy config.
+
+    Phase 18.1 R4 stage 4: promotes ``cfg.parseltongue: dict[str, Any]``
+    to a real dataclass. The dict's documented schema (``policy``,
+    ``defaults``, ``user_rules``, ``classifier_model``) is now
+    type-checked at construction; unknown keys in the TOML table fall
+    through silently rather than being treated as live config (matches
+    the prior dict behaviour exactly).
+    """
+
+    # Which policy class drives params_for(). One of "static",
+    # "heuristic", "llm_classifier". Empty string means "use the
+    # heuristic default". The llm_classifier branch currently raises
+    # at construction time (see ``policy_from_config``).
+    policy: str = "heuristic"
+    # Param dict baked into StaticPolicy when ``policy == "static"``.
+    # Keys match provider stream_chat kwargs (temperature, top_p,
+    # repeat_penalty, mirostat*, etc.).
+    defaults: dict[str, Any] = field(default_factory=dict)
+    # User-defined rules layered on top of the built-in heuristic
+    # rules. Each entry: {"when": str, "params": dict[str, Any],
+    # plus when-specific keys like ``pattern`` or ``count``}. See
+    # athena/agent/param_policy.py:user_rules_from_config for the
+    # supported ``when`` predicates.
+    user_rules: list[dict[str, Any]] = field(default_factory=list)
+    # Classifier model when ``policy == "llm_classifier"`` (deferred).
+    # Kept on the dataclass so the future implementation can read it
+    # without a schema migration.
+    classifier_model: str = "qwen2.5:1.5b"
+
+
+@dataclass
 class ComputerConfig:
     """Computer-use subsystem config (T6-04 + T6-04R).
 
@@ -327,14 +360,10 @@ class Config:
     # override map maintained by ``athena plugins enable|disable``. Per-plugin
     # config slices live under ``plugins[<plugin_name>]``.
     plugins: dict[str, Any] = field(default_factory=dict)
-    # Parseltongue: context-aware inference param policy. See
-    # athena/agent/param_policy.py for the schema. Keys: ``policy``
-    # (one of "static" | "heuristic" | "llm_classifier"; default
-    # "heuristic"), ``defaults`` (dict; used by static), ``user_rules``
-    # (list; user-defined predicate+params layered on top of built-ins),
-    # ``classifier_model`` (str; used by llm_classifier — currently a
-    # stub that falls through to heuristic).
-    parseltongue: dict[str, Any] = field(default_factory=dict)
+    # Parseltongue: context-aware inference param policy. Promoted
+    # from dict[str, Any] to a real dataclass in Phase 18.1 R4 stage
+    # 4. See athena/agent/param_policy.py for the policy classes.
+    parseltongue: ParseltongueConfig = field(default_factory=ParseltongueConfig)
     # Provider configuration (Phase 8). Sub-keys:
     #   providers.routing     {model_name: provider_name} explicit overrides
     #   providers.<name>.host base URL for ollama / openai_compat
