@@ -50,8 +50,19 @@ def get_provider(name: str = "builtin_file") -> MemoryProvider:
 # ---- Profile-keyed convenience API --------------------------------------
 
 
-def load_index(profile: str, *, provider_name: str = "builtin_file") -> str | None:
-    return get_provider(provider_name).load_index(profile)
+def load_index(
+    profile: str,
+    *,
+    workspace: Path | None = None,
+    provider_name: str = "builtin_file",
+) -> str | None:
+    """Load the MEMORY.md index for ``profile``.
+
+    ``workspace`` (R2 stage 1) selects a workspace-scoped sub-store --
+    the agent's system-prompt build will pass its workspace here in
+    stage 2. MCP server tools and the ``athena memory`` CLI leave it
+    ``None`` (single store per profile)."""
+    return get_provider(provider_name).load_index(profile, workspace=workspace)
 
 
 def write_entry(
@@ -63,6 +74,7 @@ def write_entry(
     type: str,
     body: str,
     write_origin: str,
+    workspace: Path | None = None,
     provider_name: str = "builtin_file",
 ) -> Path:
     return get_provider(provider_name).write_entry(
@@ -73,21 +85,37 @@ def write_entry(
         type=type,
         body=body,
         write_origin=write_origin,
+        workspace=workspace,
     )
 
 
-def list_entries(profile: str, *, provider_name: str = "builtin_file") -> list[MemoryEntry]:
-    return get_provider(provider_name).list_entries(profile)
+def list_entries(
+    profile: str,
+    *,
+    workspace: Path | None = None,
+    provider_name: str = "builtin_file",
+) -> list[MemoryEntry]:
+    return get_provider(provider_name).list_entries(profile, workspace=workspace)
 
 
 def read_entry(
-    profile: str, name: str, *, provider_name: str = "builtin_file"
+    profile: str,
+    name: str,
+    *,
+    workspace: Path | None = None,
+    provider_name: str = "builtin_file",
 ) -> MemoryEntry | None:
-    return get_provider(provider_name).read_entry(profile, name)
+    return get_provider(provider_name).read_entry(profile, name, workspace=workspace)
 
 
-def delete_entry(profile: str, name: str, *, provider_name: str = "builtin_file") -> bool:
-    return get_provider(provider_name).delete_entry(profile, name)
+def delete_entry(
+    profile: str,
+    name: str,
+    *,
+    workspace: Path | None = None,
+    provider_name: str = "builtin_file",
+) -> bool:
+    return get_provider(provider_name).delete_entry(profile, name, workspace=workspace)
 
 
 def query(
@@ -95,6 +123,9 @@ def query(
     *,
     query: str,
     k: int = 5,
+    workspace: Path | None = None,
     provider_name: str = "builtin_file",
 ) -> list[MemoryEntry]:
-    return get_provider(provider_name).query(profile, query=query, k=k)
+    return get_provider(provider_name).query(
+        profile, query=query, k=k, workspace=workspace
+    )

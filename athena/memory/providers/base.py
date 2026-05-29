@@ -48,12 +48,16 @@ class MemoryProvider(ABC):
     name: str = ""
 
     @abstractmethod
-    def load_index(self, profile: str) -> str | None:
+    def load_index(self, profile: str, *, workspace: Path | None = None) -> str | None:
         """Return the MEMORY.md content for ``profile`` (or ``None``).
 
         This is the string the agent injects into the system prompt at
         session start. Truncation is the provider's responsibility — the
         agent further caps it to ``_MAX_DOCUMENT_BYTES`` defensively.
+
+        ``workspace`` (R2 stage 1) selects a workspace-scoped sub-store
+        when provided. ``None`` keeps the single-store-per-profile shape
+        (what MCP server tools and the ``athena memory`` CLI use).
         """
 
     @abstractmethod
@@ -67,30 +71,49 @@ class MemoryProvider(ABC):
         type: str,
         body: str,
         write_origin: str,
+        workspace: Path | None = None,
     ) -> Path:
         """Persist a new (or updated) memory entry. Returns the file path
         (or a synthesized path if the provider isn't file-backed).
+        ``workspace`` -- see :meth:`load_index`.
         """
 
     @abstractmethod
-    def list_entries(self, profile: str) -> list[MemoryEntry]:
+    def list_entries(
+        self, profile: str, *, workspace: Path | None = None
+    ) -> list[MemoryEntry]:
         """Return every memory under ``profile``, sorted by
-        ``last_activity_at`` descending (newest first)."""
+        ``last_activity_at`` descending (newest first).
+        ``workspace`` -- see :meth:`load_index`."""
 
     @abstractmethod
-    def read_entry(self, profile: str, name: str) -> MemoryEntry | None:
-        """Return the entry whose ``name`` matches, or ``None``."""
+    def read_entry(
+        self, profile: str, name: str, *, workspace: Path | None = None
+    ) -> MemoryEntry | None:
+        """Return the entry whose ``name`` matches, or ``None``.
+        ``workspace`` -- see :meth:`load_index`."""
 
     @abstractmethod
-    def delete_entry(self, profile: str, name: str) -> bool:
-        """Remove an entry. Returns ``True`` if the entry existed."""
+    def delete_entry(
+        self, profile: str, name: str, *, workspace: Path | None = None
+    ) -> bool:
+        """Remove an entry. Returns ``True`` if the entry existed.
+        ``workspace`` -- see :meth:`load_index`."""
 
     @abstractmethod
-    def query(self, profile: str, *, query: str, k: int = 5) -> list[MemoryEntry]:
+    def query(
+        self,
+        profile: str,
+        *,
+        query: str,
+        k: int = 5,
+        workspace: Path | None = None,
+    ) -> list[MemoryEntry]:
         """Return the top-``k`` entries matching ``query``. Ordering and
         match semantics are provider-specific; the default
         :class:`BuiltinFileProvider` uses substring match on body and
-        description, sorted by use_count then recency."""
+        description, sorted by use_count then recency.
+        ``workspace`` -- see :meth:`load_index`."""
 
     # ---- Optional lifecycle ----
 

@@ -86,22 +86,51 @@ class BuiltinFileProvider(MemoryProvider):
 
     # ---- Path helpers ---------------------------------------------------
 
-    def _memory_dir(self, profile: str) -> Path:
-        return _profile_dir(profile, home=self._home) / "memory"
+    @staticmethod
+    def workspace_slug(workspace: Path) -> str:
+        """Stable, filesystem-safe slug for a workspace path.
 
-    def _ensure_dir(self, profile: str) -> Path:
-        d = self._memory_dir(profile)
+        Reuses the legacy :func:`athena.memory._slugify` so the on-disk
+        layout under ``<profile_dir>/memory/legacy/<slug>/`` (R2 stage 1)
+        stays compatible with the workspace-keyed store at
+        ``~/.athena/projects/<slug>/memory/``. Stage 4's data migration
+        depends on byte-identical slugs across the two roots.
+        """
+        from .. import _slugify  # canonical until R2 stage 5 cleanup
+
+        return _slugify(workspace)
+
+    def _memory_dir(self, profile: str, workspace: Path | None = None) -> Path:
+        """Resolve the on-disk directory for this (profile, workspace).
+
+        ``workspace=None`` keeps the single-store-per-profile layout
+        (``<profile_dir>/memory/``) used by MCP server tools and the
+        ``athena memory`` CLI -- neither has a workspace concept. When
+        the agent passes a workspace, entries live under
+        ``<profile_dir>/memory/legacy/<workspace-slug>/`` so distinct
+        workspaces under the same profile stay isolated (mirrors the
+        old ``~/.athena/projects/<slug>/memory/`` shape).
+        """
+        base = _profile_dir(profile, home=self._home) / "memory"
+        if workspace is None:
+            return base
+        return base / "legacy" / self.workspace_slug(workspace)
+
+    def _ensure_dir(self, profile: str, workspace: Path | None = None) -> Path:
+        d = self._memory_dir(profile, workspace=workspace)
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _db_path(self, profile: str) -> Path:
-        return self._memory_dir(profile) / _DB_FILENAME
+    def _db_path(self, profile: str, workspace: Path | None = None) -> Path:
+        return self._memory_dir(profile, workspace=workspace) / _DB_FILENAME
 
     # ---- SQLite mirror --------------------------------------------------
 
-    def _connect(self, profile: str) -> sqlite3.Connection:
-        self._ensure_dir(profile)
-        conn = sqlite3.connect(self._db_path(profile))
+    def _connect(
+        self, profile: str, workspace: Path | None = None
+    ) -> sqlite3.Connection:
+        self._ensure_dir(profile, workspace=workspace)
+        conn = sqlite3.connect(self._db_path(profile, workspace=workspace))
         conn.row_factory = sqlite3.Row
         conn.execute(
             """
@@ -130,8 +159,9 @@ class BuiltinFileProvider(MemoryProvider):
         write_origin: str,
         created_at: datetime,
         last_activity_at: datetime,
+        workspace: Path | None = None,
     ) -> None:
-        with closing(self._connect(profile)) as conn, conn:
+        with closing(self._connect(profile, workspace=workspace)) as conn, conn:
             conn.execute(
                 """
                 INSERT INTO memory_entries(name, filename, description, type,
@@ -175,8 +205,8 @@ class BuiltinFileProvider(MemoryProvider):
 
     # ---- MemoryProvider implementation ----------------------------------
 
-    def load_index(self, profile: str) -> str | None:
-        index = self._memory_dir(profile) / _MEMORY_FILE_INDEX
+    def load_index(self, profile: str, *, workspace: Path | None = None) -> str | None:
+        index = self._memory_dir(profile, workspace=workspace) / _MEMORY_FILE_INDEX
         if not index.exists():
             return None
         try:
@@ -200,6 +230,7 @@ class BuiltinFileProvider(MemoryProvider):
         type: str,
         body: str,
         write_origin: str,
+        workspace: Path | None = None,
     ) -> Path:
         if type not in _MEMORY_TYPES:
             raise ValueError(
@@ -232,7 +263,7 @@ class BuiltinFileProvider(MemoryProvider):
                     f"memory {field_name} must not contain newlines: {value!r}"
                 )
 
-        d = self._ensure_dir(profile)
+        d = self._ensure_dir(profile, workspace=workspace)
         target = d / filename
         if d.resolve() != target.resolve().parent:
             raise ValueError(
@@ -277,27 +308,32 @@ class BuiltinFileProvider(MemoryProvider):
             write_origin=write_origin,
             created_at=created_at,
             last_activity_at=last_activity_at,
+            workspace=workspace,
         )
-        self._refresh_markdown_index(profile)
+        self._refresh_markdown_index(profile, workspace=workspace)
         return target
 
-    def list_entries(self, profile: str) -> list[MemoryEntry]:
-        d = self._memory_dir(profile)
+    def list_entries(
+        self, profile: str, *, workspace: Path | None = None
+    ) -> list[MemoryEntry]:
+        d = self._memory_dir(profile, workspace=workspace)
         if not d.exists():
             return []
-        self._reconcile_from_disk(profile)
-        with closing(self._connect(profile)) as conn:
+        self._reconcile_from_disk(profile, workspace=workspace)
+        with closing(self._connect(profile, workspace=workspace)) as conn:
             rows = conn.execute(
                 "SELECT * FROM memory_entries ORDER BY last_activity_at DESC"
             ).fetchall()
         return [self._row_to_entry(r, d) for r in rows]
 
-    def read_entry(self, profile: str, name: str) -> MemoryEntry | None:
-        d = self._memory_dir(profile)
+    def read_entry(
+        self, profile: str, name: str, *, workspace: Path | None = None
+    ) -> MemoryEntry | None:
+        d = self._memory_dir(profile, workspace=workspace)
         if not d.exists():
             return None
-        self._reconcile_from_disk(profile)
-        with closing(self._connect(profile)) as conn, conn:
+        self._reconcile_from_disk(profile, workspace=workspace)
+        with closing(self._connect(profile, workspace=workspace)) as conn, conn:
             row = conn.execute("SELECT * FROM memory_entries WHERE name = ?", (name,)).fetchone()
             if row is None:
                 return None
@@ -307,12 +343,14 @@ class BuiltinFileProvider(MemoryProvider):
             )
         return self._row_to_entry(row, d)
 
-    def delete_entry(self, profile: str, name: str) -> bool:
-        d = self._memory_dir(profile)
+    def delete_entry(
+        self, profile: str, name: str, *, workspace: Path | None = None
+    ) -> bool:
+        d = self._memory_dir(profile, workspace=workspace)
         if not d.exists():
             return False
-        self._reconcile_from_disk(profile)
-        with closing(self._connect(profile)) as conn, conn:
+        self._reconcile_from_disk(profile, workspace=workspace)
+        with closing(self._connect(profile, workspace=workspace)) as conn, conn:
             row = conn.execute(
                 "SELECT filename FROM memory_entries WHERE name = ?", (name,)
             ).fetchone()
@@ -329,13 +367,20 @@ class BuiltinFileProvider(MemoryProvider):
                     target.unlink()
                     ctx.record(target)
             conn.execute("DELETE FROM memory_entries WHERE name = ?", (name,))
-        self._refresh_markdown_index(profile)
+        self._refresh_markdown_index(profile, workspace=workspace)
         return True
 
-    def query(self, profile: str, *, query: str, k: int = 5) -> list[MemoryEntry]:
+    def query(
+        self,
+        profile: str,
+        *,
+        query: str,
+        k: int = 5,
+        workspace: Path | None = None,
+    ) -> list[MemoryEntry]:
         if k <= 0 or not query.strip():
             return []
-        entries = self.list_entries(profile)
+        entries = self.list_entries(profile, workspace=workspace)
         needle = query.lower()
         matches = [
             e for e in entries if needle in e.body.lower() or needle in e.description.lower()
@@ -345,8 +390,10 @@ class BuiltinFileProvider(MemoryProvider):
 
     # ---- Maintenance ---------------------------------------------------
 
-    def _refresh_markdown_index(self, profile: str) -> None:
-        d = self._memory_dir(profile)
+    def _refresh_markdown_index(
+        self, profile: str, workspace: Path | None = None
+    ) -> None:
+        d = self._memory_dir(profile, workspace=workspace)
         if not d.exists():
             return
         lines: list[str] = ["# MEMORY index", ""]
@@ -366,7 +413,9 @@ class BuiltinFileProvider(MemoryProvider):
             lines.append(line)
         (d / _MEMORY_FILE_INDEX).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    def _reconcile_from_disk(self, profile: str) -> None:
+    def _reconcile_from_disk(
+        self, profile: str, workspace: Path | None = None
+    ) -> None:
         """Rebuild SQLite rows from the on-disk Markdown files.
 
         Cheap idempotent operation: every list/read pass through here so
@@ -374,7 +423,7 @@ class BuiltinFileProvider(MemoryProvider):
         large memory stores this gets pulled into a periodic reindex
         command instead (Phase 16 territory).
         """
-        d = self._memory_dir(profile)
+        d = self._memory_dir(profile, workspace=workspace)
         if not d.exists():
             return
         seen: set[str] = set()
@@ -398,9 +447,10 @@ class BuiltinFileProvider(MemoryProvider):
                 write_origin=fields.get("write_origin", ""),
                 created_at=created_at,
                 last_activity_at=last_activity_at,
+                workspace=workspace,
             )
         # Drop rows for files removed externally.
-        with closing(self._connect(profile)) as conn, conn:
+        with closing(self._connect(profile, workspace=workspace)) as conn, conn:
             rows = conn.execute("SELECT name FROM memory_entries").fetchall()
             stale = [r["name"] for r in rows if r["name"] not in seen]
             for name in stale:
