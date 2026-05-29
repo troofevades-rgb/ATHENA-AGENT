@@ -55,6 +55,7 @@ A common pitfall: `athena/skills/` is the file-based skill *format* (Phase 1). S
 - Migration tools (`migration/`) always write under `write_origin="migration"` so the curator leaves imported content alone until it sees local activity. Preserve that invariant.
 - MCP tools come in namespaced as `{server}__{tool}` and bypass the built-in confirmation hook. If a destructive MCP tool needs gating, point the user at `disabled_tools` in `mcp.json`.
 - Both stdio and HTTP/SSE MCP transports are wired through (Phase 12). HTTP/SSE servers authenticate via OAuth 2.1 PKCE with per-server token storage at `~/.athena/mcp_tokens/<server_id>.json`. If extending transport behavior, keep both paths covered.
+- **Slash commands (`athena/commands/`) and CLI subcommands (`athena/cli/`) are separate surfaces by design** (R3, Phase 18.1). Slash commands operate on live session state (e.g., `/mcp` shows connected clients, `/status` renders the current snapshot); CLI subcommands are one-shot mutators of on-disk config (e.g., `athena mcp auth`, `athena status`). Where both surfaces touch the same concept, they converge through the underlying *module* (e.g., `CheckpointManager`, `render_status`), not through a shared command-handler protocol. Don't introduce one — it's the wrong abstraction and Claude Code itself follows the same separation. File-naming: every module in `commands/` is at its bare name (`mcp.py`, `status.py`, `theme.py`); the directory already signals "command". No `_cmd` / `_command` suffixes.
 
 ## Slash commands worth knowing about
 

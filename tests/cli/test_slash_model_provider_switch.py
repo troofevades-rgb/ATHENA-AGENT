@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from athena.agent.core import Agent
-from athena.commands.model_cmd import cmd_model as _slash_model
+from athena.commands.model import cmd_model as _slash_model
 from athena.config import Config
 from athena.providers.base import StreamChunk
 
@@ -83,7 +83,7 @@ def test_slash_model_swaps_provider_when_routing_changes(
         bare = model.split("/", 1)[1] if "/" in model else model
         return _FakeAnthropic(), bare
 
-    # ``athena.commands.model_cmd`` does ``from ..providers.runtime_resolver
+    # ``athena.commands.model`` does ``from ..providers.runtime_resolver
     # import resolve_provider`` — that creates a LOCAL binding in model_cmd.
     # Patching the source module's attribute doesn't propagate to the
     # already-imported local binding, so the test must target the
@@ -92,7 +92,7 @@ def test_slash_model_swaps_provider_when_routing_changes(
     # credential file at ~/.athena/.env had anthropic creds, making the
     # real resolve_provider succeed and shadowing this bug).
     monkeypatch.setattr(
-        "athena.commands.model_cmd.resolve_provider",
+        "athena.commands.model.resolve_provider",
         fake_resolve,
     )
 

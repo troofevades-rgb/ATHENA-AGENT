@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from athena import ui
-from athena.commands.theme_cmd import cmd_theme
+from athena.commands.theme import cmd_theme
 
 
 @pytest.fixture(autouse=True)
@@ -30,14 +30,14 @@ def _capture_ui():
     for fn_name in ("info", "warn", "error"):
         patches.append(
             patch(
-                f"athena.commands.theme_cmd.ui.{fn_name}",
+                f"athena.commands.theme.ui.{fn_name}",
                 side_effect=lambda msg, *a, _n=fn_name, **kw:
                     lines.append(f"{_n}: {msg}"),
             )
         )
     patches.append(
         patch(
-            "athena.commands.theme_cmd.ui.console.print",
+            "athena.commands.theme.ui.console.print",
             side_effect=lambda *a, **kw:
                 lines.append(" ".join(str(x) for x in a)),
         )

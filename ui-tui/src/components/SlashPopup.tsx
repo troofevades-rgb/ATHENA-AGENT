@@ -8,7 +8,7 @@
  * discover what commands exist — today, you have to know names.
  *
  * The command catalog is static here; if it ever drifts from
- * ``athena/commands/help_cmd.py``, the SLASH_COMMANDS sweep test
+ * ``athena/commands/help.py``, the SLASH_COMMANDS sweep test
  * catches the drift.
  */
 
@@ -24,7 +24,7 @@ export interface SlashCommand {
   description: string;
 }
 
-/** Source of truth — mirrors athena/commands/help_cmd.py SLASH_HELP.
+/** Source of truth — mirrors athena/commands/help.py SLASH_HELP.
  * Parametric over which name expands to which command. */
 export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/help",            description: "show slash-command reference" },

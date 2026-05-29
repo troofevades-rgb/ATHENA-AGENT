@@ -106,7 +106,7 @@ goal_blocked_sentinel: str = "GOAL BLOCKED"
   command into the agent). T5-07 changes nothing about that
   dispatch — the new subcommands are positional args, so the
   ACP entry point still works without surface changes.
-- `athena/commands/help_cmd.py` describes `/goal` in the in-app
+- `athena/commands/help.py` describes `/goal` in the in-app
   help; T5-07.4 should extend that line to mention the new
   subcommands.
 

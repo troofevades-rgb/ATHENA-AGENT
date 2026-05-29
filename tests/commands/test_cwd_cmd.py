@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from athena.commands.cwd_cmd import cmd_cwd
+from athena.commands.cwd import cmd_cwd
 
 
 def _capture():
@@ -17,7 +17,7 @@ def _capture():
     for fn in ("info", "warn", "error"):
         patches.append(
             patch(
-                f"athena.commands.cwd_cmd.ui.{fn}",
+                f"athena.commands.cwd.ui.{fn}",
                 side_effect=lambda msg, *a, _n=fn, **kw:
                     lines.append(f"{_n}: {msg}"),
             )
@@ -81,7 +81,7 @@ def test_switch_to_existing_directory_updates_workspace(tmp_path: Path) -> None:
     # handler now calls ``agent._configure_shell_hook_plugin`` instead,
     # which the _fake_agent fixture stubs as a no-op recorder.
     with patch(
-        "athena.commands.cwd_cmd.tools.file_ops.set_workspace",
+        "athena.commands.cwd.tools.file_ops.set_workspace",
         side_effect=lambda p, max_read: set_ws_calls.append((p, max_read)),
     ):
         out = _run(agent, str(new_dir))
@@ -101,7 +101,7 @@ def test_switch_expands_user_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     (tmp_path / "homedir-target").mkdir()
     agent = _fake_agent(tmp_path)
-    with patch("athena.commands.cwd_cmd.tools.file_ops.set_workspace"):
+    with patch("athena.commands.cwd.tools.file_ops.set_workspace"):
         _run(agent, "~/homedir-target")
     assert agent.workspace == (tmp_path / "homedir-target").resolve()
 
@@ -139,7 +139,7 @@ def test_switch_handles_messages_without_system_prompt(tmp_path: Path) -> None:
     )
     new_dir = tmp_path / "another"
     new_dir.mkdir()
-    with patch("athena.commands.cwd_cmd.tools.file_ops.set_workspace"):
+    with patch("athena.commands.cwd.tools.file_ops.set_workspace"):
         _run(agent, str(new_dir))
     # Workspace updated
     assert agent.workspace == new_dir.resolve()
@@ -158,6 +158,6 @@ def test_switch_handles_empty_messages(tmp_path: Path) -> None:
     )
     new_dir = tmp_path / "x"
     new_dir.mkdir()
-    with patch("athena.commands.cwd_cmd.tools.file_ops.set_workspace"):
+    with patch("athena.commands.cwd.tools.file_ops.set_workspace"):
         _run(agent, str(new_dir))
     assert agent.workspace == new_dir.resolve()
