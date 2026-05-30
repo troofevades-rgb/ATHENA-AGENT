@@ -439,6 +439,46 @@ async def test_process_skips_empty_tool_result(tmp_path: Path) -> None:
     assert [t for _, t in adapter.sent_text] == ["done"]
 
 
+# ---- error surfacing --------------------------------------------------
+
+
+def test_format_run_error_includes_type_and_message() -> None:
+    from athena.gateway.base import _format_run_error
+
+    out = _format_run_error(TimeoutError("model stalled"))
+    assert "TimeoutError" in out
+    assert "model stalled" in out
+
+
+def test_format_run_error_truncates_long_message() -> None:
+    from athena.gateway.base import _format_run_error
+
+    out = _format_run_error(RuntimeError("x" * 500))
+    assert len(out) <= 260
+    assert out.endswith("…")
+
+
+async def test_process_surfaces_run_error_to_chat(tmp_path: Path) -> None:
+    """A failed turn must tell the Discord user WHAT broke (type +
+    message), not just 'processing failed' — they have no terminal."""
+    daemon = _FakeDaemon(tmp_path)
+    daemon.approvals.bind_loop(asyncio.get_running_loop())
+    adapter = _TestAdapter(daemon)
+    adapter._active_sessions["sess-1"] = asyncio.Event()
+
+    daemon.pool.agents["sess-1"] = SimpleNamespace(
+        run_until_done=MagicMock(side_effect=TimeoutError("ollama timed out")),
+        last_assistant_message=lambda: "",
+    )
+
+    await adapter._process_message_background(_evt(), "sess-1")
+
+    joined = "\n".join(t for _, t in adapter.sent_text)
+    assert "processing failed" in joined
+    assert "TimeoutError" in joined
+    assert "ollama timed out" in joined
+
+
 # ---- approval bridge --------------------------------------------------
 
 

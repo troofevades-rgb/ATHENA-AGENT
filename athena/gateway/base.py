@@ -708,7 +708,7 @@ class GatewayAdapter(ABC):
                         agent.run_until_done,
                         user_text,
                     )
-                except Exception:
+                except Exception as exc:
                     logger.exception(
                         "[%s] agent run failed for %s",
                         self.name,
@@ -716,7 +716,8 @@ class GatewayAdapter(ABC):
                     )
                     await self._safe_send(
                         event.chat_id,
-                        "_processing failed; see logs_",
+                        f"_processing failed — {_format_run_error(exc)}_\n"
+                        "_(full trace in the daemon log)_",
                     )
                     return
                 finally:
@@ -917,6 +918,31 @@ class GatewayAdapter(ABC):
 
 
 # ---- module-level helpers ----------------------------------------------
+
+
+def _RUN_ERROR_CAP() -> int:
+    return 240
+
+
+def _format_run_error(exc: BaseException) -> str:
+    """Render a chat-safe one-line summary of a turn failure.
+
+    A Discord user has no terminal, so a bare "processing failed" leaves
+    them blind. This surfaces the exception type + message (e.g.
+    ``TimeoutError: ...`` from a wedged local model, or an xAI HTTP
+    code) so they can see WHAT broke. Bounded length; the full trace
+    still goes to the daemon log. Best-effort — never raises.
+    """
+    try:
+        name = type(exc).__name__
+        msg = str(exc).strip().replace("\n", " ")
+        summary = f"{name}: {msg}" if msg else name
+        cap = _RUN_ERROR_CAP()
+        if len(summary) > cap:
+            summary = summary[:cap].rstrip() + "…"
+        return summary
+    except Exception:  # noqa: BLE001 — error formatting must not raise
+        return "unexpected error"
 
 
 def _build_user_text(event: MessageEvent) -> str:
