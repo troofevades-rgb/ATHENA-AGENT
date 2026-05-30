@@ -553,6 +553,15 @@ class AgentLifecycle:
         # path takes it too (uncontended -- free), keeping the lock
         # discipline uniform between modes.
         self._stats_lock = threading.Lock()
+        # Phase 18.2 stage 4: ``ui.tool_call_summary`` and
+        # ``ui.tool_result`` each emit several console.print lines.
+        # Rich's console is thread-safe per-print but NOT atomic
+        # across the multi-line panel each helper draws. The
+        # parallel-dispatch path wraps each call in this lock so
+        # one tool's panel doesn't get spliced into another's.
+        # Like ``_stats_lock``, the serial path takes it too
+        # (uncontended) for uniform discipline.
+        self._ui_lock = threading.Lock()
         # Configure tools with workspace
         tools.file_ops.set_workspace(self.workspace, max_read=cfg.max_file_read)
         tools.shell.set_max_output(cfg.max_bash_output)

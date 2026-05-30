@@ -61,12 +61,37 @@ def _estimate_seconds(duration_s: float) -> float:
     return max(30.0, float(duration_s) * 4.0)
 
 
+# Credential-pool provider names this backend will accept, in lookup
+# order. xAI issues ONE account key for chat + video, so the key the
+# user added for the xAI *chat* provider (`athena providers
+# add-credential xai <key>`) works here too — we check the
+# video-specific name first, then fall back to the shared "xai" entry.
+_CREDENTIAL_POOL_NAMES: tuple[str, ...] = ("xai_video", "xai")
+
+
 def _resolve_api_key() -> str | None:
     """Lookup priority:
-    1. ATHENA_XAI_API_KEY in ~/.athena/.env or os.environ
-    2. XAI_API_KEY (xAI's own canonical env var name)
-    3. None — caller errors with a clear message.
+    1. Secure credential pool (~/.athena/credentials.json) under
+       "xai_video", then the shared "xai" entry.
+    2. ATHENA_XAI_API_KEY in ~/.athena/.env or os.environ
+    3. XAI_API_KEY (xAI's own canonical env var name)
+    4. None — caller errors with a clear message.
+
+    The pool is checked first because it's the more secure store
+    (user-only perms, redacted display) and the canonical home for
+    hosted-provider keys; the dotenv path stays as a fallback for
+    older setups.
     """
+    try:
+        from ...providers.credential_pool import global_pool
+
+        pool = global_pool()
+        for pool_name in _CREDENTIAL_POOL_NAMES:
+            cred = pool.get(pool_name)
+            if cred is not None and cred.key:
+                return cred.key
+    except Exception:  # noqa: BLE001 — pool is best-effort; fall through to env
+        pass
     return get_credential("ATHENA_XAI_API_KEY") or get_credential("XAI_API_KEY")
 
 
@@ -176,6 +201,10 @@ class XAIVideoBackend(Provider):
         "ATHENA_XAI_API_KEY",
         "XAI_API_KEY",
     )
+    # Credential-pool provider names (the secure store) this backend
+    # accepts, in lookup order. /video status reads this to report
+    # pool-stored keys, not just env-var ones.
+    credential_pool_names: tuple[str, ...] = _CREDENTIAL_POOL_NAMES
 
     @classmethod
     def static_capabilities(cls) -> Capabilities:
@@ -213,10 +242,12 @@ class XAIVideoBackend(Provider):
         api_key = _resolve_api_key()
         if not api_key:
             raise XAIAPIError(
-                "xAI video: no API key. Set ATHENA_XAI_API_KEY in "
-                "~/.athena/.env (key from console.x.ai). The X bearer "
-                "token used by search_x is a different credential and "
-                "does not work here."
+                "xAI video: no API key. Add it to the secure credential "
+                "pool with `athena providers add-credential xai <key>` "
+                "(shared with the xAI chat provider), or set "
+                "ATHENA_XAI_API_KEY in ~/.athena/.env (key from "
+                "console.x.ai). The X bearer token used by search_x is a "
+                "different credential and does not work here."
             )
 
         # text-to-video uses .prompt; image-to-video would need a

@@ -84,6 +84,11 @@ _TYPING_REFRESH_SECONDS = 4.0
 # channel or trip the platform's message rate limit.
 _PROGRESS_MIN_INTERVAL_SECONDS = 8.0
 
+# Upper bound on media files (video/image) auto-delivered into the chat
+# per turn. A guard against a runaway tool loop spamming attachments;
+# anything beyond this is logged and left on the server.
+_MAX_MEDIA_ARTIFACTS_PER_TURN = 8
+
 # Default chat-body cap when an adapter doesn't override.
 # Sized below Telegram's 4096 hard cap with headroom for Markdown
 # formatting (the parse-mode markers, code-fence delimiters, etc.).
@@ -594,6 +599,7 @@ class GatewayAdapter(ABC):
         import asyncio
         import time
 
+        from ..agent.media_artifacts import reset_media_sink, set_media_sink
         from ..agent.progress import reset_progress_sink, set_progress_sink
         from ..safety.approval_callback import (
             reset_approval_callback,
@@ -667,6 +673,15 @@ class GatewayAdapter(ABC):
 
                 progress_token = set_progress_sink(_progress_sink)
 
+                # Media bridge: tools that render a local file (video /
+                # image) call emit_media_artifact(path). Collect the
+                # paths on the worker thread, then send_file() each into
+                # the chat after the turn — otherwise a generated video
+                # only ever leaves the user a server-side path they
+                # can't reach.
+                media_artifacts: list[str] = []
+                media_token = set_media_sink(media_artifacts.append)
+
                 user_text = _build_user_text(event)
 
                 try:
@@ -686,12 +701,14 @@ class GatewayAdapter(ABC):
                     )
                     return
                 finally:
+                    reset_media_sink(media_token)
                     reset_progress_sink(progress_token)
                     reset_approval_callback(approval_token)
 
                 response = strip_think_blocks(agent.last_assistant_message()).strip()
                 if response:
                     await self._send_chunked(event.chat_id, response)
+                await self._send_media_artifacts(event.chat_id, media_artifacts)
             finally:
                 await pool_ctx.__aexit__(None, None, None)
         finally:
@@ -749,6 +766,55 @@ class GatewayAdapter(ABC):
                 self.name,
                 chat_id,
             )
+
+    async def _send_media_artifacts(self, chat_id: str, paths: list[str]) -> None:
+        """Deliver media files a turn produced (video/image) into the
+        chat via :meth:`send_file`.
+
+        Deduplicates while preserving order and skips paths that don't
+        point at an existing file (a tool may have reported a failure
+        payload, or the file was cleaned up). A per-turn cap guards
+        against a runaway loop spamming the channel; anything dropped
+        is logged. One file failing to send never aborts the rest.
+        """
+        if not paths:
+            return
+        seen: set[str] = set()
+        sent = 0
+        for raw in paths:
+            if not raw or raw in seen:
+                continue
+            seen.add(raw)
+            path = Path(raw)
+            if not path.is_file():
+                logger.warning(
+                    "[%s] media artifact %s is not a file; skipping",
+                    self.name,
+                    raw,
+                )
+                continue
+            if sent >= _MAX_MEDIA_ARTIFACTS_PER_TURN:
+                logger.warning(
+                    "[%s] media artifact cap (%d) reached; %d more not sent",
+                    self.name,
+                    _MAX_MEDIA_ARTIFACTS_PER_TURN,
+                    len(seen) - sent,
+                )
+                break
+            try:
+                await self.send_file(chat_id, path)
+                sent += 1
+            except Exception:
+                logger.exception(
+                    "[%s] failed to send media artifact %s",
+                    self.name,
+                    raw,
+                )
+                await self._safe_send(
+                    chat_id,
+                    f"_(generated {path.name} but couldn't attach it; "
+                    f"it's saved on the server at {path})_",
+                )
 
     async def _send_chunked(self, chat_id: str, text: str) -> None:
         """Send a long body in platform-respecting chunks.

@@ -786,15 +786,18 @@ class AgentRuntime:
         else:
             args = args_raw or {}
 
-        ui.tool_call_summary(name, args)
-        # Stage 3: ``stats.record_tool_call`` mutates a dict + an int
-        # non-atomically, so the parallel-dispatch path could lose
-        # increments. The lock is contention-free in the serial path
-        # (every call already runs on the foreground thread).
-        # ``getattr`` with a nullcontext fallback covers the SimpleNamespace
-        # stubs used in pre-stage-3 unit tests that bypass Agent.__init__.
+        # Stages 3 + 4: locks around the per-call non-atomic
+        # mutations. ``getattr`` with a nullcontext fallback covers
+        # SimpleNamespace stubs that bypass Agent.__init__.
+        # ``_ui_lock`` keeps the multi-line tool_call_summary /
+        # tool_result panels from interleaving under parallel
+        # dispatch; ``_stats_lock`` keeps the Stats counter +
+        # breakdown-dict mutations atomic. Both serial-path-uncontended.
         import contextlib
+        ui_lock = getattr(self, "_ui_lock", None) or contextlib.nullcontext()
         stats_lock = getattr(self, "_stats_lock", None) or contextlib.nullcontext()
+        with ui_lock:
+            ui.tool_call_summary(name, args)
         with stats_lock:
             self.stats.record_tool_call(name)
 
@@ -849,7 +852,8 @@ class AgentRuntime:
             self._preview_write(args)
 
         result = tools.dispatch(name, args)
-        ui.tool_result(name, result)
+        with ui_lock:
+            ui.tool_result(name, result)
 
         # Plugin observation; cannot affect control flow. ShellHookPlugin
         # bridges settings.json PostToolUse hooks here.

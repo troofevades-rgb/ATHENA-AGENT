@@ -15,6 +15,21 @@ blocks the tool call, but every plugin still gets called for observability.
 The dispatcher returns the blocking plugin's name so the agent can surface
 which plugin denied the call.
 
+**Concurrency contract (Phase 18.2 stage 4).** When the operator sets
+``cfg.parallel_tool_workers > 1``, ``pre_tool_call`` and ``post_tool_call``
+may be invoked from worker threads of a ``concurrent.futures.ThreadPoolExecutor``
+-- possibly multiple times concurrently for sibling calls in the same
+parallel-safe batch (see :class:`athena.tools.registry.Tool.parallel_safe`).
+The dispatcher itself is reentrant -- it only reads its ``_by_hook`` index
+and calls plugin methods. Plugins that maintain mutable state across calls
+(counters, span dicts, file handles) MUST take their own locks. Stateless or
+write-only-to-OS-atomic-syscalls plugins need no extra coordination.
+
+Every other hook (``on_session_start``, ``on_session_end``,
+``check_user_message``, ``on_user_message``, ``on_assistant_message``,
+``on_turn_end``) is still called from the foreground turn thread only --
+worker-thread concurrency is scoped to the tool-dispatch hooks.
+
 This module deliberately doesn't import :mod:`athena.hooks` — the
 settings-driven hook system there is a separate, additive layer.
 """
