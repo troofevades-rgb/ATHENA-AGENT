@@ -711,6 +711,7 @@ class AgentRuntime:
         # ``ctx.run(...)`` don't leak to siblings.
         ctx_snapshots = [contextvars.copy_context() for _ in batch]
         max_workers = min(len(batch), workers)
+        interrupted = False
         with ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix="athena-tool",
@@ -724,19 +725,78 @@ class AgentRuntime:
                 )
                 for idx, (ctx, call) in enumerate(zip(ctx_snapshots, batch))
             ]
-            # ``.result()`` re-raises any worker exception (including
-            # KeyboardInterrupt) on the main thread.
-            for f in futures:
-                f.result()
+            # Stage 5: if Ctrl+C fires mid-batch, ``.result()`` on
+            # the offending future re-raises ``KeyboardInterrupt``
+            # on the main thread. We catch it here -- NOT in the
+            # caller -- so we can:
+            #   * cancel every still-pending future (those that
+            #     hadn't started running),
+            #   * give in-flight workers a brief grace window to
+            #     finish their tool body cleanly so their slot
+            #     populates,
+            #   * record whatever completed in declared order
+            #     (preserving the model's tool_use <-> tool_result
+            #     pairing for the work that actually ran),
+            #   * mark any uncompleted call DENIED in its declared
+            #     slot,
+            #   * re-raise so the outer ``_run_turn_inner`` recovery
+            #     handles cross-batch cleanup (subsequent batches'
+            #     calls get DENIED and the ``[previous tool execution
+            #     was interrupted]`` user marker is appended).
+            try:
+                for f in futures:
+                    f.result()
+            except KeyboardInterrupt:
+                interrupted = True
+                for f in futures:
+                    f.cancel()
+                # Best-effort: wait briefly for already-running
+                # workers to write their slot. Python can't kill
+                # a running thread; the tool body finishes either
+                # way, so giving it a short window lets us record
+                # the result instead of dropping it.
+                # NOTE: catch ``BaseException`` here -- the worker
+                # that originally raised KeyboardInterrupt will
+                # re-raise it on every subsequent ``.result()``,
+                # and a bare ``except Exception`` would let it
+                # propagate past the recording loop, silently
+                # dropping all the completed slots' results.
+                for f in futures:
+                    try:
+                        f.result(timeout=0.1)
+                    except BaseException:
+                        # Includes TimeoutError, KeyboardInterrupt
+                        # (re-raised from the offending worker),
+                        # and any worker exception. We've already
+                        # decided to interrupt -- everything else
+                        # is noise.
+                        pass
 
-        for entry in slots:
-            if entry is None:
-                # No worker reached its sink (shouldn't happen given
-                # ``f.result()`` re-raised, but defensive -- skip and
-                # let the next round's tool_use<->tool_result pairing
-                # mismatch surface the bug).
+        # Record completed slots in order; DENY the rest. Stage 3
+        # already preserved order for the happy path; stage 5
+        # extends the same ordering guarantee to the interrupted
+        # path so the provider's pairing keeps working.
+        denied_msg = (
+            "DENIED: tool execution interrupted by user (Ctrl+C)"
+        )
+        for idx, entry in enumerate(slots):
+            if entry is not None:
+                self._record_tool_result(*entry)
+            elif interrupted:
+                call = batch[idx]
+                name = (call.get("function") or {}).get("name", "?")
+                self._record_tool_result(call, name, denied_msg)
+            else:
+                # No interrupt + no slot entry should be impossible
+                # (every successful ``_handle_tool_call`` calls its
+                # sink). Skip defensively -- the next round's
+                # tool_use<->tool_result mismatch will surface the
+                # bug noisily.
                 continue
-            self._record_tool_result(*entry)
+
+        if interrupted:
+            self._last_turn_interrupted = True
+            raise KeyboardInterrupt
 
     def _handle_tool_call(
         self,
