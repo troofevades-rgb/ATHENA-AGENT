@@ -266,13 +266,24 @@ class AgentRuntime:
                 return
 
             # Execute each tool call and append a tool message for it.
-            # If the user interrupts mid-loop, mark unexecuted calls DENIED so
-            # the assistant message's tool_calls are all paired with replies.
+            # Phase 18.2 stage 2: walk the calls in batches of contiguous
+            # parallel-safe siblings instead of one at a time. Stage 2
+            # dispatches every batch serially -- the batch shape is a
+            # no-op structural change here; stage 3 will dispatch
+            # multi-call batches concurrently via ThreadPoolExecutor.
+            # Order of the synthesized tool messages stays identical to
+            # the model's call order so the provider's tool_use <->
+            # tool_result pairing keeps working.
+            # If the user interrupts mid-loop, mark unexecuted calls
+            # DENIED so the assistant message's tool_calls are all
+            # paired with replies.
             ui.tool_round_header()
             asst_idx = len(self.messages) - 1
+            batches = self._partition_tool_calls(tool_calls)
             try:
-                for call in tool_calls:
-                    self._handle_tool_call(call)
+                for batch in batches:
+                    for call in batch:
+                        self._handle_tool_call(call)
             except KeyboardInterrupt:
                 self._last_turn_interrupted = True
                 ui.warn("interrupted during tool execution")
@@ -564,6 +575,51 @@ class AgentRuntime:
         if recovered:
             return recovered, residual
         return None
+
+    def _partition_tool_calls(
+        self, tool_calls: list[dict[str, Any]]
+    ) -> list[list[dict[str, Any]]]:
+        """Group contiguous parallel-safe calls into batches.
+
+        Each returned batch is a list of one or more tool calls that
+        appeared consecutively in ``tool_calls`` and are all flagged
+        :attr:`~athena.tools.registry.Tool.parallel_safe`. A
+        non-parallel-safe call sits in a batch of its own. The batch
+        order preserves the model's emit order so the synthesized
+        tool messages, when appended in batch-then-within-batch
+        order, match the provider's tool_use sequence exactly.
+
+        Contiguous-only grouping is intentional: a model that emits
+        ``[Read(a), Read(b), Edit(c), Read(d)]`` likely intends the
+        Edit to consume what the two Reads found and the trailing
+        Read to inspect the Edit's effect. Reordering across the
+        Edit would change semantics, so the partitioning never
+        crosses a non-parallel-safe call.
+
+        Stage 2 dispatches every batch serially; stage 3 swaps the
+        per-batch loop for a ThreadPoolExecutor when ``len(batch) >
+        1``. Unknown tool names (not in the registry) are treated as
+        non-parallel-safe so a typoed call doesn't accidentally race
+        with its siblings.
+        """
+        batches: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        current_is_safe = False
+
+        for call in tool_calls:
+            name = ((call.get("function") or {}).get("name") or "")
+            t = tools.get_tool(name)
+            is_safe = bool(t and t.parallel_safe)
+            if current and is_safe and current_is_safe:
+                current.append(call)
+                continue
+            if current:
+                batches.append(current)
+            current = [call]
+            current_is_safe = is_safe
+        if current:
+            batches.append(current)
+        return batches
 
     def _handle_tool_call(self, call: dict[str, Any]) -> None:
         fn = call.get("function", {}) or {}
