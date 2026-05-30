@@ -574,6 +574,17 @@ class Config:
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     # Hard cap on tool-call rounds per user turn. Stops runaway loops.
     max_turn_steps: int = 25
+    # Phase 18.2 stage 3: max worker threads for parallel tool
+    # dispatch. ``1`` (default) keeps the pre-Phase-18.2 serial
+    # behaviour -- every tool call in a round runs one after the
+    # other on the foreground thread. Set ``>1`` to opt into parallel
+    # dispatch of contiguous parallel-safe batches (see
+    # :attr:`athena.tools.registry.Tool.parallel_safe`); the actual
+    # pool size for any given batch is
+    # ``min(len(batch), parallel_tool_workers)`` so single-call
+    # batches never spin up a pool. Non-parallel-safe and
+    # confirmation-required tools always stay serial regardless.
+    parallel_tool_workers: int = 1
     # Plugin enable map + per-plugin config slices. Promoted from
     # dict[str, Any] to PluginsConfig in Phase 18.1 R4 stage 4b. The
     # dataclass implements __getitem__ / get / __contains__ so existing

@@ -63,6 +63,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ..text_utils import strip_think_blocks
 from .events import MessageEvent, MessageType
 
 if TYPE_CHECKING:
@@ -75,6 +76,13 @@ logger = logging.getLogger(__name__)
 # indicator persists ~5s; Discord's ~10s. 4s gives a comfortable
 # refresh window for both without spamming Slack's rate limiter.
 _TYPING_REFRESH_SECONDS = 4.0
+
+# Minimum gap between in-turn progress lines shipped to the chat. The
+# first line of a turn always goes through immediately (so the user
+# sees the agent picked up the work); subsequent tool-round lines are
+# throttled to this cadence so a tool-heavy turn doesn't bury the
+# channel or trip the platform's message rate limit.
+_PROGRESS_MIN_INTERVAL_SECONDS = 8.0
 
 # Default chat-body cap when an adapter doesn't override.
 # Sized below Telegram's 4096 hard cap with headroom for Markdown
@@ -584,7 +592,9 @@ class GatewayAdapter(ABC):
         consumed in the drain step below.
         """
         import asyncio
+        import time
 
+        from ..agent.progress import reset_progress_sink, set_progress_sink
         from ..safety.approval_callback import (
             reset_approval_callback,
             set_approval_callback,
@@ -592,6 +602,16 @@ class GatewayAdapter(ABC):
         from .agent_factory import build_gateway_approval_callback
 
         guard = self._active_sessions.get(session_id)
+        # Start the typing indicator BEFORE pool.use. A cold-cache
+        # session pays the full agent-build cost inside pool.use
+        # (provider show_model HTTP, ATHENA.md read, sqlite open, skills
+        # discovery walk, JSONL replay); without the heartbeat already
+        # running, that whole window is dead air on the very first
+        # message of a conversation. Cancelled in the outer finally.
+        heartbeat_task = asyncio.create_task(
+            self._typing_heartbeat(event.chat_id),
+            name=f"gateway-typing-{session_id[:8]}",
+        )
         try:
             # ``pool.use`` refcount-pins the entry so concurrent
             # eviction won't close the agent (and its owned
@@ -614,10 +634,6 @@ class GatewayAdapter(ABC):
                 return
 
             try:
-                heartbeat_task = asyncio.create_task(
-                    self._typing_heartbeat(event.chat_id),
-                    name=f"gateway-typing-{session_id[:8]}",
-                )
                 approval_callback = build_gateway_approval_callback(
                     self.daemon,
                     session_id=session_id,
@@ -625,6 +641,31 @@ class GatewayAdapter(ABC):
                     chat_id=event.chat_id,
                 )
                 approval_token = set_approval_callback(approval_callback)
+
+                # Progress bridge: the agent loop runs synchronously on
+                # a worker thread and calls emit_progress() at each tool
+                # round. Ship those lines to the chat so a long
+                # multi-tool turn shows life instead of dead air behind
+                # the typing indicator. Fire-and-forget onto the loop;
+                # the worker thread never blocks on the send. Throttled
+                # so a tool-heavy turn doesn't trip platform rate limits
+                # or bury the channel.
+                loop = asyncio.get_running_loop()
+                last_progress = [0.0]
+
+                def _progress_sink(message: str) -> None:
+                    now = time.monotonic()
+                    # Always let the first line through; throttle the rest.
+                    if last_progress[0] and now - last_progress[0] < _PROGRESS_MIN_INTERVAL_SECONDS:
+                        return
+                    last_progress[0] = now
+                    loop.call_soon_threadsafe(
+                        lambda: self._background_tasks.add(
+                            asyncio.create_task(self._safe_send(event.chat_id, f"_{message}_"))
+                        )
+                    )
+
+                progress_token = set_progress_sink(_progress_sink)
 
                 user_text = _build_user_text(event)
 
@@ -645,19 +686,20 @@ class GatewayAdapter(ABC):
                     )
                     return
                 finally:
+                    reset_progress_sink(progress_token)
                     reset_approval_callback(approval_token)
-                    heartbeat_task.cancel()
-                    try:
-                        await heartbeat_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
 
-                response = agent.last_assistant_message()
+                response = strip_think_blocks(agent.last_assistant_message()).strip()
                 if response:
                     await self._send_chunked(event.chat_id, response)
             finally:
                 await pool_ctx.__aexit__(None, None, None)
         finally:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except (asyncio.CancelledError, Exception):
+                pass
             self._session_tasks.pop(session_id, None)
             pending = self._pending_messages.pop(session_id, None)
             if guard is not None:

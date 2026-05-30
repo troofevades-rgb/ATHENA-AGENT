@@ -547,6 +547,12 @@ class AgentLifecycle:
         # Serializes run_turn so the REPL thread and a /loop thread cannot
         # interleave turns or corrupt self.messages.
         self._turn_lock = threading.Lock()
+        # Phase 18.2 stage 3: stats counters and the breakdown dict
+        # aren't atomic. The parallel tool-dispatch path takes this
+        # before calling ``self.stats.record_tool_call``; the serial
+        # path takes it too (uncontended -- free), keeping the lock
+        # discipline uniform between modes.
+        self._stats_lock = threading.Lock()
         # Configure tools with workspace
         tools.file_ops.set_workspace(self.workspace, max_read=cfg.max_file_read)
         tools.shell.set_max_output(cfg.max_bash_output)

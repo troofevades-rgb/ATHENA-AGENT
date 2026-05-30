@@ -136,12 +136,24 @@ def lookup_x_user(
         logger.warning("lookup_x_user: user_timeline raised: %s", e)
         posts, next_token = [], None
 
+    # The provider swallows HTTP errors (402/403/429) inside _get and
+    # returns an empty page, so an empty timeline used to look identical
+    # to a genuinely post-less account. Surface the real reason when the
+    # timeline came back empty AND the provider recorded a transport
+    # error — otherwise the model reports "no posts" for what is really
+    # an access/credit/rate-limit problem.
+    timeline_error = getattr(provider, "last_error", None)
+    reason: str | None = None
+    if not posts and timeline_error:
+        reason = f"timeline fetch returned no posts — X API said: {timeline_error}"
+
     return _payload(
         available=True,
         provider=provider_name,
         profile=_normalise_profile(profile),
         posts=posts or [],
         next_token=next_token,
+        reason=reason,
     )
 
 

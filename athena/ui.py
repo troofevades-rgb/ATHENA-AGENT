@@ -743,20 +743,18 @@ def _strip_think_blocks(text: str) -> str:
     thought doesn't appear in the polished view. Open / unclosed think
     blocks (rare on a clean finalize but possible on interrupt) get
     truncated at the opener.
-    """
-    import re as _re
 
-    out = _re.sub(
-        r"<think>.*?</think>\s*",
-        "_(thought collapsed)_\n\n",
+    Thin wrapper over :func:`athena.text_utils.strip_think_blocks` with
+    terminal-flavored markers; the gateway calls the same helper with
+    empty replacements to strip thinking out cleanly.
+    """
+    from .text_utils import strip_think_blocks
+
+    return strip_think_blocks(
         text,
-        flags=_re.DOTALL,
+        closed_replacement="_(thought collapsed)_\n\n",
+        open_replacement="_(thinking…)_",
     )
-    # Drop any trailing unclosed <think> block.
-    idx = out.find("<think>")
-    if idx != -1:
-        out = out[:idx] + "_(thinking…)_"
-    return out
 
 
 class TypewriterStream:

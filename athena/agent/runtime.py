@@ -43,6 +43,7 @@ from .. import tools, ui
 from ..safety.approval_callback import get_approval_callback
 from .context import _current_agent
 from .param_policy import PolicyInput
+from .progress import emit_progress
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..config import Config
@@ -53,6 +54,22 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .param_policy import ParamPolicy
 
 logger = logging.getLogger(__name__)
+
+
+def _emit_tool_round_progress(tool_calls: list[dict[str, Any]]) -> None:
+    """Emit a one-line summary of the tools about to run this round to
+    the bound progress sink. No-op when no sink is bound (terminal /
+    forks). Deduplicates names while preserving order so a round of
+    three ``Read`` calls reads ``running Read (x3)`` rather than a
+    repetitive list."""
+    counts: dict[str, int] = {}
+    for call in tool_calls:
+        name = ((call.get("function") or {}).get("name") or "tool")
+        counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return
+    parts = [(f"{name} (x{n})" if n > 1 else name) for name, n in counts.items()]
+    emit_progress("🔧 running: " + ", ".join(parts))
 
 
 class AgentRuntime:
@@ -280,10 +297,14 @@ class AgentRuntime:
             ui.tool_round_header()
             asst_idx = len(self.messages) - 1
             batches = self._partition_tool_calls(tool_calls)
+            # Surface what's running to any bound progress sink (the
+            # gateway ships these to chat) so a long multi-tool turn
+            # doesn't look hung. No-op on the terminal, which already
+            # streams tool rounds live.
+            _emit_tool_round_progress(tool_calls)
             try:
                 for batch in batches:
-                    for call in batch:
-                        self._handle_tool_call(call)
+                    self._dispatch_batch(batch)
             except KeyboardInterrupt:
                 self._last_turn_interrupted = True
                 ui.warn("interrupted during tool execution")
@@ -314,10 +335,25 @@ class AgentRuntime:
         The review keeps running on its daemon thread; on local Ollama
         it'll briefly serialize with the foreground call, which is far
         better than making the user wait indefinitely.
+
+        Only local providers pay this wait. The whole reason it exists
+        is Ollama's single-inference-at-a-time behaviour: a review
+        fork's calls would serialize with the foreground turn and make
+        both feel slow. Hosted providers (which gateway deployments
+        typically use) handle concurrent requests fine — the credential
+        pool already rotates on 429 — so blocking the user's turn up to
+        ``timeout`` there is pure added latency for no benefit.
         """
         t = self._active_review_thread
         if t is None or not t.is_alive():
             return
+        try:
+            if not self.provider.capabilities(self.model).is_local:
+                return
+        except Exception:  # noqa: BLE001 — capability probe is best-effort
+            # If we can't tell, keep the historical (safe) behaviour
+            # and wait — better a small latency than a thrashed local GPU.
+            pass
         import time as _time
 
         t0 = _time.monotonic()
@@ -621,7 +657,106 @@ class AgentRuntime:
             batches.append(current)
         return batches
 
-    def _handle_tool_call(self, call: dict[str, Any]) -> None:
+    def _dispatch_batch(self, batch: list[dict[str, Any]]) -> None:
+        """Run every call in ``batch`` and append the synthesised tool
+        messages in original call order.
+
+        Stage 3 behaviour:
+
+        * Single-call batch -- always serial, regardless of
+          ``cfg.parallel_tool_workers``. No thread-pool spin-up cost
+          when there's nothing to fan out.
+        * Multi-call batch + ``parallel_tool_workers <= 1`` -- serial,
+          same loop as stages 1 / 2.
+        * Multi-call batch + ``parallel_tool_workers > 1`` -- workers
+          dispatch concurrently via a ThreadPoolExecutor sized to
+          ``min(len(batch), parallel_tool_workers)``. Each worker runs
+          under its own ``contextvars.copy_context()`` snapshot so the
+          parent's workspace / plan-mode / current-agent / vector-store
+          ContextVars propagate. Tool messages are buffered by index
+          and recorded on the main thread in batch order; the
+          provider's tool_use <-> tool_result pairing depends on this.
+
+        A ``KeyboardInterrupt`` from any worker bubbles up so the
+        enclosing ``_run_turn_inner`` catches it and marks unexecuted
+        calls DENIED -- order-preserving cleanup still works because
+        ``messages.append`` only happens on the main thread.
+        """
+        # Single-call or serial-mode fast path.
+        workers = max(1, int(getattr(self.cfg, "parallel_tool_workers", 1) or 1))
+        if len(batch) <= 1 or workers <= 1:
+            for call in batch:
+                self._handle_tool_call(call)
+            return
+
+        # Parallel-dispatch path. Workers stash their (call, name,
+        # result) into ``slots`` by index; the main thread then walks
+        # ``slots`` and calls the real ``_record_tool_result`` in
+        # order. Early-return branches inside ``_handle_tool_call``
+        # (plan-blocked, plugin-vetoed, confirmation-denied) all go
+        # through ``record`` too, so even those land in the right slot.
+        import contextvars
+        from concurrent.futures import ThreadPoolExecutor
+
+        slots: list[tuple[dict[str, Any], str, str] | None] = [None] * len(batch)
+
+        def _make_sink(idx: int):
+            def _sink(call: dict[str, Any], name: str, result: str) -> None:
+                slots[idx] = (call, name, result)
+            return _sink
+
+        # Capture the foreground thread's context snapshot once per
+        # worker. ``contextvars.copy_context()`` returns a fresh
+        # snapshot each call -- mutations inside one worker's
+        # ``ctx.run(...)`` don't leak to siblings.
+        ctx_snapshots = [contextvars.copy_context() for _ in batch]
+        max_workers = min(len(batch), workers)
+        with ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="athena-tool",
+        ) as pool:
+            futures = [
+                pool.submit(
+                    ctx.run,
+                    self._handle_tool_call,
+                    call,
+                    record_sink=_make_sink(idx),
+                )
+                for idx, (ctx, call) in enumerate(zip(ctx_snapshots, batch))
+            ]
+            # ``.result()`` re-raises any worker exception (including
+            # KeyboardInterrupt) on the main thread.
+            for f in futures:
+                f.result()
+
+        for entry in slots:
+            if entry is None:
+                # No worker reached its sink (shouldn't happen given
+                # ``f.result()`` re-raised, but defensive -- skip and
+                # let the next round's tool_use<->tool_result pairing
+                # mismatch surface the bug).
+                continue
+            self._record_tool_result(*entry)
+
+    def _handle_tool_call(
+        self,
+        call: dict[str, Any],
+        *,
+        record_sink: Any = None,
+    ) -> None:
+        """Run one tool call to completion and record its result.
+
+        ``record_sink`` is the callable invoked to materialise the
+        tool message (signature ``(call, name, result_str) -> None``).
+        Defaults to :meth:`_record_tool_result`, which appends to
+        ``self.messages`` and the session JSONL synchronously. The
+        parallel-dispatch path in :meth:`_run_turn_inner` passes a
+        sink that just stashes ``(call, name, result_str)`` into an
+        ordered slot so the main thread can record the batch in
+        original call order after every worker completes -- preserving
+        the provider's tool_use <-> tool_result pairing.
+        """
+        record = record_sink if record_sink is not None else self._record_tool_result
         fn = call.get("function", {}) or {}
         name = fn.get("name", "")
         args_raw = fn.get("arguments", {})
@@ -652,7 +787,16 @@ class AgentRuntime:
             args = args_raw or {}
 
         ui.tool_call_summary(name, args)
-        self.stats.record_tool_call(name)
+        # Stage 3: ``stats.record_tool_call`` mutates a dict + an int
+        # non-atomically, so the parallel-dispatch path could lose
+        # increments. The lock is contention-free in the serial path
+        # (every call already runs on the foreground thread).
+        # ``getattr`` with a nullcontext fallback covers the SimpleNamespace
+        # stubs used in pre-stage-3 unit tests that bypass Agent.__init__.
+        import contextlib
+        stats_lock = getattr(self, "_stats_lock", None) or contextlib.nullcontext()
+        with stats_lock:
+            self.stats.record_tool_call(name)
 
         # Plan-mode gate: only read-only tools are allowed
         from ..tools import plan as plan_mod
@@ -663,7 +807,7 @@ class AgentRuntime:
                 "Use Read/Glob/Grep/WebFetch/WebSearch to investigate, then "
                 "call ExitPlanMode with the proposed plan."
             )
-            self._record_tool_result(call, name, denied)
+            record(call, name, denied)
             ui.warn(denied)
             return
 
@@ -687,7 +831,7 @@ class AgentRuntime:
                 ui.console.print(f"[yellow]command:[/] [white]{preview}[/]")
                 if get_approval_callback()(name, args) != "allow":
                     result = "DENIED by user"
-                    self._record_tool_result(call, name, result)
+                    record(call, name, result)
                     return
 
         # Plugin veto: first plugin to return False from pre_tool_call
@@ -696,7 +840,7 @@ class AgentRuntime:
         plugin_allow, blocker = self.plugin_hooks.pre_tool_call(name, args)
         if not plugin_allow:
             blocked = f"BLOCKED by plugin {blocker!r}"
-            self._record_tool_result(call, name, blocked)
+            record(call, name, blocked)
             ui.warn(blocked)
             return
 
@@ -716,7 +860,7 @@ class AgentRuntime:
         # observers see the raw text); only the message stored in
         # conversation history is replaced with the handle.
         result = self._maybe_store_tool_result(name, result)
-        self._record_tool_result(call, name, result)
+        record(call, name, result)
 
     def _maybe_store_tool_result(self, tool_name: str, result: str) -> str:
         """T2-06: if the tool result exceeds the configured threshold,
