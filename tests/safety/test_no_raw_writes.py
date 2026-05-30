@@ -137,6 +137,14 @@ ALLOWLIST: frozenset[str] = frozenset(
         # (one line, atomic rewrite). Config file is itself the
         # operator-facing surface, not user content.
         "athena/commands/theme.py",
+        # /godmode save writes a per-config JSON file to
+        # ``~/.athena/godmode/configs/<name>.json``. Operator-facing
+        # config persistence, parallel in shape to /theme save above
+        # -- not an agent-driven mutation of user content. The module
+        # itself is gated by ATHENA_ALLOW_GODMODE=1 at import time
+        # (see athena/commands/godmode.py); without the env var the
+        # write site is unreachable.
+        "athena/commands/godmode.py",
         # User-modeling backend writes auto-extracted facts to
         # ``~/.athena/profiles/<profile>/user_model/<id>.md`` plus
         # an INDEX.md. These are machine-managed observation

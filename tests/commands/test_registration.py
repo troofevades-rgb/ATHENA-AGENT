@@ -27,6 +27,7 @@ EXPECTED_SLASH_COMMANDS: dict[str, str] = {
     "cwd": "athena/commands/cwd.py",
     "dump": "athena/commands/dump.py",
     "goal": "athena/commands/goal.py",
+    "godmode": "athena/commands/godmode.py",
     "help": "athena/commands/help.py",
     "hooks": "athena/commands/hooks.py",
     "init": "athena/commands/init.py",

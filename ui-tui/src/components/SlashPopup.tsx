@@ -60,6 +60,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/video",           description: "video backends: list/set/clear" },
   { name: "/theme",           description: "TUI palette: list, 'set NAME', or 'save'" },
   { name: "/hooks",           description: "list configured hooks" },
+  { name: "/godmode",         description: "jailbreak toolkit (gated: ATHENA_ALLOW_GODMODE=1)" },
   { name: "/exit",            description: "quit" },
 ];
 
