@@ -4,7 +4,7 @@ description: Automated LLM jailbreaking using G0DM0D3 techniques — system prom
 name: godmode
 created_at: '2026-05-27T23:24:56Z'
 last_activity_at: '2026-05-29T02:34:15Z'
-pinned: false
+pinned: true
 state: active
 use_count: 0
 write_origin: foreground

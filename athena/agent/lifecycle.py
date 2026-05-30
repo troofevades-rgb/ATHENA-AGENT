@@ -869,8 +869,8 @@ class AgentLifecycle:
         if self.session_id is not None:
             try:
                 self.plugin_hooks.on_session_end(self.session_id, completed=True, interrupted=False)
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("plugin on_session_end raised", exc_info=True)
             # Drop this session's entry from the per-session review
             # nudge counter so long-lived daemons (gateway, scheduled
             # cron) don't accumulate stale ints forever.
@@ -878,23 +878,23 @@ class AgentLifecycle:
                 from ..review.nudge import reset as _nudge_reset
 
                 _nudge_reset(self.session_id)
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("review nudge reset raised", exc_info=True)
         if self._owns_client:
             try:
                 self.client.close()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("client.close raised", exc_info=True)
         if self.session_store is not None and self.session_id is not None:
             try:
                 self.session_store.close_session(self.session_id)
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("session_store.close_session raised", exc_info=True)
             if self._owns_session_store:
                 try:
                     self.session_store.close()
-                except Exception:
-                    pass
+                except Exception:  # noqa: BLE001
+                    logger.debug("session_store.close raised", exc_info=True)
         # T4-03: tear down the persistent browser session.
         # Idempotent — close() is safe to call even when
         # ensure_started never fired (no chromium to tear down).
@@ -903,8 +903,8 @@ class AgentLifecycle:
         if getattr(self, "browser_session", None) is not None:
             try:
                 self.browser_session.close()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("browser_session.close raised", exc_info=True)
             try:
                 from ..browser.session import set_active_browser
 

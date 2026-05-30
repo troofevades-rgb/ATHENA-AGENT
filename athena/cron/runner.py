@@ -95,7 +95,13 @@ def run_agent_job(job, *, store: JobStore | None = None) -> dict:
                 }
                 status = "success"
             finally:
-                agent.close()
+                # Don't let agent.close() failures clobber a successful run
+                # by escaping to the outer except. Cleanup errors are
+                # logged but don't change the cron job's reported outcome.
+                try:
+                    agent.close()
+                except Exception:
+                    logger.exception("agent.close() raised in cron job %s", job.id)
         except Exception as e:
             logger.exception("agent cron %s failed", job.id)
             result = {
