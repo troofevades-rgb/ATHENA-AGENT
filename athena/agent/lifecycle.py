@@ -375,6 +375,19 @@ class AgentLifecycle:
         except Exception as e:
             ui.info(f"skills catalog load failed: {e}")
 
+        # 0.3.0 godmode: operator-supplied system-prompt append.
+        # Precedence: ATHENA_EPHEMERAL_SYSTEM_PROMPT env var (highest,
+        # for on-the-fly overrides) > cfg.agent_system_prompt_append
+        # (persisted in config.toml) > none. Mirrors the hermes-agent
+        # HERMES_EPHEMERAL_SYSTEM_PROMPT convention.
+        import os as _os
+
+        extra_append = (
+            _os.environ.get("ATHENA_EPHEMERAL_SYSTEM_PROMPT")
+            or getattr(self.cfg, "agent_system_prompt_append", None)
+            or None
+        )
+
         return build_system_prompt(
             workspace=self.workspace,
             model=self.model,
@@ -394,6 +407,7 @@ class AgentLifecycle:
             lean=self.cfg.lean_prompt,
             disabled_sections=self.cfg.disabled_prompt_sections,
             tool_result_nonce=getattr(self, "_tool_result_nonce", None),
+            extra_append=extra_append,
         )
 
     def _profile_dir(self) -> Path:
@@ -466,6 +480,20 @@ class AgentLifecycle:
         # A fresh goal resets the running token budget -- last goal's
         # consumption shouldn't bleed into the new goal's cap.
         self._goal_loop_tokens_used = 0
+        if self.messages and self.messages[0].get("role") == "system":
+            self.messages[0] = {
+                "role": "system",
+                "content": self._build_system(),
+            }
+
+    def reload_system_prompt(self) -> None:
+        """Rebuild ``self.messages[0]`` in place against the current
+        config + env state. Called by ``/godmode apply`` and
+        ``/godmode clear`` after mutating
+        ``cfg.agent_system_prompt_append`` so the model picks up the
+        change on the next turn without a session restart. Mirrors
+        the existing :meth:`reload_skills` / :meth:`reload_goal`
+        pattern."""
         if self.messages and self.messages[0].get("role") == "system":
             self.messages[0] = {
                 "role": "system",

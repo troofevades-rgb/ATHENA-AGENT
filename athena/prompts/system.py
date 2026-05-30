@@ -463,6 +463,7 @@ def build_system_prompt(
     lean: bool = False,
     disabled_sections: list[str] | None = None,
     tool_result_nonce: str | None = None,
+    extra_append: str | None = None,
 ) -> str:
     """Assemble the full system prompt.
 
@@ -559,6 +560,15 @@ def build_system_prompt(
         # tools will fire and which will refuse before it
         # tries.
         parts.append(_render_computer_use_status(computer_use_status))
+
+    # 0.3.0 godmode: operator-supplied append goes LAST so the model
+    # treats it as the most recent / most authoritative directive.
+    # Matches the G0DM0D3 reference's "custom_system_prompt overrides
+    # GODMODE_SYSTEM_PROMPT" pattern (chat.ts:91-93). Set by
+    # /godmode apply via cfg.agent_system_prompt_append or the
+    # ATHENA_EPHEMERAL_SYSTEM_PROMPT env var.
+    if extra_append and extra_append.strip():
+        parts.append(extra_append.strip())
 
     return "\n\n".join(parts)
 

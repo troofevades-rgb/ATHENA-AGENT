@@ -565,6 +565,15 @@ class Config:
     # athena/prompts/system.py SECTIONS (e.g. "executing_with_care",
     # "session_guidance", "memory_header"). Combines with lean_prompt.
     disabled_prompt_sections: list[str] = field(default_factory=list)
+    # 0.3.0 godmode: operator-supplied text appended to the end of the
+    # built system prompt (after the /goal block). Mirrors the
+    # hermes-agent ``agent.system_prompt`` knob and the G0DM0D3
+    # reference's ``custom_system_prompt`` plumbing. Set by
+    # ``/godmode apply`` to inject a jailbreak strategy; cleared by
+    # ``/godmode clear``. Empty / None means no append. The env var
+    # ``ATHENA_EPHEMERAL_SYSTEM_PROMPT`` wins over this config value
+    # so an operator can override on-the-fly without editing config.toml.
+    agent_system_prompt_append: str | None = None
     # Bash gate config (Phase 17 ShellPolicy). Nested per Phase 18.1
     # R4; legacy flat names ``bash_allowlist`` / ``bash_extra_denylist``
     # still resolve via ``Config.__getattr__`` with a deprecation

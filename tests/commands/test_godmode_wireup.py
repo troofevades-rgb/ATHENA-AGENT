@@ -72,10 +72,17 @@ def _gate_open(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def _agent() -> SimpleNamespace:
     """Stub agent with a session_id so the steer queue accepts
-    pushes under a real key."""
+    pushes under a real key, plus ``cfg.agent_system_prompt_append``
+    so the system-prompt mutation path has a config slot to write
+    into. ``reload_system_prompt`` is intentionally absent --
+    ``_apply_strategy`` uses ``getattr(..., None)`` so the absence
+    skips the rebuild (we just verify cfg got mutated)."""
     return SimpleNamespace(
         workspace=None,
-        cfg=SimpleNamespace(profile="default"),
+        cfg=SimpleNamespace(
+            profile="default",
+            agent_system_prompt_append=None,
+        ),
         session_id="sess-test-1",
     )
 
@@ -123,25 +130,56 @@ def _captured_ui(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# apply -- pushes steer, sets active marker
+# apply -- mutates system prompt (hermes parity path), sets active marker
 # ---------------------------------------------------------------------------
 
 
-def test_apply_pushes_template_as_steer(
+def test_apply_mutates_system_prompt_append(
     _gate_open: None,
     _agent: SimpleNamespace,
     _captured_ui: dict[str, list[str]],
 ) -> None:
-    """``apply og_godmode`` must push the og_godmode template into
-    ``GLOBAL_STEER_QUEUE`` under the agent's session_id. The agent's
-    next turn will drain it and inject as ``[/steer] <template>``."""
-    from athena.commands.godmode import TEMPLATES, cmd_godmode
+    """``apply og_godmode`` must set ``cfg.agent_system_prompt_append``
+    to the og_godmode template + DEPTH_DIRECTIVE. The next
+    ``_build_system`` call picks this up and appends it to the
+    rendered system prompt. Steer queue MUST stay empty -- apply
+    is the system-prompt mutation path; steer is a separate
+    subcommand."""
+    from athena.commands.godmode import cmd_godmode
+    from athena.jailbreak.prompts import DEPTH_DIRECTIVE, STRATEGIES
     from athena.steer.queue import GLOBAL_STEER_QUEUE
 
     cmd_godmode(_agent, "apply og_godmode")
-    pending = GLOBAL_STEER_QUEUE.list("sess-test-1")
-    assert len(pending) == 1
-    assert pending[0] == TEMPLATES["og_godmode"]
+
+    appended = _agent.cfg.agent_system_prompt_append
+    assert appended is not None
+    # Must contain the og_godmode template body and the depth directive.
+    assert STRATEGIES["og_godmode"]["template"] in appended
+    assert DEPTH_DIRECTIVE.strip() in appended
+    # Steer queue stays empty -- apply doesn't push.
+    assert GLOBAL_STEER_QUEUE.list("sess-test-1") == []
+
+
+def test_apply_with_no_arg_uses_canonical_default(
+    _gate_open: None,
+    _agent: SimpleNamespace,
+    _captured_ui: dict[str, list[str]],
+) -> None:
+    """``apply`` (no strategy name) defers to the canonical
+    GODMODE_SYSTEM_PROMPT v∞.0 from the G0DM0D3 reference. The
+    active marker records strategy=``default``."""
+    from athena.commands.godmode import cmd_godmode
+    from athena.jailbreak.prompts import GODMODE_SYSTEM_PROMPT
+
+    cmd_godmode(_agent, "apply")
+
+    appended = _agent.cfg.agent_system_prompt_append
+    assert appended is not None
+    assert GODMODE_SYSTEM_PROMPT in appended
+    active = getattr(_agent, "_active_godmode", None)
+    assert active is not None
+    assert active["strategy"] == "default"
+    assert active["mode"] == "system_prompt"
 
 
 def test_apply_marks_active_on_agent(
@@ -149,20 +187,48 @@ def test_apply_marks_active_on_agent(
     _agent: SimpleNamespace,
     _captured_ui: dict[str, list[str]],
 ) -> None:
-    """The strategy name lands in ``agent._active_godmode`` so
-    ``list`` can render the marker and ``save`` has something
-    concrete to persist."""
+    """The strategy name + mode land in ``agent._active_godmode``
+    so ``list`` can render the marker and ``save`` has something
+    concrete to persist. ``mode`` is ``system_prompt`` for apply
+    (vs ``steer`` for the steer subcommand)."""
+    from datetime import datetime
+
     from athena.commands.godmode import cmd_godmode
 
     cmd_godmode(_agent, "apply refusal_inversion")
     active = getattr(_agent, "_active_godmode", None)
     assert active is not None
     assert active["strategy"] == "refusal_inversion"
-    # Timestamp is real ISO-8601, not the placeholder string "now".
-    from datetime import datetime
-
+    assert active["mode"] == "system_prompt"
     parsed = datetime.fromisoformat(active["applied_at"])
     assert parsed.tzinfo is not None  # UTC-aware
+
+
+def test_steer_subcommand_pushes_template_to_queue(
+    _gate_open: None,
+    _agent: SimpleNamespace,
+    _captured_ui: dict[str, list[str]],
+) -> None:
+    """``/godmode steer <strategy>`` is the auditable variant --
+    pushes the template into ``GLOBAL_STEER_QUEUE`` under the
+    agent's session_id (appears as ``[/steer] <text>`` in history
+    next turn). Distinct from ``apply``, which mutates the system
+    prompt invisibly."""
+    from athena.commands.godmode import cmd_godmode
+    from athena.jailbreak.prompts import STRATEGIES
+    from athena.steer.queue import GLOBAL_STEER_QUEUE
+
+    cmd_godmode(_agent, "steer og_godmode")
+    pending = GLOBAL_STEER_QUEUE.list("sess-test-1")
+    assert len(pending) == 1
+    assert pending[0] == STRATEGIES["og_godmode"]["template"]
+    # Active marker records steer mode so clear knows to push a
+    # counter-steer (rather than reset the system prompt).
+    active = getattr(_agent, "_active_godmode", None)
+    assert active is not None
+    assert active["mode"] == "steer"
+    # System prompt is NOT touched by steer.
+    assert _agent.cfg.agent_system_prompt_append is None
 
 
 def test_apply_unknown_strategy_errors_no_push(
@@ -203,28 +269,51 @@ def test_clear_with_no_active_is_noop_no_push(
     assert any("no active" in m.lower() for m in _captured_ui["info"])
 
 
-def test_clear_pushes_counter_steer_and_drops_marker(
+def test_clear_after_apply_rebuilds_system_prompt(
     _gate_open: None,
     _agent: SimpleNamespace,
     _captured_ui: dict[str, list[str]],
 ) -> None:
-    """After apply -> clear, the steer queue contains the original
-    template AND a counter-steer in FIFO order, and the active
-    marker is None. The counter-steer mentions disregarding prior
-    instructions so the operator can grep history for it."""
+    """After ``apply`` -> ``clear``, ``cfg.agent_system_prompt_append``
+    is reset to None (the next ``_build_system`` rebuild drops the
+    jailbreak text) and the active marker is gone. No counter-steer
+    fires because the system-prompt mode doesn't need one -- the
+    injection is simply gone."""
     from athena.commands.godmode import cmd_godmode
     from athena.steer.queue import GLOBAL_STEER_QUEUE
 
     cmd_godmode(_agent, "apply og_godmode")
+    assert _agent.cfg.agent_system_prompt_append is not None
+    cmd_godmode(_agent, "clear")
+
+    assert _agent.cfg.agent_system_prompt_append is None
+    assert getattr(_agent, "_active_godmode", None) is None
+    # The system-prompt clear does NOT push a counter-steer.
+    assert GLOBAL_STEER_QUEUE.list("sess-test-1") == []
+
+
+def test_clear_after_steer_pushes_counter_steer(
+    _gate_open: None,
+    _agent: SimpleNamespace,
+    _captured_ui: dict[str, list[str]],
+) -> None:
+    """After ``steer`` -> ``clear``, the queue contains the
+    original template (already pushed at apply-time) AND a
+    counter-steer in FIFO order, and the active marker is gone.
+    The counter-steer is necessary because the original steer is
+    already in conversation history and can't be retracted -- we
+    can only tell the model to disregard it on the next turn."""
+    from athena.commands.godmode import cmd_godmode
+    from athena.steer.queue import GLOBAL_STEER_QUEUE
+
+    cmd_godmode(_agent, "steer og_godmode")
     cmd_godmode(_agent, "clear")
 
     pending = GLOBAL_STEER_QUEUE.list("sess-test-1")
     assert len(pending) == 2
-    # Original strategy was pushed first; counter-steer last.
     assert "GODMODE" in pending[0]
     assert "disregard" in pending[1].lower()
     assert "default behavior" in pending[1].lower()
-    # Active marker is gone.
     assert getattr(_agent, "_active_godmode", None) is None
 
 
@@ -247,9 +336,10 @@ def test_list_shows_active_marker(
     cmd_godmode(_agent, "list")
 
     combined = " ".join(_captured_ui["print"])
-    # The active line has the marker; the others don't.
+    # The active line has the marker (with mode); others don't.
     assert "boundary_inversion" in combined
-    assert "(active)" in combined
+    assert "active" in combined
+    assert "system_prompt" in combined  # the mode is rendered too
     # Sanity: non-active strategies don't get the marker. Pick one
     # known not to be active.
     lines = combined.split("\n") if "\n" in combined else _captured_ui["print"]
