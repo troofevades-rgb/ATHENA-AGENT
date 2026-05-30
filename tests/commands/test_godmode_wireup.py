@@ -440,7 +440,7 @@ def test_parseltongue_invokes_script_with_correct_level(
     fake_skill = tmp_path / "skills" / "godmode"
     (fake_skill / "scripts").mkdir(parents=True)
     (fake_skill / "scripts" / "parseltongue.py").write_text("# mock", encoding="utf-8")
-    monkeypatch.setattr(gm, "_get_skill_path", lambda: fake_skill)
+    monkeypatch.setattr(gm, "_get_skill_path", lambda _agent: fake_skill)
 
     captured_argv: list[list[str]] = []
 
@@ -476,7 +476,7 @@ def test_parseltongue_default_tier_is_standard(
     fake_skill = tmp_path / "skills" / "godmode"
     (fake_skill / "scripts").mkdir(parents=True)
     (fake_skill / "scripts" / "parseltongue.py").write_text("# mock", encoding="utf-8")
-    monkeypatch.setattr(gm, "_get_skill_path", lambda: fake_skill)
+    monkeypatch.setattr(gm, "_get_skill_path", lambda _agent: fake_skill)
 
     captured: list[list[str]] = []
 
@@ -505,7 +505,7 @@ def test_parseltongue_missing_script_warns(
 
     empty_skill = tmp_path / "empty_skill"
     empty_skill.mkdir()
-    monkeypatch.setattr(gm, "_get_skill_path", lambda: empty_skill)
+    monkeypatch.setattr(gm, "_get_skill_path", lambda _agent: empty_skill)
 
     called = False
 
@@ -537,7 +537,7 @@ def test_parseltongue_timeout_is_surfaced(
     fake_skill = tmp_path / "skills" / "godmode"
     (fake_skill / "scripts").mkdir(parents=True)
     (fake_skill / "scripts" / "parseltongue.py").write_text("# mock", encoding="utf-8")
-    monkeypatch.setattr(gm, "_get_skill_path", lambda: fake_skill)
+    monkeypatch.setattr(gm, "_get_skill_path", lambda _agent: fake_skill)
 
     def _raise_timeout(*_a, **_kw):
         raise subprocess.TimeoutExpired(cmd="pt", timeout=30)
@@ -563,7 +563,7 @@ def test_parseltongue_nonzero_exit_is_surfaced(
     fake_skill = tmp_path / "skills" / "godmode"
     (fake_skill / "scripts").mkdir(parents=True)
     (fake_skill / "scripts" / "parseltongue.py").write_text("# mock", encoding="utf-8")
-    monkeypatch.setattr(gm, "_get_skill_path", lambda: fake_skill)
+    monkeypatch.setattr(gm, "_get_skill_path", lambda _agent: fake_skill)
 
     monkeypatch.setattr(
         gm.subprocess,

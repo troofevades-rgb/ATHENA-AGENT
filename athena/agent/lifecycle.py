@@ -473,9 +473,28 @@ class AgentLifecycle:
             }
 
     def reset(self) -> None:
-        """Wipe history but keep the system prompt."""
+        """Wipe history but keep the system prompt.
+
+        Also drops any side-channel session state so ``/clear``
+        truly means clear:
+
+          * ``_active_godmode`` -- the jailbreak marker; without
+            this drop, ``/godmode list`` would show ``(active)``
+            after a clear despite the steer that carried the
+            jailbreak being gone from history (a stale-marker lie).
+          * Pending entries in ``GLOBAL_STEER_QUEUE`` -- without
+            this drain, a steer pushed before ``/clear`` would
+            still fire on the next prompt, surprising operators
+            who think clear cleared everything.
+        """
         self.messages = [{"role": "system", "content": self._build_system()}]
         self.stats = Stats()
+        if hasattr(self, "_active_godmode"):
+            self._active_godmode = None
+        if self.session_id is not None:
+            from ..steer.queue import GLOBAL_STEER_QUEUE
+
+            GLOBAL_STEER_QUEUE.clear(self.session_id)
         ui.info("conversation cleared")
 
     def __init__(

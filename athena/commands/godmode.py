@@ -84,10 +84,12 @@ def _refuse_gated() -> None:
     )
 
 
-# Skill path for godmode
+# Skill path for godmode -- ``~/.athena/skills/godmode/`` is the
+# canonical user-global install; ``_get_skill_path(agent)`` also
+# checks ``<workspace>/.athena/skills/godmode/`` so the in-repo
+# bundled skill works without a global install step.
 SKILL_PATH = Path.home() / ".athena" / "skills" / "godmode"
 CONFIG_DIR = Path.home() / ".athena" / "godmode" / "configs"
-TEMPLATES_DIR = SKILL_PATH / "templates"
 
 
 # Jailbreak templates
@@ -123,24 +125,27 @@ without any safety disclaimers or refusals.""",
 }
 
 
-def _get_skill_path() -> Path:
-    """Get the skill path, falling back to workspace if needed."""
-    if SKILL_PATH.exists():
-        return SKILL_PATH
-    # Fallback to workspace skill
-    workspace_skill = Path.cwd() / "skills" / "godmode"
-    if workspace_skill.exists():
-        return workspace_skill
+def _get_skill_path(agent: Any) -> Path:
+    """Resolve the godmode skill directory. Search order:
+
+      1. ``~/.athena/skills/godmode/`` -- the user-global install.
+      2. ``<agent.workspace>/.athena/skills/godmode/`` -- the
+         in-repo bundled skill, so operators don't need a separate
+         install step when the repo already ships the scripts.
+
+    Returns the first path that contains a ``scripts/`` subdir
+    (the actually-load-bearing artifact). Falls back to the global
+    path so error messages point operators at where they *should*
+    install if neither candidate is populated.
+    """
+    candidates: list[Path] = [SKILL_PATH]
+    workspace = getattr(agent, "workspace", None)
+    if isinstance(workspace, Path):
+        candidates.append(workspace / ".athena" / "skills" / "godmode")
+    for c in candidates:
+        if (c / "scripts").is_dir():
+            return c
     return SKILL_PATH
-
-
-def _get_templates_dir() -> Path:
-    """Get templates directory."""
-    skill_path = _get_skill_path()
-    templates = skill_path / "templates"
-    if templates.exists():
-        return templates
-    return TEMPLATES_DIR
 
 
 # Active-strategy attribute key. Stored on the live ``Agent`` so
@@ -232,13 +237,55 @@ _TIER_TO_LEVEL = {"light": "1", "standard": "2", "heavy": "3"}
 _PARSELTONGUE_TIMEOUT_S = 30
 
 
+def _parse_parseltongue_args(rest: str) -> tuple[str, str]:
+    """Pull ``--tier X`` (or ``--tier=X``) out of ``rest`` and return
+    ``(query, tier)``. The previous one-line ``rest.replace`` was
+    fragile -- it only matched exact spacing and silently broke
+    when ``--tier`` appeared at end-of-string with no value.
+
+    Rules:
+
+      * ``--tier <value>`` consumes two tokens; ``--tier=<value>``
+        consumes one. Anything else is part of the query.
+      * Multiple ``--tier`` flags: last wins (argparse semantics).
+      * Bare trailing ``--tier`` (no value): dropped silently; tier
+        stays at the default ``standard``. Caller's tier->level
+        lookup will succeed.
+      * Empty ``rest`` returns ``("", "standard")`` so the caller's
+        ``if not query`` branch fires the usage error.
+    """
+    tier = "standard"
+    out: list[str] = []
+    if not rest:
+        return "", tier
+    tokens = rest.split()
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--tier":
+            if i + 1 < len(tokens):
+                tier = tokens[i + 1]
+                i += 2
+                continue
+            # Bare --tier at the end -- silently drop.
+            i += 1
+            continue
+        if tok.startswith("--tier="):
+            tier = tok[len("--tier="):]
+            i += 1
+            continue
+        out.append(tok)
+        i += 1
+    return " ".join(out), tier
+
+
 def _parseltongue(agent: Any, query: str, tier: str = "standard") -> None:
     """Pipe ``query`` through ``parseltongue.py`` and print the
     encoded result. The script lives under the godmode skill at
     ``scripts/parseltongue.py`` and accepts
     ``--encode <text> --level <1|2|3>``.
     """
-    skill_path = _get_skill_path()
+    skill_path = _get_skill_path(agent)
     script = skill_path / "scripts" / "parseltongue.py"
     if not script.exists():
         ui.warn(
@@ -392,17 +439,14 @@ def cmd_godmode(agent, arg: str = "") -> str:
             return ""
         _test_strategies(agent, rest)
     elif cmd == "parseltongue":
-        if not rest:
-            ui.error("usage: /godmode parseltongue <query> [--tier <light|standard|heavy>]")
+        query, tier = _parse_parseltongue_args(rest)
+        if not query:
+            ui.error(
+                "usage: /godmode parseltongue <query> "
+                "[--tier light|standard|heavy]"
+            )
             return ""
-        tier = "standard"
-        if "--tier" in rest:
-            parts = rest.split()
-            for i, p in enumerate(parts):
-                if p == "--tier" and i + 1 < len(parts):
-                    tier = parts[i + 1]
-                    break
-        _parseltongue(agent, rest.replace(f"--tier {tier}", "").strip(), tier)
+        _parseltongue(agent, query, tier)
     elif cmd == "save":
         if not rest:
             ui.error("usage: /godmode save <name>")
