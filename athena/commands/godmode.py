@@ -507,6 +507,9 @@ def _auto_jailbreak(agent: Any, args: str) -> None:
     model_override: str | None = None
     dry_run = False
     no_prefill = False
+    score_mode = False
+    canary_query: str | None = None
+    max_strategies: int | None = None
     tokens = args.split() if args else []
     i = 0
     while i < len(tokens):
@@ -527,6 +530,25 @@ def _auto_jailbreak(agent: Any, args: str) -> None:
             no_prefill = True
             i += 1
             continue
+        if tok == "--score":
+            score_mode = True
+            i += 1
+            continue
+        if tok == "--canary" and i + 1 < len(tokens):
+            # Greedy: every remaining token is part of the canary
+            # query. Operators rarely want flags AFTER --canary, so
+            # this matches the natural usage:
+            #   /godmode auto --score --canary how to pick a lock
+            canary_query = " ".join(tokens[i + 1:])
+            i = len(tokens)
+            continue
+        if tok == "--max" and i + 1 < len(tokens):
+            try:
+                max_strategies = max(1, int(tokens[i + 1]))
+            except ValueError:
+                ui.warn(f"--max needs an integer, got {tokens[i + 1]!r}")
+            i += 2
+            continue
         ui.warn(f"ignoring unknown auto flag: {tok}")
         i += 1
 
@@ -534,6 +556,21 @@ def _auto_jailbreak(agent: Any, args: str) -> None:
         agent.cfg, "model", None
     ) or ""
     family = detect_model_family(model)
+
+    if score_mode:
+        _auto_score_path(
+            agent,
+            model=model,
+            family=family,
+            dry_run=dry_run,
+            no_prefill=no_prefill,
+            canary_query=canary_query,
+            max_strategies=max_strategies,
+        )
+        return
+
+    # Table-pick path (default): use the family's recommended strategy
+    # without canary testing.
     strategy, prefill_template = plan_for_family(family)
 
     ui.console.print("[bold]/godmode auto[/]")
@@ -558,7 +595,176 @@ def _auto_jailbreak(agent: Any, args: str) -> None:
         ui.info("--no-prefill: skipping prefill setup.")
 
 
-_VALID_RACE_TIERS = ("fast", "standard", "smart", "power", "ultra")
+def _auto_score_path(
+    agent: Any,
+    *,
+    model: str,
+    family: str | None,
+    dry_run: bool,
+    no_prefill: bool,
+    canary_query: str | None,
+    max_strategies: int | None,
+) -> None:
+    """The ``--score`` variant: canary-test every candidate strategy
+    against the live model and apply the empirical winner. Slower
+    than the table-pick path (N model calls instead of zero) but
+    avoids picking a strategy the model patched against.
+
+    Strategy candidates come from the family's preference order
+    plus ``default`` plus any STRATEGIES not in the family list --
+    so an unmatched model still gets full coverage. The default
+    canary query is the gray-area lock-picking question from the
+    hermes test suite; ``--canary`` overrides.
+    """
+    from ..jailbreak.autoscore import (
+        DEFAULT_CANARY_QUERY,
+        pick_best_strategy,
+        score_strategies_against_model,
+    )
+    from ..jailbreak.prompts import plan_for_family
+
+    provider = getattr(agent, "provider", None)
+    if provider is None:
+        ui.error(
+            "no live provider on agent; --score can't canary-test. "
+            "Drop --score for the table-pick path."
+        )
+        return
+
+    effective_query = canary_query or DEFAULT_CANARY_QUERY
+
+    ui.console.print("[bold]/godmode auto --score[/]")
+    ui.info(f"model:  {model or '<unknown>'}")
+    ui.info(f"family: {family or '<unmatched -- testing every strategy>'}")
+    ui.info(f"canary: {effective_query!r}")
+    ui.info("running canary tests (1 model call per strategy)...")
+
+    try:
+        scored = score_strategies_against_model(
+            provider,
+            model,
+            family,
+            canary_query=effective_query,
+            max_strategies=max_strategies,
+        )
+    except Exception as e:  # noqa: BLE001
+        ui.error(f"canary run failed: {e}")
+        return
+
+    ui.console.print("\n[bold]Strategy scores:[/]")
+    for r in scored:
+        marker = "[green]✓[/]" if r.success else "[red]✗[/]"
+        ui.console.print(
+            f"  {marker} {r.strategy:<22} "
+            f"score={r.score:>3}  {r.duration_ms:>6}ms"
+        )
+
+    winner = pick_best_strategy(scored)
+    if winner is None:
+        ui.error(
+            "every strategy failed -- nothing applied. "
+            "Check the provider connection and model id."
+        )
+        return
+
+    ui.console.print(
+        f"\n[bold]Winner:[/] {winner.strategy} (score={winner.score})"
+    )
+
+    if dry_run:
+        ui.info("--dry-run: no config writes; agent state unchanged.")
+        return
+
+    apply_arg = "" if winner.strategy == "default" else winner.strategy
+    _apply_strategy(agent, apply_arg)
+
+    # Honor the family's prefill recommendation for the winning
+    # strategy, unless --no-prefill is set. (The scored winner
+    # might not match the family's primary; use the family's
+    # prefill template if available, since prefill is family-tuned
+    # not strategy-tuned.)
+    _, prefill_template = plan_for_family(family)
+    if prefill_template and not no_prefill:
+        _set_prefill_file(agent, prefill_template)
+    elif prefill_template and no_prefill:
+        ui.info("--no-prefill: skipping prefill setup.")
+
+
+_VALID_RACE_TIERS = (
+    "fast",
+    "standard",
+    "smart",
+    "power",
+    "ultra",
+    "ollama-local",
+)
+
+
+def _resolve_race_provider_and_models(
+    agent: Any, tier: str
+) -> tuple[Any, list[str]] | None:
+    """Pick the right provider + model list for ``tier``.
+
+    Two paths:
+
+      * Standard OpenRouter tiers (fast / standard / smart / power /
+        ultra) -> ``OpenRouterProvider`` + the cumulative model list
+        from :func:`get_models_for_tier`.
+      * ``ollama-local`` -> ``OllamaProvider`` + every model returned
+        by its ``/api/tags`` endpoint. Zero API spend; speed limited
+        by what's installed. Athena-exclusive feature -- hermes can't
+        do this because hermes routes everything through OpenRouter.
+
+    Returns ``(provider, models)`` on success, ``None`` on a soft
+    error (missing API key, no local models, etc.) -- callers
+    short-circuit and the operator already saw a ``ui.error``.
+    """
+    from ..jailbreak import get_models_for_tier
+
+    if tier == "ollama-local":
+        # Local race -- prefer an existing OllamaProvider hung off the
+        # agent (the live session's own provider), else construct a
+        # fresh one. The default host comes from cfg.ollama_host or
+        # the OLLAMA_HOST env var which OllamaProvider already handles.
+        provider = getattr(agent, "provider", None)
+        is_ollama = (
+            provider is not None
+            and getattr(provider, "name", "") == "ollama"
+        )
+        if not is_ollama:
+            from ..providers.ollama import OllamaProvider
+
+            provider = OllamaProvider()
+        try:
+            models = provider.list_models()
+        except Exception as e:  # noqa: BLE001
+            ui.error(
+                f"could not list local Ollama models: {e}. "
+                "Is the Ollama daemon running?"
+            )
+            return None
+        if not models:
+            ui.error(
+                "no local Ollama models found. "
+                "Pull one first: `ollama pull qwen2.5`."
+            )
+            return None
+        return provider, models
+
+    # OpenRouter tiers.
+    provider = getattr(agent, "openrouter_provider", None)
+    if provider is None:
+        api_key = get_credential("OPENROUTER_API_KEY")
+        if not api_key:
+            ui.error(
+                "OPENROUTER_API_KEY is not set. Add it to "
+                "~/.athena/.env or your shell environment, then try again."
+            )
+            return None
+        from ..providers.openrouter import OpenRouterProvider
+
+        provider = OpenRouterProvider(api_key=api_key)
+    return provider, get_models_for_tier(tier)
 
 
 def _parse_race_args(rest: str) -> tuple[str, str, bool, bool]:
@@ -630,7 +836,6 @@ def _run_race(agent: Any, args: str) -> None:
         DEPTH_DIRECTIVE,
         GODMODE_SYSTEM_PROMPT,
         RaceConfig,
-        get_models_for_tier,
         race_models,
     )
 
@@ -638,7 +843,7 @@ def _run_race(agent: Any, args: str) -> None:
     if not query:
         ui.error(
             "usage: /godmode race <query> "
-            "[--tier fast|standard|smart|power|ultra] "
+            "[--tier fast|standard|smart|power|ultra|ollama-local] "
             "[--no-godmode] [--no-depth]"
         )
         return
@@ -649,22 +854,10 @@ def _run_race(agent: Any, args: str) -> None:
         )
         return
 
-    # Resolve provider. Prefer an existing OpenRouter instance hung off
-    # the agent (lets a future ``/race-provider`` slash command target
-    # any OpenAI-compatible host); otherwise construct one from the
-    # credential.
-    provider = getattr(agent, "openrouter_provider", None)
-    if provider is None:
-        api_key = get_credential("OPENROUTER_API_KEY")
-        if not api_key:
-            ui.error(
-                "OPENROUTER_API_KEY is not set. Add it to "
-                "~/.athena/.env or your shell environment, then try again."
-            )
-            return
-        from ..providers.openrouter import OpenRouterProvider
-
-        provider = OpenRouterProvider(api_key=api_key)
+    resolved = _resolve_race_provider_and_models(agent, tier)
+    if resolved is None:
+        return
+    provider, models = resolved
 
     # Build the messages payload. System message follows the reference
     # composition: GODMODE_SYSTEM_PROMPT (+ DEPTH_DIRECTIVE) when both
@@ -679,7 +872,6 @@ def _run_race(agent: Any, args: str) -> None:
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": query})
 
-    models = get_models_for_tier(tier)
     ui.info(
         f"racing {len(models)} models in tier '{tier}'. "
         f"godmode={'on' if godmode_on else 'off'} "

@@ -151,6 +151,22 @@ def render_status(snapshot: dict[str, Any]) -> str:
         lines.append("")
         lines.append(f"errors:  provider={prov_err}  tool={tool_err}")
 
+    # 0.3.0 Phase 2: godmode session state. Gated on snapshot key
+    # presence so a fresh / clean session's /status stays clean.
+    godmode = snapshot.get("godmode")
+    prefill_file = snapshot.get("godmode_prefill_file")
+    if godmode or prefill_file:
+        lines.append("")
+        lines.append("godmode:")
+        if godmode:
+            strategy = godmode.get("strategy", "?")
+            mode = godmode.get("mode", "?")
+            applied = godmode.get("applied_at", "?")
+            lines.append(f"  active:   {strategy}  (mode={mode})")
+            lines.append(f"  since:    {applied}")
+        if prefill_file:
+            lines.append(f"  prefill:  {prefill_file}")
+
     return "\n".join(lines)
 
 
