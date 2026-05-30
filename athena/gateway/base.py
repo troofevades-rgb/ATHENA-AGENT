@@ -267,6 +267,69 @@ class GatewayAdapter(ABC):
         busy ack first."""
         self._busy_session_handler = handler
 
+    # ---- access control (0.3.0 hardening) ----
+
+    def _platform_config(self) -> dict[str, Any]:
+        """Return this adapter's slice of ``[gateway.platforms.<name>]``.
+
+        Empty dict when nothing is configured -- callers must treat the
+        result as ``{}`` for back-compat (an undeclared adapter is one
+        that opts into every default).
+        """
+        cfg = getattr(self.daemon, "cfg", None)
+        if cfg is None:
+            return {}
+        # daemon.cfg is the full Config object; GatewayConfig lives at
+        # cfg.gateway and exposes ``platforms: dict[str, Any]``.
+        gateway = getattr(cfg, "gateway", None)
+        if gateway is None:
+            return {}
+        platforms = getattr(gateway, "platforms", None) or {}
+        slice_ = platforms.get(self.name) or {}
+        return slice_ if isinstance(slice_, dict) else {}
+
+    def _allowed_user_ids(self) -> frozenset[str]:
+        """``allowed_user_ids`` from this adapter's platform config.
+
+        Empty / missing -> no user filter (back-compat). When the
+        operator populates the list, every inbound event must carry a
+        ``user_id`` that's in the set or the adapter refuses to route
+        it. The list lives under ``[gateway.platforms.<name>]
+        allowed_user_ids = ["12345", ...]`` -- as strings, since
+        Discord / Telegram / Slack ids are all numeric-string-shaped.
+        """
+        raw = self._platform_config().get("allowed_user_ids") or []
+        if not isinstance(raw, (list, tuple, set, frozenset)):
+            return frozenset()
+        return frozenset(str(x) for x in raw)
+
+    def _allowed_chat_ids(self) -> frozenset[str]:
+        """``allowed_chat_ids`` from this adapter's platform config.
+        Same semantics as :meth:`_allowed_user_ids` but keyed on
+        ``MessageEvent.chat_id`` -- useful for confining a Discord bot
+        to specific channels or a Telegram bot to specific group ids."""
+        raw = self._platform_config().get("allowed_chat_ids") or []
+        if not isinstance(raw, (list, tuple, set, frozenset)):
+            return frozenset()
+        return frozenset(str(x) for x in raw)
+
+    def _is_authorized(self, event: MessageEvent) -> bool:
+        """Refuse-by-allowlist check applied at the top of
+        :meth:`handle_inbound`. Empty allowlists -> always authorized
+        (back-compat with the pre-0.3.0 open posture). When EITHER list
+        is populated, the event must satisfy both filters that the
+        operator set: a user-allowlist with a chat-allowlist requires
+        BOTH to match; only one populated requires only that one."""
+        user_ok = True
+        chat_ok = True
+        users = self._allowed_user_ids()
+        if users:
+            user_ok = str(event.user_id) in users
+        chats = self._allowed_chat_ids()
+        if chats:
+            chat_ok = str(event.chat_id) in chats
+        return user_ok and chat_ok
+
     async def handle_inbound(self, event: MessageEvent) -> None:
         """Process an inbound event, dispatching to the right policy.
 
@@ -274,6 +337,24 @@ class GatewayAdapter(ABC):
         spawned via :meth:`_start_session_processing` and this method
         returns without awaiting it.
         """
+        # 0.3.0 hardening: refuse any message from a user / channel not
+        # in the operator's allowlist BEFORE we touch the router,
+        # spawn a task, or even acknowledge the message. Default-empty
+        # allowlists preserve the pre-0.3.0 open posture so existing
+        # deployments don't break; populating either list at
+        # ``[gateway.platforms.<name>]`` in config.toml turns the
+        # check on. Logged at INFO so an operator can see drift in
+        # ``athena gateway logs`` without enabling debug.
+        if not self._is_authorized(event):
+            logger.info(
+                "[%s] rejected inbound message: user_id=%s chat_id=%s "
+                "not in allowlist",
+                self.name,
+                event.user_id,
+                event.chat_id,
+            )
+            return
+
         session_id = await self.daemon.router.resolve(event)
 
         # On-entry self-heal: if the adapter has a guard for this
