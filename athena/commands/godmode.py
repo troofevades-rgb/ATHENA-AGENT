@@ -751,14 +751,43 @@ def _resolve_race_provider_and_models(
             return None
         return provider, models
 
-    # OpenRouter tiers.
+    # OpenRouter tiers. Key resolution order matches the rest of
+    # athena's provider plumbing:
+    #
+    #   1. ``agent.openrouter_provider`` -- already constructed
+    #      somewhere upstream (a live session that already routes
+    #      through OpenRouter).
+    #   2. The credential pool entry for ``"openrouter"``. This is
+    #      the canonical place keys live (``athena providers
+    #      add-key openrouter --key ...``). Reading from here means
+    #      rotation on 429 + multi-key fan-out work the same as
+    #      every other provider.
+    #   3. ``OPENROUTER_API_KEY`` resolved via the dotenv loader
+    #      (``~/.athena/.env`` first, then process env). Fallback
+    #      for operators who haven't migrated to the pool.
+    #
+    # Anyone with no key in any of these three sources gets a
+    # clear error pointing at the ``add-key`` command.
     provider = getattr(agent, "openrouter_provider", None)
     if provider is None:
-        api_key = get_credential("OPENROUTER_API_KEY")
+        from ..providers.credential_pool import global_pool
+
+        api_key: str | None = None
+        try:
+            cred = global_pool().get("openrouter")
+            if cred and cred.key:
+                api_key = cred.key
+        except Exception:  # noqa: BLE001
+            # Pool corruption shouldn't break the race outright --
+            # fall through to the dotenv path.
+            pass
+        if not api_key:
+            api_key = get_credential("OPENROUTER_API_KEY")
         if not api_key:
             ui.error(
-                "OPENROUTER_API_KEY is not set. Add it to "
-                "~/.athena/.env or your shell environment, then try again."
+                "no OpenRouter credential found. Add one with:\n"
+                "  athena providers add-key openrouter --key sk-or-...\n"
+                "or set OPENROUTER_API_KEY in ~/.athena/.env."
             )
             return None
         from ..providers.openrouter import OpenRouterProvider

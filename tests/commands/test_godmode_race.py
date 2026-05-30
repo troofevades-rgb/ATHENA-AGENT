@@ -206,11 +206,27 @@ def test_race_missing_api_key_errors_no_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When no ``openrouter_provider`` is hung off the agent AND
+    the credential pool has no openrouter entry AND
     ``OPENROUTER_API_KEY`` isn't in dotenv or env, the command
-    must error clearly rather than constructing a doomed provider."""
+    must error clearly rather than constructing a doomed provider.
+
+    The error message points operators at BOTH resolution paths
+    (``athena providers add-key`` + ``~/.athena/.env``) so they
+    know what to fix."""
+    import athena.commands.godmode as gm
     from athena.commands.godmode import cmd_godmode
 
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    # Force the pool path to return None so we hit the env-fallback
+    # path which is also empty.
+    class _EmptyPool:
+        def get(self, name: str):
+            return None
+
+    monkeypatch.setattr(
+        "athena.providers.credential_pool.global_pool", lambda: _EmptyPool()
+    )
 
     agent_no_provider = SimpleNamespace(
         workspace=None,
@@ -220,7 +236,105 @@ def test_race_missing_api_key_errors_no_provider(
     cmd_godmode(agent_no_provider, "race hello")
 
     assert _captured_ui["error"]
-    assert any("OPENROUTER_API_KEY" in m for m in _captured_ui["error"])
+    combined = " ".join(_captured_ui["error"])
+    # Points at both resolution paths.
+    assert "add-key" in combined
+    assert "OPENROUTER_API_KEY" in combined
+
+
+def test_race_resolves_key_from_credential_pool(
+    _gate_open: None,
+    _captured_ui: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When ``openrouter`` lives in the credential pool (the
+    canonical place keys land via ``athena providers add-key``),
+    the race uses it -- no env var needed. Mirrors how every
+    other provider in athena resolves its key."""
+    import athena.commands.godmode as gm
+    import athena.jailbreak as jb
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    # Pool returns a credential with a real key.
+    class _Cred:
+        key = "sk-or-pool-test-key"
+
+    class _PoolWithKey:
+        def get(self, name: str):
+            return _Cred() if name == "openrouter" else None
+
+    monkeypatch.setattr(
+        "athena.providers.credential_pool.global_pool", lambda: _PoolWithKey()
+    )
+
+    # Capture the provider constructor arg so we can pin that the
+    # pool's key flowed through.
+    captured_key: dict[str, str] = {}
+
+    class _FakeProvider:
+        def __init__(self, *, api_key: str, **kw) -> None:
+            captured_key["key"] = api_key
+
+    monkeypatch.setattr(
+        "athena.providers.openrouter.OpenRouterProvider", _FakeProvider
+    )
+    monkeypatch.setattr(jb, "race_models", lambda *a, **kw: [])
+
+    agent_no_provider = SimpleNamespace(
+        workspace=None,
+        cfg=SimpleNamespace(profile="default", model="fake-model"),
+        session_id="sess-race-pool",
+    )
+    gm.cmd_godmode(agent_no_provider, "race hello")
+
+    assert captured_key.get("key") == "sk-or-pool-test-key"
+    # No error -- key found in pool.
+    assert not any(
+        "add-key" in m for m in _captured_ui["error"]
+    )
+
+
+def test_race_pool_failure_falls_back_to_env(
+    _gate_open: None,
+    _captured_ui: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the pool raises (corruption, IO error), the race falls
+    through to the env-var path rather than failing hard. The
+    operator's dotenv key still works."""
+    import athena.commands.godmode as gm
+    import athena.jailbreak as jb
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env-fallback")
+
+    class _BrokenPool:
+        def get(self, name: str):
+            raise RuntimeError("credentials.json corrupted")
+
+    monkeypatch.setattr(
+        "athena.providers.credential_pool.global_pool", lambda: _BrokenPool()
+    )
+
+    captured_key: dict[str, str] = {}
+
+    class _FakeProvider:
+        def __init__(self, *, api_key: str, **kw) -> None:
+            captured_key["key"] = api_key
+
+    monkeypatch.setattr(
+        "athena.providers.openrouter.OpenRouterProvider", _FakeProvider
+    )
+    monkeypatch.setattr(jb, "race_models", lambda *a, **kw: [])
+
+    agent_no_provider = SimpleNamespace(
+        workspace=None,
+        cfg=SimpleNamespace(profile="default", model="fake-model"),
+        session_id="sess-race-fallback",
+    )
+    gm.cmd_godmode(agent_no_provider, "race hello")
+
+    assert captured_key.get("key") == "sk-or-env-fallback"
 
 
 # ---------------------------------------------------------------------------
