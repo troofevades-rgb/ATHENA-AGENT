@@ -504,7 +504,7 @@ class AgentRuntime:
         # to a Rich.Markdown view at the end without polluting the
         # terminal with both the plain stream and the rendered copy.
         typewriter = ui.TypewriterStream(prefix="▌ ", prefix_style="bold #00ff00")
-        msgs_to_send = self._messages_with_cache_markers()
+        msgs_to_send = self._messages_for_api()
         tool_schemas = tools.ollama_schema(
             enabled_toolsets=self.cfg.enabled_toolsets,
             disabled=self.cfg.disabled_tools,
@@ -1150,6 +1150,39 @@ class AgentRuntime:
         # re-replaying the original middle.
         if len(result.new_messages) > 1:
             self._persist_message(result.new_messages[1])
+
+    def _messages_for_api(self) -> list[dict[str, Any]]:
+        """Build the message list the provider's ``stream_chat`` sees.
+
+        Same ordering as :meth:`_messages_with_cache_markers` (system,
+        history) with the godmode prefill messages spliced in between
+        when ``cfg.agent_prefill_messages_file`` is set. Prefill is
+        ephemeral -- it lives only inside the API call:
+
+          * Never appended to ``self.messages``.
+          * Never persisted to JSONL (the persistence path runs on
+            ``self.messages`` appends, which prefill skips entirely).
+          * Never visible in ``/save`` transcripts (same reason).
+          * Re-read from disk only when
+            :meth:`reload_prefill_messages` invalidates the cache.
+
+        Mirrors hermes-agent's prefill_messages_file integration:
+        the model sees prior conversation context establishing a
+        pattern of compliance, but the persisted session record
+        shows only real user / assistant turns. Operators tailing
+        the JSONL never see the priming.
+        """
+        msgs = self._messages_with_cache_markers()
+        load = getattr(self, "_load_prefill_messages", None)
+        prefill = load() if callable(load) else []
+        if not prefill:
+            return msgs
+        # Splice: system stays at index 0, prefill comes next, then
+        # the rest of the history. When there's no system message
+        # (unusual but possible in test stubs), prefill leads.
+        if msgs and msgs[0].get("role") == "system":
+            return [msgs[0], *prefill, *msgs[1:]]
+        return [*prefill, *msgs]
 
     def _messages_with_cache_markers(self) -> list[dict[str, Any]]:
         """Return ``self.messages`` with cache_control markers if the

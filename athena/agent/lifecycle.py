@@ -31,6 +31,7 @@ documents the contract.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -499,6 +500,104 @@ class AgentLifecycle:
                 "role": "system",
                 "content": self._build_system(),
             }
+
+    def reload_prefill_messages(self) -> None:
+        """Invalidate the cached prefill messages so the next API
+        call re-reads ``cfg.agent_prefill_messages_file`` from disk.
+
+        Called by ``/godmode load`` (when the loaded config flips
+        the prefill file) and by ``/godmode clear`` (when the
+        operator wants the prefill to stop firing). The cache lives
+        on ``self._prefill_cache`` -- setting it back to ``None``
+        forces a fresh read on next access.
+        """
+        self._prefill_cache = None
+
+    def _load_prefill_messages(self) -> list[dict[str, Any]]:
+        """Resolve and parse the prefill messages file, caching the
+        result on the agent.
+
+        Cache semantics: ``None`` means "never loaded, try now"; a
+        list (even empty) means "already loaded, don't re-read".
+        Re-load happens via :meth:`reload_prefill_messages`.
+
+        Returns ``[]`` when no file is configured, the file is
+        missing, the file isn't valid JSON, or every entry is
+        malformed. Surface errors are warned (missing file) or
+        errored (parse failures) so operators see what's wrong
+        without the agent crashing -- prefill is best-effort.
+
+        Path resolution:
+
+          * Absolute paths used as-is.
+          * Paths starting with ``~`` expanded against the home dir.
+          * Relative paths resolved against ``~/.athena/`` (parity
+            with hermes's ``prefill_messages_file: "prefill.json"``
+            convention, where the bare filename means "in ~/.hermes/").
+
+        Schema validation: each entry must be a dict with
+        ``role`` in {``user``, ``assistant``} and a string
+        ``content``. Invalid entries are skipped with a warning;
+        valid entries are returned with extra keys stripped so the
+        provider sees only the contract shape.
+        """
+        cache = getattr(self, "_prefill_cache", None)
+        if cache is not None:
+            return cache
+        path_str = getattr(self.cfg, "agent_prefill_messages_file", None)
+        if not path_str:
+            self._prefill_cache = []
+            return self._prefill_cache
+        # Resolve path: absolute > ~ > relative-to-~/.athena/
+        p = Path(path_str).expanduser()
+        if not p.is_absolute():
+            p = Path.home() / ".athena" / path_str
+        if not p.exists():
+            ui.warn(f"prefill messages file not found: {p}")
+            self._prefill_cache = []
+            return self._prefill_cache
+        try:
+            raw = p.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except OSError as e:
+            ui.error(f"could not read prefill file {p}: {e}")
+            self._prefill_cache = []
+            return self._prefill_cache
+        except json.JSONDecodeError as e:
+            ui.error(f"prefill file is not valid JSON: {p}: {e}")
+            self._prefill_cache = []
+            return self._prefill_cache
+        if not isinstance(data, list):
+            ui.error(
+                f"prefill file must contain a JSON list of messages, "
+                f"got {type(data).__name__}: {p}"
+            )
+            self._prefill_cache = []
+            return self._prefill_cache
+        valid: list[dict[str, Any]] = []
+        for i, entry in enumerate(data):
+            if not isinstance(entry, dict):
+                ui.warn(f"prefill[{i}] is not a dict; skipping")
+                continue
+            role = entry.get("role")
+            content = entry.get("content")
+            if role not in ("user", "assistant", "system"):
+                ui.warn(
+                    f"prefill[{i}] has invalid role {role!r} "
+                    "(expected 'user', 'assistant', or 'system'); skipping"
+                )
+                continue
+            if not isinstance(content, str):
+                ui.warn(
+                    f"prefill[{i}] has non-string content "
+                    f"({type(content).__name__}); skipping"
+                )
+                continue
+            valid.append({"role": role, "content": content})
+        if valid:
+            ui.info(f"loaded {len(valid)} prefill message(s) from {p.name}")
+        self._prefill_cache = valid
+        return self._prefill_cache
 
     def reset(self) -> None:
         """Wipe history but keep the system prompt.

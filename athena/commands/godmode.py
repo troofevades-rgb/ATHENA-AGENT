@@ -480,6 +480,76 @@ def _load_config(agent: Any, name: str) -> None:
     _apply_strategy(agent, strategy)
 
 
+def _set_prefill_file(agent: Any, name_or_path: str) -> None:
+    """Point ``cfg.agent_prefill_messages_file`` at a prefill JSON
+    and trigger a reload so the next API call picks it up.
+
+    Resolution:
+
+      * ``set aggressive`` -> the bundled
+        ``templates/prefill.json`` under the godmode skill
+        (matches the hermes ``prefill.json`` aggressive template).
+      * ``set subtle`` -> the bundled
+        ``templates/prefill-subtle.json`` (security-researcher
+        persona, lower detection risk).
+      * Anything else is treated as a path: absolute, ``~/...``,
+        or relative-to-``~/.athena/`` -- same resolution as the
+        agent's loader.
+    """
+    arg = name_or_path.strip()
+    if arg in ("aggressive", "subtle"):
+        skill_path = _get_skill_path(agent)
+        templates_dir = skill_path / "templates"
+        filename = "prefill.json" if arg == "aggressive" else "prefill-subtle.json"
+        target = templates_dir / filename
+        if not target.exists():
+            ui.error(
+                f"prefill template {arg!r} not found at {target}. "
+                "Install the godmode skill scripts."
+            )
+            return
+        agent.cfg.agent_prefill_messages_file = str(target)
+    else:
+        agent.cfg.agent_prefill_messages_file = arg
+
+    reload = getattr(agent, "reload_prefill_messages", None)
+    if callable(reload):
+        reload()
+    ui.info(
+        f"prefill messages file set to: {agent.cfg.agent_prefill_messages_file}. "
+        "Loaded on next prompt."
+    )
+
+
+def _clear_prefill_file(agent: Any) -> None:
+    """Unset ``cfg.agent_prefill_messages_file`` and reload so the
+    next API call has no prefill injection."""
+    if not getattr(agent.cfg, "agent_prefill_messages_file", None):
+        ui.info("no prefill messages file is set.")
+        return
+    agent.cfg.agent_prefill_messages_file = None
+    reload = getattr(agent, "reload_prefill_messages", None)
+    if callable(reload):
+        reload()
+    ui.info("prefill messages cleared. No injection on next prompt.")
+
+
+def _show_prefill_status(agent: Any) -> None:
+    """Render the current prefill configuration -- the active file
+    path and the number of valid messages it loads. Useful for
+    operators verifying that ``set`` actually picked up a valid
+    file."""
+    path = getattr(agent.cfg, "agent_prefill_messages_file", None)
+    if not path:
+        ui.info("prefill: <unset>")
+        return
+    ui.info(f"prefill file: {path}")
+    load = getattr(agent, "_load_prefill_messages", None)
+    if callable(load):
+        msgs = load()
+        ui.info(f"prefill messages loaded: {len(msgs)}")
+
+
 def _clear_jailbreak(agent: Any) -> None:
     """Drop the active marker and reverse the jailbreak.
 
@@ -597,6 +667,32 @@ def cmd_godmode(agent, arg: str = "") -> str:
         _load_config(agent, rest)
     elif cmd == "clear":
         _clear_jailbreak(agent)
+    elif cmd == "prefill":
+        # ``/godmode prefill`` (no arg) -- show current status
+        # ``/godmode prefill set <name|path>`` -- point at a file
+        # ``/godmode prefill clear`` -- unset
+        if not rest or rest == "status":
+            _show_prefill_status(agent)
+        else:
+            prefill_parts = rest.split(maxsplit=1)
+            sub = prefill_parts[0]
+            if sub == "set":
+                if len(prefill_parts) < 2:
+                    ui.error(
+                        "usage: /godmode prefill set "
+                        "<aggressive|subtle|PATH>"
+                    )
+                    return ""
+                _set_prefill_file(agent, prefill_parts[1])
+            elif sub == "clear":
+                _clear_prefill_file(agent)
+            elif sub == "status":
+                _show_prefill_status(agent)
+            else:
+                ui.error(
+                    f"unknown prefill subcommand: {sub}. "
+                    "Use: set <name|path>, clear, status."
+                )
     else:
         ui.error(f"Unknown /godmode subcommand: {cmd}")
         ui.info(

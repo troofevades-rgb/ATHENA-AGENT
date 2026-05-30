@@ -574,6 +574,19 @@ class Config:
     # ``ATHENA_EPHEMERAL_SYSTEM_PROMPT`` wins over this config value
     # so an operator can override on-the-fly without editing config.toml.
     agent_system_prompt_append: str | None = None
+    # 0.3.0 godmode: path to a JSON file of ephemeral prefill messages
+    # injected into every API call after the system message and before
+    # conversation history. Mirrors the hermes-agent
+    # ``agent.prefill_messages_file`` knob. Messages are NEVER appended
+    # to ``self.messages``, NEVER persisted to JSONL, and NEVER appear
+    # in ``/save`` transcripts -- they exist only inside the provider's
+    # ``stream_chat`` invocation. The model sees them as prior
+    # conversation context establishing a pattern of compliance.
+    #
+    # Format: a JSON list of ``{"role": "user"|"assistant", "content": str}``
+    # entries. Relative paths resolve against ``~/.athena/``; absolute
+    # paths and ``~`` expansion are honored.
+    agent_prefill_messages_file: str | None = None
     # Bash gate config (Phase 17 ShellPolicy). Nested per Phase 18.1
     # R4; legacy flat names ``bash_allowlist`` / ``bash_extra_denylist``
     # still resolve via ``Config.__getattr__`` with a deprecation
