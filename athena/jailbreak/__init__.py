@@ -19,6 +19,12 @@ here too as alternate strategies (``boundary_inversion``,
 no strategy is named.
 """
 
+from .autoscore import (
+    DEFAULT_CANARY_QUERY,
+    StrategyScore,
+    pick_best_strategy,
+    score_strategies_against_model,
+)
 from .prompts import (
     DEPTH_DIRECTIVE,
     GODMODE_SYSTEM_PROMPT,
@@ -37,16 +43,20 @@ from .race import (
 )
 
 __all__ = [
+    "DEFAULT_CANARY_QUERY",
     "DEPTH_DIRECTIVE",
     "GODMODE_SYSTEM_PROMPT",
     "STRATEGIES",
     "ULTRAPLINIAN_MODELS",
     "RaceConfig",
     "RaceResult",
+    "StrategyScore",
     "compose_system_prompt",
     "detect_model_family",
     "get_models_for_tier",
+    "pick_best_strategy",
     "plan_for_family",
     "race_models",
     "score_response",
+    "score_strategies_against_model",
 ]

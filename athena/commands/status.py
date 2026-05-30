@@ -46,5 +46,18 @@ def cmd_status(agent, arg: str = "") -> str:
     rc_getter = getattr(agent.provider, "get_retry_counts", None)
     if callable(rc_getter):
         snapshot["retry_counts"] = {snapshot["provider"]: rc_getter()}
+    # 0.3.0 Phase 2: godmode session state -- active strategy + mode
+    # (system_prompt / steer) + prefill file. Operators see at-a-glance
+    # whether the session is jailbroken without running /godmode list.
+    active = getattr(agent, "_active_godmode", None)
+    if active is not None and isinstance(active, dict):
+        snapshot["godmode"] = {
+            "strategy": active.get("strategy"),
+            "mode": active.get("mode"),
+            "applied_at": active.get("applied_at"),
+        }
+    prefill_file = getattr(agent.cfg, "agent_prefill_messages_file", None)
+    if prefill_file:
+        snapshot["godmode_prefill_file"] = prefill_file
     ui.console.print(render_status(snapshot))
     return ""
