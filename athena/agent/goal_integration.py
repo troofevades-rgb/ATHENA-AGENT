@@ -100,6 +100,18 @@ class AgentGoalIntegration:
 
         from ..goal.loop import maybe_continue_goal_after_turn
 
+        # Snapshot the status BEFORE the goal-loop driver runs.
+        # ``maybe_continue_goal_after_turn`` returns ``stop_reason ==
+        # state.status`` for any non-active state, meaning a goal that
+        # was already terminal (achieved / paused / exhausted) re-fires
+        # the same stop_reason on every subsequent turn until the user
+        # explicitly clears it. Only announce on the active -> terminal
+        # transition so a long Discord conversation post-achievement
+        # doesn't print "Goal achieved" after every reply. ``getattr``
+        # default covers SimpleNamespace test stubs that don't carry
+        # the field.
+        pre_status = getattr(self.goal_state, "status", "active")
+
         decision = maybe_continue_goal_after_turn(
             profile_dir=self._profile_dir(),
             state=self.goal_state,
@@ -113,6 +125,13 @@ class AgentGoalIntegration:
                 f"{self.goal_state.max_turns})"
             )
             return decision.synthetic_prompt
+
+        # If the loop was already terminal at the start of this call,
+        # there is no NEW outcome to surface -- swallow silently and
+        # leave the state where it was. The user already saw the
+        # announcement the first time.
+        if pre_status != "active":
+            return None
 
         # Stop. Announce the reason.
         if decision.stop_reason == "achieved":
