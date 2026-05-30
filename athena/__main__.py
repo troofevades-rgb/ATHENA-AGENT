@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -491,6 +492,41 @@ def _run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
         _plan_mod.register_plan_mode_listener(lambda _: _push_status())
     except Exception:  # noqa: BLE001 — registration is best-effort
         pass
+
+    # The Ink TUI needs raw-mode stdin to capture single keypresses
+    # and reuses the parent's stdout for its render. If either is
+    # NOT a TTY (e.g. athena was invoked under a piped shell, a
+    # non-PTY subprocess, an IDE's "run script" panel that emulates
+    # stdin via a pipe, or msys/cygwin without ``winpty``), the
+    # subprocess would crash with
+    # ``Error: Raw mode is not supported on the current
+    # process.stdin`` deep inside Ink's setRawMode. The parent
+    # would then sit at "connecting to gateway…" until the 5s
+    # accept-timeout fires and surface "TUI did not start —
+    # bundle probably failed to start" -- misleading; the bundle
+    # started fine but it inherited a broken stdio.
+    #
+    # Detect the situation up front and refuse with a clear
+    # message + concrete next steps. ``ATHENA_TUI_NONINTERACTIVE``
+    # is an escape hatch reserved for the pytest fixture that
+    # exercises this branch (it monkeypatches the isatty check
+    # AROUND the env var).
+    if os.environ.get("ATHENA_TUI_NONINTERACTIVE") != "1":
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            sys.stderr.write(
+                "athena: cannot start the interactive TUI -- stdin or stdout "
+                "is not a terminal.\n\n"
+                "  The Ink TUI needs raw-mode stdin (single-keypress capture) "
+                "and a real tty for rendering. Common causes:\n"
+                "    * athena was launched from an IDE 'run' panel that "
+                "pipes stdio\n"
+                "    * a non-tty subprocess (e.g. ``echo hi | athena``)\n"
+                "    * Git Bash / MSYS on Windows without ``winpty`` "
+                "(try: winpty athena)\n\n"
+                "  For one-shot non-interactive use, pass ``-p 'prompt'`` "
+                "(headless mode skips the TUI entirely).\n"
+            )
+            return 2
 
     try:
         gateway = TuiGateway()
