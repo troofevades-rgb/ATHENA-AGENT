@@ -24,6 +24,8 @@ from .prompts import (
     GODMODE_SYSTEM_PROMPT,
     STRATEGIES,
     compose_system_prompt,
+    detect_model_family,
+    plan_for_family,
 )
 
 __all__ = [
@@ -31,4 +33,6 @@ __all__ = [
     "GODMODE_SYSTEM_PROMPT",
     "STRATEGIES",
     "compose_system_prompt",
+    "detect_model_family",
+    "plan_for_family",
 ]
