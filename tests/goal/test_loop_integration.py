@@ -252,3 +252,88 @@ def test_loop_tokens_used_updated(tmp_path: Path):
     )
     a._consult_goal_continuation(tokens_at_loop_start=100)
     assert a._goal_loop_tokens_used == 400  # 500 - 100
+
+
+# ---------------------------------------------------------------------------
+# No re-announce on already-terminal goal state
+# ---------------------------------------------------------------------------
+
+
+def test_announcement_does_not_repeat_when_state_already_achieved(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """Once the goal hits ``status="achieved"``, subsequent turns
+    must NOT re-print the "Goal achieved" announcement. The user's
+    Discord transcript showed every reply ending with another loud
+    ``Goal achieved in 1 turn(s)`` line; the fix is to suppress
+    announcements when the goal-loop driver re-reports the SAME
+    terminal status it was in at the start of the call.
+    """
+    # State already in the achieved terminal state from a prior turn.
+    st = GoalState(text="x", status="achieved", turns_taken=1)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        # A plain reply that does NOT contain the sentinel -- so the
+        # only path to ``stop_reason=achieved`` is the "state already
+        # terminal" branch in maybe_continue_goal_after_turn.
+        assistant_text="just answering the user's follow-up question",
+    )
+    capsys.readouterr()  # clear any earlier captured output
+    result = a._consult_goal_continuation(tokens_at_loop_start=0)
+    assert result is None
+    # Status unchanged.
+    assert st.status == "achieved"
+    # No re-announcement on stdout or stderr.
+    captured = capsys.readouterr()
+    combined = (captured.out + captured.err).lower()
+    assert "goal achieved" not in combined, (
+        f"announcement re-fired on an already-achieved goal; "
+        f"output: {captured.out + captured.err!r}"
+    )
+
+
+def test_announcement_does_fire_on_transition_into_achieved(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """Conversely, the FIRST time the goal hits achieved (status was
+    ``active``), the announcement MUST still fire -- the silence above
+    only applies after the user has seen it once."""
+    st = GoalState(text="x", status="active", turns_taken=0)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="here it is\n\nGOAL ACHIEVED",
+    )
+    capsys.readouterr()
+    result = a._consult_goal_continuation(tokens_at_loop_start=0)
+    assert result is None
+    assert st.status == "achieved"
+    captured = capsys.readouterr()
+    combined = (captured.out + captured.err).lower()
+    assert "goal achieved" in combined, (
+        "first-time achievement announcement was suppressed; "
+        f"output: {captured.out + captured.err!r}"
+    )
+
+
+def test_announcement_does_not_repeat_when_state_already_paused(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """Same suppression for blocked/paused -- once paused, the user
+    already saw the reason; re-firing on every subsequent message
+    would be just as noisy."""
+    st = GoalState(text="x", status="paused", turns_taken=1)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="ordinary reply, no sentinel",
+    )
+    capsys.readouterr()
+    a._consult_goal_continuation(tokens_at_loop_start=0)
+    captured = capsys.readouterr()
+    combined = (captured.out + captured.err).lower()
+    assert "goal blocked" not in combined
