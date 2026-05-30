@@ -255,6 +255,116 @@ STRATEGIES: dict[str, dict[str, str]] = {
 }
 
 
+# ── Model-family detection + per-family strategy order ──────────────
+# Maps a model identifier (cfg.model) to a family name. Detection is
+# substring-based: a model id is checked against every (substring,
+# family) entry in order and the first match wins. This matches the
+# hermes-agent auto-jailbreak's family detection so an operator
+# coming from hermes sees the same family for the same model id.
+_MODEL_FAMILY_PATTERNS: list[tuple[str, str]] = [
+    # Anthropic
+    ("claude", "claude"),
+    ("anthropic", "claude"),
+    # OpenAI
+    ("gpt-4", "gpt"),
+    ("gpt-3.5", "gpt"),
+    ("openai/", "gpt"),
+    # Google
+    ("gemini", "gemini"),
+    ("google/", "gemini"),
+    # xAI
+    ("grok", "grok"),
+    ("xai/", "grok"),
+    # Nous Hermes (already uncensored)
+    ("hermes", "hermes"),
+    ("nous", "hermes"),
+    # DeepSeek
+    ("deepseek", "deepseek"),
+    # Meta Llama
+    ("llama", "llama"),
+    # Alibaba Qwen
+    ("qwen", "qwen"),
+    # Mistral
+    ("mistral", "mistral"),
+]
+
+
+# Per-family strategy preference order. Picked from the hermes-agent
+# auto_jailbreak.py table (tested March 2026). The first strategy in
+# the list is the highest-priority pick; ``/godmode auto`` applies it
+# unless overridden by ``--strategy``.
+#
+# For families where the reference doc recommends prefill alongside
+# the system-prompt mutation, the third element in the tuple is the
+# prefill template name (``aggressive`` or ``subtle``); None means
+# don't set prefill.
+_STRATEGY_ORDER: dict[str, list[tuple[str, str | None]]] = {
+    "claude": [
+        ("boundary_inversion", None),
+        ("refusal_inversion", "subtle"),
+        ("og_godmode", None),
+    ],
+    "gpt": [
+        ("og_godmode", None),
+        ("refusal_inversion", "aggressive"),
+    ],
+    "gemini": [
+        ("refusal_inversion", None),
+        ("boundary_inversion", None),
+    ],
+    "grok": [
+        ("unfiltered_liberated", None),
+    ],
+    "hermes": [
+        ("zero_refusal", None),
+    ],
+    "deepseek": [
+        ("refusal_inversion", "aggressive"),
+        ("og_godmode", None),
+    ],
+    "llama": [
+        ("refusal_inversion", "aggressive"),
+        ("og_godmode", None),
+    ],
+    "qwen": [
+        ("refusal_inversion", "aggressive"),
+    ],
+    "mistral": [
+        ("refusal_inversion", "aggressive"),
+    ],
+}
+
+# Fallback when no family is matched -- use the canonical default
+# (no specific strategy, GODMODE_SYSTEM_PROMPT v∞.0) with no prefill.
+_DEFAULT_AUTO_PLAN: tuple[str, str | None] = ("default", None)
+
+
+def detect_model_family(model: str) -> str | None:
+    """Map ``model`` to a family name, or ``None`` if no pattern
+    matches. Case-insensitive substring match against
+    :data:`_MODEL_FAMILY_PATTERNS` (first match wins)."""
+    if not model:
+        return None
+    needle = model.lower()
+    for pattern, family in _MODEL_FAMILY_PATTERNS:
+        if pattern in needle:
+            return family
+    return None
+
+
+def plan_for_family(family: str | None) -> tuple[str, str | None]:
+    """Return ``(strategy, prefill_template)`` for ``family``.
+
+    ``strategy`` is the name passed to ``compose_system_prompt``
+    (or ``"default"`` for the canonical text).
+    ``prefill_template`` is ``"aggressive"`` / ``"subtle"`` /
+    ``None``. Unknown / None family falls back to
+    :data:`_DEFAULT_AUTO_PLAN`."""
+    if not family or family not in _STRATEGY_ORDER:
+        return _DEFAULT_AUTO_PLAN
+    return _STRATEGY_ORDER[family][0]
+
+
 def compose_system_prompt(strategy: str | None = None, *, depth: bool = True) -> str:
     """Return the full system-prompt append text for ``strategy``.
 

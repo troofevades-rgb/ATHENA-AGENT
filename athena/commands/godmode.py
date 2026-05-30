@@ -480,6 +480,109 @@ def _load_config(agent: Any, name: str) -> None:
     _apply_strategy(agent, strategy)
 
 
+def _auto_jailbreak(agent: Any, args: str) -> None:
+    """Detect the active model's family, pick the best strategy for
+    that family, and apply it via the system-prompt mutation path
+    (and optionally the prefill path).
+
+    Args:
+      ``args`` -- whitespace-separated flags:
+
+        * ``--model X`` -- override detection and use family for X
+        * ``--dry-run`` -- print the plan without applying
+        * ``--no-prefill`` -- skip the prefill step even if the
+          family table says to set one
+
+    Behavior mirrors hermes-agent's ``auto_jailbreak.py`` but
+    routes the application through athena's
+    ``cfg.agent_system_prompt_append`` + ``reload_system_prompt``
+    rather than mutating a config.yaml file on disk. The result is
+    session-scoped: a restart drops the jailbreak unless the
+    operator also runs ``/godmode save <name>`` (which captures
+    the active strategy for later ``/godmode load``).
+    """
+    from ..jailbreak.prompts import detect_model_family, plan_for_family
+
+    # Parse flags
+    model_override: str | None = None
+    dry_run = False
+    no_prefill = False
+    tokens = args.split() if args else []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--model" and i + 1 < len(tokens):
+            model_override = tokens[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--model="):
+            model_override = tok[len("--model="):]
+            i += 1
+            continue
+        if tok == "--dry-run":
+            dry_run = True
+            i += 1
+            continue
+        if tok == "--no-prefill":
+            no_prefill = True
+            i += 1
+            continue
+        ui.warn(f"ignoring unknown auto flag: {tok}")
+        i += 1
+
+    model = model_override or getattr(agent, "model", None) or getattr(
+        agent.cfg, "model", None
+    ) or ""
+    family = detect_model_family(model)
+    strategy, prefill_template = plan_for_family(family)
+
+    ui.console.print("[bold]/godmode auto[/]")
+    ui.info(f"model:    {model or '<unknown>'}")
+    ui.info(f"family:   {family or '<unmatched -- falling back to default>'}")
+    ui.info(f"strategy: {strategy}")
+    ui.info(f"prefill:  {prefill_template or '<none>'}")
+
+    if dry_run:
+        ui.info("dry-run: no config writes; agent state unchanged.")
+        return
+
+    # Apply the strategy via the system-prompt mutation path.
+    apply_arg = "" if strategy == "default" else strategy
+    _apply_strategy(agent, apply_arg)
+
+    # Set prefill if the family table calls for it and the operator
+    # didn't opt out.
+    if prefill_template and not no_prefill:
+        _set_prefill_file(agent, prefill_template)
+    elif prefill_template and no_prefill:
+        ui.info("--no-prefill: skipping prefill setup.")
+
+
+def _race_stub(agent: Any, args: str) -> None:
+    """Placeholder for ULTRAPLINIAN multi-model racing.
+
+    A real implementation needs the OpenRouter provider plumbed
+    through ``cred_pool`` for parallel calls + a scoring module
+    (refusal detection, hedge counting, latency). Out of scope for
+    Phase 1D; tracked separately so operators see a clear
+    not-yet-implemented signal rather than an opaque crash if they
+    type ``/godmode race`` expecting hermes-parity behavior.
+
+    The bonus athena-only ``--tier ollama-local`` (race every model
+    in the local Ollama registry with zero API cost) lands in the
+    same Phase as the OpenRouter path.
+    """
+    ui.warn(
+        "/godmode race is not yet implemented. "
+        "ULTRAPLINIAN multi-model racing needs the OpenRouter "
+        "provider integration; the athena-only --tier ollama-local "
+        "variant lands in the same phase. Until then: use "
+        "/godmode auto for single-model jailbreaking."
+    )
+    if args.strip():
+        ui.info(f"(args ignored: {args.strip()!r})")
+
+
 def _set_prefill_file(agent: Any, name_or_path: str) -> None:
     """Point ``cfg.agent_prefill_messages_file`` at a prefill JSON
     and trigger a reload so the next API call picks it up.
@@ -667,6 +770,10 @@ def cmd_godmode(agent, arg: str = "") -> str:
         _load_config(agent, rest)
     elif cmd == "clear":
         _clear_jailbreak(agent)
+    elif cmd == "auto":
+        _auto_jailbreak(agent, rest)
+    elif cmd == "race":
+        _race_stub(agent, rest)
     elif cmd == "prefill":
         # ``/godmode prefill`` (no arg) -- show current status
         # ``/godmode prefill set <name|path>`` -- point at a file
