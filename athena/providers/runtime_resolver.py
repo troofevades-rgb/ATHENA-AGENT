@@ -143,7 +143,8 @@ def _build_provider(
 
     if name == "ollama":
         host = provider_cfg.get("host") or cfg.ollama_host
-        return cls(host=host), bare
+        timeout = float(getattr(cfg, "ollama_timeout_s", 600.0) or 600.0)
+        return cls(host=host, timeout=timeout), bare
 
     if name == "openai_compat":
         host = provider_cfg.get("host")

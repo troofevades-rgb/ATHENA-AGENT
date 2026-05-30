@@ -204,6 +204,160 @@ async def test_process_releases_guard_in_finally(tmp_path: Path) -> None:
     assert any("processing failed" in t for _, t in adapter.sent_text)
 
 
+# ---- think-block stripping -------------------------------------------
+
+
+async def test_process_strips_think_blocks(tmp_path: Path) -> None:
+    """Chain-of-thought <think>...</think> must be stripped before the
+    reply is sent — the terminal collapses it; the chat should never
+    see raw reasoning."""
+    daemon = _FakeDaemon(tmp_path)
+    daemon.approvals.bind_loop(asyncio.get_running_loop())
+    adapter = _TestAdapter(daemon)
+    adapter._active_sessions["sess-1"] = asyncio.Event()
+
+    daemon.pool.agents["sess-1"] = SimpleNamespace(
+        run_until_done=lambda text="": None,
+        last_assistant_message=lambda: "<think>\nlots of reasoning\n</think>\n\nThe answer is 42.",
+    )
+
+    await adapter._process_message_background(_evt(), "sess-1")
+
+    assert adapter.sent_text == [("chat-1", "The answer is 42.")]
+
+
+async def test_process_drops_empty_think_only_message(tmp_path: Path) -> None:
+    """An empty <think></think> with no real content (the noise that
+    leaked into Discord) must produce NO message rather than an empty
+    think block."""
+    daemon = _FakeDaemon(tmp_path)
+    daemon.approvals.bind_loop(asyncio.get_running_loop())
+    adapter = _TestAdapter(daemon)
+    adapter._active_sessions["sess-1"] = asyncio.Event()
+
+    daemon.pool.agents["sess-1"] = SimpleNamespace(
+        run_until_done=lambda text="": None,
+        last_assistant_message=lambda: "<think>\n\n</think>",
+    )
+
+    await adapter._process_message_background(_evt(), "sess-1")
+
+    assert adapter.sent_text == []
+
+
+# ---- in-turn progress streaming --------------------------------------
+
+
+async def test_process_streams_tool_progress_to_chat(tmp_path: Path) -> None:
+    """emit_progress() called from the worker thread (as the agent loop
+    does at each tool round) must reach the chat so a long multi-tool
+    turn doesn't look hung."""
+    from athena.agent.progress import emit_progress
+
+    daemon = _FakeDaemon(tmp_path)
+    daemon.approvals.bind_loop(asyncio.get_running_loop())
+    adapter = _TestAdapter(daemon)
+    adapter._active_sessions["sess-1"] = asyncio.Event()
+
+    def run(text: str = "") -> None:
+        # Runs on the worker thread under the copied context — the
+        # progress sink installed by the adapter must be visible here.
+        emit_progress("running: search_x")
+
+    daemon.pool.agents["sess-1"] = SimpleNamespace(
+        run_until_done=run,
+        last_assistant_message=lambda: "final answer",
+    )
+
+    await adapter._process_message_background(_evt(), "sess-1")
+    # The progress send is fire-and-forget onto the loop; let it run.
+    await asyncio.sleep(0.05)
+
+    bodies = [t for _, t in adapter.sent_text]
+    assert any("running: search_x" in b for b in bodies), bodies
+    assert "final answer" in bodies
+
+
+# ---- media artifact delivery -----------------------------------------
+
+
+async def test_process_delivers_media_artifacts(tmp_path: Path) -> None:
+    """A tool that emits a media artifact (e.g. video_generate) must
+    have its file send_file()'d into the chat — otherwise a generated
+    video only leaves the user an unreachable server-side path."""
+    from athena.agent.media_artifacts import emit_media_artifact
+
+    daemon = _FakeDaemon(tmp_path)
+    daemon.approvals.bind_loop(asyncio.get_running_loop())
+    adapter = _TestAdapter(daemon)
+    adapter._active_sessions["sess-1"] = asyncio.Event()
+
+    video = tmp_path / "hype.mp4"
+    video.write_bytes(b"\x00\x01\x02fake-mp4-bytes")
+
+    def run(text: str = "") -> None:
+        emit_media_artifact(str(video))
+
+    daemon.pool.agents["sess-1"] = SimpleNamespace(
+        run_until_done=run,
+        last_assistant_message=lambda: "here's your hype video",
+    )
+
+    await adapter._process_message_background(_evt(), "sess-1")
+
+    assert any("hype video" in t for _, t in adapter.sent_text)
+    assert [p for _, p, _ in adapter.sent_files] == [video]
+
+
+async def test_process_skips_missing_media_artifact(tmp_path: Path) -> None:
+    """A reported path that isn't a real file (failed render, cleaned
+    up) is skipped — no send_file, no crash."""
+    from athena.agent.media_artifacts import emit_media_artifact
+
+    daemon = _FakeDaemon(tmp_path)
+    daemon.approvals.bind_loop(asyncio.get_running_loop())
+    adapter = _TestAdapter(daemon)
+    adapter._active_sessions["sess-1"] = asyncio.Event()
+
+    def run(text: str = "") -> None:
+        emit_media_artifact(str(tmp_path / "nope.mp4"))
+
+    daemon.pool.agents["sess-1"] = SimpleNamespace(
+        run_until_done=run,
+        last_assistant_message=lambda: "done",
+    )
+
+    await adapter._process_message_background(_evt(), "sess-1")
+
+    assert adapter.sent_files == []
+
+
+async def test_process_dedupes_media_artifacts(tmp_path: Path) -> None:
+    """The same file reported twice in a turn is sent once."""
+    from athena.agent.media_artifacts import emit_media_artifact
+
+    daemon = _FakeDaemon(tmp_path)
+    daemon.approvals.bind_loop(asyncio.get_running_loop())
+    adapter = _TestAdapter(daemon)
+    adapter._active_sessions["sess-1"] = asyncio.Event()
+
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"bytes")
+
+    def run(text: str = "") -> None:
+        emit_media_artifact(str(clip))
+        emit_media_artifact(str(clip))
+
+    daemon.pool.agents["sess-1"] = SimpleNamespace(
+        run_until_done=run,
+        last_assistant_message=lambda: "",
+    )
+
+    await adapter._process_message_background(_evt(), "sess-1")
+
+    assert [p for _, p, _ in adapter.sent_files] == [clip]
+
+
 # ---- approval bridge --------------------------------------------------
 
 
@@ -297,6 +451,43 @@ async def test_typing_heartbeat_fires_during_long_run(tmp_path: Path) -> None:
     # At least one typing call should have fired during the run.
     assert len(adapter.typing_calls) >= 1
     assert all(c == "chat-1" for c in adapter.typing_calls)
+
+
+async def test_typing_heartbeat_fires_during_cold_build(tmp_path: Path) -> None:
+    """The typing indicator must already be running while the agent is
+    being cold-built inside pool.use — that's the slowest part of a new
+    session's first message and used to be dead air."""
+    daemon = _FakeDaemon(tmp_path)
+    daemon.approvals.bind_loop(asyncio.get_running_loop())
+    adapter = _TestAdapter(daemon)
+    adapter._active_sessions["sess-1"] = asyncio.Event()
+
+    import athena.gateway.base as base_mod
+
+    monkey_orig = base_mod._TYPING_REFRESH_SECONDS
+    base_mod._TYPING_REFRESH_SECONDS = 0.01
+
+    # Make pool.use slow (simulating cold agent build) and assert the
+    # typing indicator already fired by the time the build finishes.
+    slow_pool = _FakePool()
+    orig_use = slow_pool.use
+
+    @contextlib.asynccontextmanager
+    async def slow_use(session_id: str):
+        await asyncio.sleep(0.05)
+        async with orig_use(session_id) as agent:
+            yield agent
+
+    slow_pool.use = slow_use  # type: ignore[method-assign]
+    daemon.pool = slow_pool
+
+    try:
+        await adapter._process_message_background(_evt(), "sess-1")
+    finally:
+        base_mod._TYPING_REFRESH_SECONDS = monkey_orig
+
+    # Typing fired during the cold build, before the agent produced output.
+    assert len(adapter.typing_calls) >= 1
 
 
 async def test_typing_heartbeat_cancelled_on_exit(tmp_path: Path) -> None:

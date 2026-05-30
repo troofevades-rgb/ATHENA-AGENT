@@ -508,6 +508,15 @@ class GatewayConfig:
 class Config:
     model: str = "troofevades-q35:athena"
     ollama_host: str = "http://127.0.0.1:11434"
+    # Per-request timeout (seconds) for the Ollama HTTP client. This is
+    # the stall detector: httpx applies it as the max wait for the next
+    # chunk, so a healthy token stream never trips it — only a wedged
+    # daemon or a model stuck in prompt-eval does. The historical 600s
+    # default means a stalled local call hangs ~10 min before failing
+    # (then retries); lower it to surface stalls faster on slower setups
+    # / chat transports. Keep it above your worst-case time-to-first-
+    # token (big-context prompt-eval can take minutes on partial offload).
+    ollama_timeout_s: float = 600.0
     # TUI color palette. One of: ``phosphor`` (classic CRT lime,
     # default), ``dusk`` (amber + deep blue), ``nord`` (cool blue/
     # slate), ``dracula`` (purple + cyan + pink), ``synthwave``

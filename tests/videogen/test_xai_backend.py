@@ -24,6 +24,18 @@ from athena.videogen.backends.xai import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_credential_pool(monkeypatch, tmp_path):
+    """The video backend now consults the secure credential pool before
+    the dotenv. Point ``global_pool`` at an empty temp pool so these
+    tests exercise the env/None paths deterministically, independent of
+    the operator's real ~/.athena/credentials.json."""
+    from athena.providers import credential_pool as cp
+
+    empty = cp.CredentialPool(tmp_path / "pool.json")
+    monkeypatch.setattr(cp, "global_pool", lambda: empty)
+
+
 @pytest.fixture
 def with_api_key(monkeypatch, tmp_path):
     """Drop a key into a fake .env so _resolve_api_key returns it."""
@@ -147,6 +159,30 @@ def test_resolve_api_key_falls_back_to_xai_canonical_name(monkeypatch, tmp_path)
 
 def test_resolve_api_key_returns_none_when_missing(no_api_key):
     assert _resolve_api_key() is None
+
+
+def test_resolve_api_key_from_credential_pool(monkeypatch, tmp_path, no_api_key):
+    """A key in the secure pool under the shared 'xai' name is used even
+    with no dotenv/env key — and takes precedence over the dotenv."""
+    from athena.providers import credential_pool as cp
+
+    pool = cp.CredentialPool(tmp_path / "pool.json")
+    pool.add_credential("xai", cp.Credential(key="xai-pool-key-999"))
+    monkeypatch.setattr(cp, "global_pool", lambda: pool)
+
+    assert _resolve_api_key() == "xai-pool-key-999"
+
+
+def test_resolve_api_key_prefers_pool_over_dotenv(monkeypatch, tmp_path, with_api_key):
+    """When both the pool and the dotenv have a key, the secure pool
+    wins (it's the canonical, more-secure store)."""
+    from athena.providers import credential_pool as cp
+
+    pool = cp.CredentialPool(tmp_path / "pool.json")
+    pool.add_credential("xai_video", cp.Credential(key="xai-pool-specific"))
+    monkeypatch.setattr(cp, "global_pool", lambda: pool)
+
+    assert _resolve_api_key() == "xai-pool-specific"
 
 
 # ----------------------------------------------------------------------

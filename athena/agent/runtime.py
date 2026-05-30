@@ -64,7 +64,7 @@ def _emit_tool_round_progress(tool_calls: list[dict[str, Any]]) -> None:
     repetitive list."""
     counts: dict[str, int] = {}
     for call in tool_calls:
-        name = ((call.get("function") or {}).get("name") or "tool")
+        name = (call.get("function") or {}).get("name") or "tool"
         counts[name] = counts.get(name, 0) + 1
     if not counts:
         return
@@ -373,6 +373,14 @@ class AgentRuntime:
         run on a daemon thread and never block this method."""
         from ..provenance import is_background
 
+        # Gateway turns opt out entirely: the review fork's child agent
+        # makes its own provider calls, which on a local Ollama serialize
+        # against the user-facing reply and make a chat turn crawl (or
+        # stall). The review's memory/skill suggestions are never seen by
+        # a chat user anyway, so on the gateway it's pure contention.
+        # Set by the gateway agent factory.
+        if getattr(self, "_suppress_background_review", False):
+            return
         # Don't recursively spawn reviews from inside background forks.
         if is_background():
             return
