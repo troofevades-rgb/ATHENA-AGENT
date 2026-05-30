@@ -981,7 +981,26 @@ class AgentRuntime:
         ui.show_diff(path, old, new)
 
     def _record_tool_result(self, call: dict[str, Any], name: str, result: str) -> None:
-        msg: dict[str, Any] = {"role": "tool", "name": name, "content": result}
+        # 0.3.0 hardening tier 0 #4: wrap the tool result with the
+        # per-session nonce markers so injected content inside a Read /
+        # WebFetch / MCP response can't break out of the wrapper by
+        # emitting literal ``</tool_result>`` or similar -- the closing
+        # marker uses a random nonce minted in Agent.__init__ that the
+        # attacker can't pre-guess. The system-prompt instructs the
+        # model to treat content between the markers as DATA, not
+        # instructions; see ``athena.prompts.system.build_system_prompt``.
+        # Stub agents in unit tests (and forks that bypass
+        # AgentLifecycle.__init__) won't have ``_tool_result_nonce`` --
+        # ``getattr`` keeps the wrapping off in that case, preserving
+        # back-compat for everything that constructs an AgentRuntime via
+        # ``__new__``. Production Agents always get the nonce.
+        nonce = getattr(self, "_tool_result_nonce", None)
+        wrapped = (
+            f"[TOOL_RESULT.{nonce}]\n{result}\n[/TOOL_RESULT.{nonce}]"
+            if nonce
+            else result
+        )
+        msg: dict[str, Any] = {"role": "tool", "name": name, "content": wrapped}
         # Some Ollama models send a tool_call_id; preserve when present
         if "id" in call:
             msg["tool_call_id"] = call["id"]
