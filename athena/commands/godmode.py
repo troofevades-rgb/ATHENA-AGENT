@@ -558,29 +558,177 @@ def _auto_jailbreak(agent: Any, args: str) -> None:
         ui.info("--no-prefill: skipping prefill setup.")
 
 
-def _race_stub(agent: Any, args: str) -> None:
-    """Placeholder for ULTRAPLINIAN multi-model racing.
+_VALID_RACE_TIERS = ("fast", "standard", "smart", "power", "ultra")
 
-    A real implementation needs the OpenRouter provider plumbed
-    through ``cred_pool`` for parallel calls + a scoring module
-    (refusal detection, hedge counting, latency). Out of scope for
-    Phase 1D; tracked separately so operators see a clear
-    not-yet-implemented signal rather than an opaque crash if they
-    type ``/godmode race`` expecting hermes-parity behavior.
 
-    The bonus athena-only ``--tier ollama-local`` (race every model
-    in the local Ollama registry with zero API cost) lands in the
-    same Phase as the OpenRouter path.
+def _parse_race_args(rest: str) -> tuple[str, str, bool, bool]:
+    """Pull ``--tier``, ``--no-godmode``, ``--no-depth`` out of
+    ``rest`` and return ``(query, tier, godmode_on, depth_on)``.
+
+    Defaults: ``tier="fast"``, ``godmode_on=True``, ``depth_on=True``
+    -- the reference's defaults so an operator who types
+    ``/godmode race "what is the meaning of life"`` gets a fast,
+    jailbroken race straight away.
+
+    Empty / missing query returns ``query=""`` so the caller fires
+    the usage error.
     """
-    ui.warn(
-        "/godmode race is not yet implemented. "
-        "ULTRAPLINIAN multi-model racing needs the OpenRouter "
-        "provider integration; the athena-only --tier ollama-local "
-        "variant lands in the same phase. Until then: use "
-        "/godmode auto for single-model jailbreaking."
+    tier = "fast"
+    godmode_on = True
+    depth_on = True
+    out: list[str] = []
+    if not rest:
+        return "", tier, godmode_on, depth_on
+    tokens = rest.split()
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--tier" and i + 1 < len(tokens):
+            tier = tokens[i + 1].lower()
+            i += 2
+            continue
+        if tok.startswith("--tier="):
+            tier = tok[len("--tier="):].lower()
+            i += 1
+            continue
+        if tok == "--no-godmode":
+            godmode_on = False
+            i += 1
+            continue
+        if tok == "--no-depth":
+            depth_on = False
+            i += 1
+            continue
+        out.append(tok)
+        i += 1
+    return " ".join(out), tier, godmode_on, depth_on
+
+
+def _run_race(agent: Any, args: str) -> None:
+    """ULTRAPLINIAN multi-model racing via OpenRouter.
+
+    Fires ``N`` parallel queries against the resolved tier of
+    OpenRouter models, scores each response (length / structure /
+    anti-refusal / directness / relevance, 0-100), and renders the
+    top results.
+
+    Args:
+      ``args`` -- ``<query> [--tier fast|standard|smart|power|ultra]``
+                  ``[--no-godmode] [--no-depth]``
+
+    When ``--no-godmode`` is absent (default), the GODMODE_SYSTEM_PROMPT
+    is sent as the system message. When ``--no-depth`` is also absent,
+    DEPTH_DIRECTIVE is appended. These switches let an operator A/B a
+    racing strategy against the baseline.
+
+    Provider resolution: prefers a per-session
+    :class:`OpenRouterProvider` instance the agent has already built;
+    falls back to creating a fresh one from ``OPENROUTER_API_KEY``
+    in the credential surface (``~/.athena/.env`` first, then env).
+    """
+    from ..jailbreak import (
+        DEPTH_DIRECTIVE,
+        GODMODE_SYSTEM_PROMPT,
+        RaceConfig,
+        get_models_for_tier,
+        race_models,
     )
-    if args.strip():
-        ui.info(f"(args ignored: {args.strip()!r})")
+
+    query, tier, godmode_on, depth_on = _parse_race_args(args)
+    if not query:
+        ui.error(
+            "usage: /godmode race <query> "
+            "[--tier fast|standard|smart|power|ultra] "
+            "[--no-godmode] [--no-depth]"
+        )
+        return
+    if tier not in _VALID_RACE_TIERS:
+        ui.error(
+            f"unknown tier: {tier!r}. Use one of: "
+            f"{', '.join(_VALID_RACE_TIERS)}."
+        )
+        return
+
+    # Resolve provider. Prefer an existing OpenRouter instance hung off
+    # the agent (lets a future ``/race-provider`` slash command target
+    # any OpenAI-compatible host); otherwise construct one from the
+    # credential.
+    provider = getattr(agent, "openrouter_provider", None)
+    if provider is None:
+        api_key = get_credential("OPENROUTER_API_KEY")
+        if not api_key:
+            ui.error(
+                "OPENROUTER_API_KEY is not set. Add it to "
+                "~/.athena/.env or your shell environment, then try again."
+            )
+            return
+        from ..providers.openrouter import OpenRouterProvider
+
+        provider = OpenRouterProvider(api_key=api_key)
+
+    # Build the messages payload. System message follows the reference
+    # composition: GODMODE_SYSTEM_PROMPT (+ DEPTH_DIRECTIVE) when both
+    # flags are on; bare query if --no-godmode.
+    system_prompt = ""
+    if godmode_on:
+        system_prompt = GODMODE_SYSTEM_PROMPT
+        if depth_on:
+            system_prompt = system_prompt + DEPTH_DIRECTIVE
+    messages: list[dict[str, Any]] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": query})
+
+    models = get_models_for_tier(tier)
+    ui.info(
+        f"racing {len(models)} models in tier '{tier}'. "
+        f"godmode={'on' if godmode_on else 'off'} "
+        f"depth={'on' if depth_on else 'off'}"
+    )
+
+    # Live progress callback: print each result as it comes in.
+    def _on_result(result: Any) -> None:
+        status = "✓" if result.success else "✗"
+        ui.info(
+            f"  {status} {result.model:<48} "
+            f"score={result.score:>3} "
+            f"{result.duration_ms:>6}ms"
+        )
+
+    results = race_models(
+        provider,
+        models,
+        messages,
+        query,
+        config=RaceConfig(on_result=_on_result),
+    )
+
+    # Render top 5 + winner detail.
+    top = results[:5]
+    if not top:
+        ui.warn("no results -- every model failed or timed out.")
+        return
+    ui.console.print("\n[bold]Top 5 by score:[/]")
+    for i, r in enumerate(top, 1):
+        status_marker = "[green]✓[/]" if r.success else "[red]✗[/]"
+        ui.console.print(
+            f"  {i}. {status_marker} {r.model:<48} "
+            f"score={r.score:>3}  {r.duration_ms:>6}ms"
+        )
+    winner = top[0]
+    if winner.success and winner.content:
+        ui.console.print(f"\n[bold]Winner ({winner.model}):[/]")
+        preview = winner.content
+        if len(preview) > 1200:
+            preview = preview[:1200] + "\n[dim]... [truncated][/]"
+        ui.console.print(preview)
+
+
+def _race_stub(agent: Any, args: str) -> None:
+    """Kept for backwards compatibility. ``/godmode race`` now
+    dispatches to :func:`_run_race`; this stub is here for any
+    future opt-out path."""
+    _run_race(agent, args)
 
 
 def _set_prefill_file(agent: Any, name_or_path: str) -> None:

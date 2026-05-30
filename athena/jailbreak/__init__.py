@@ -27,12 +27,26 @@ from .prompts import (
     detect_model_family,
     plan_for_family,
 )
+from .race import (
+    ULTRAPLINIAN_MODELS,
+    RaceConfig,
+    RaceResult,
+    get_models_for_tier,
+    race_models,
+    score_response,
+)
 
 __all__ = [
     "DEPTH_DIRECTIVE",
     "GODMODE_SYSTEM_PROMPT",
     "STRATEGIES",
+    "ULTRAPLINIAN_MODELS",
+    "RaceConfig",
+    "RaceResult",
     "compose_system_prompt",
     "detect_model_family",
+    "get_models_for_tier",
     "plan_for_family",
+    "race_models",
+    "score_response",
 ]

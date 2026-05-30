@@ -276,32 +276,38 @@ def test_auto_unknown_flag_warns_but_still_applies(
 # ---------------------------------------------------------------------------
 
 
-def test_race_warns_not_yet_implemented(
+def test_race_without_api_key_errors_clearly(
     _gate_open: None,
     _captured_ui: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The race stub must clearly signal not-yet-implemented (rather
-    than silent no-op or crash) so operators don't think it ran
-    and silently produced no results."""
+    """``/godmode race`` now actually works (Phase 2), so the
+    Phase 1D "not implemented" stub assertion is obsolete. The
+    surviving operator-facing failure mode is missing
+    OPENROUTER_API_KEY -- the command must error with that
+    specific marker so operators know what to fix."""
     from athena.commands.godmode import cmd_godmode
 
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     agent = _agent()
     cmd_godmode(agent, "race what is the meaning of life")
 
-    assert _captured_ui["warn"]
-    combined = " ".join(_captured_ui["warn"]).lower()
-    assert "not yet implemented" in combined or "not implemented" in combined
+    assert _captured_ui["error"]
+    assert any("OPENROUTER_API_KEY" in m for m in _captured_ui["error"])
 
 
-def test_race_does_not_mutate_agent_state(
+def test_race_does_not_mutate_agent_state_on_error(
     _gate_open: None,
     _captured_ui: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """While stubbed, race must NOT touch ``cfg.agent_system_prompt_append``
-    or the active marker -- it's a no-op, not a half-applied
-    jailbreak."""
+    """Race must NOT touch ``cfg.agent_system_prompt_append`` or the
+    active marker -- it's a read-only operation (samples model
+    responses), not a half-applied jailbreak. Even on the
+    missing-API-key error path."""
     from athena.commands.godmode import cmd_godmode
 
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     agent = _agent()
     cmd_godmode(agent, "race --tier ultra deep query")
 
