@@ -393,6 +393,7 @@ class AgentLifecycle:
             },
             lean=self.cfg.lean_prompt,
             disabled_sections=self.cfg.disabled_prompt_sections,
+            tool_result_nonce=getattr(self, "_tool_result_nonce", None),
         )
 
     def _profile_dir(self) -> Path:
@@ -562,6 +563,19 @@ class AgentLifecycle:
         # Like ``_stats_lock``, the serial path takes it too
         # (uncontended) for uniform discipline.
         self._ui_lock = threading.Lock()
+        # 0.3.0 hardening tier 0 #4: per-session nonce for tool-result
+        # boundary markers. ``_record_tool_result`` wraps every result
+        # in ``[TOOL_RESULT.<nonce>] ... [/TOOL_RESULT.<nonce>]`` so
+        # injected content inside a Read / WebFetch / MCP response
+        # can't pre-guess the closing tag and break out of the wrapper.
+        # Fresh per Agent so resumed sessions get a new nonce -- prior
+        # transcript replays land in the message stream verbatim (with
+        # the old nonce embedded in the recorded text) but new tool
+        # results use the new one, defeating any attacker who somehow
+        # observed an earlier session's nonce.
+        import secrets
+
+        self._tool_result_nonce = secrets.token_hex(8)
         # Configure tools with workspace
         tools.file_ops.set_workspace(self.workspace, max_read=cfg.max_file_read)
         tools.shell.set_max_output(cfg.max_bash_output)
