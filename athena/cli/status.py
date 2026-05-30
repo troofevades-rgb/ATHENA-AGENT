@@ -115,6 +115,42 @@ def render_status(snapshot: dict[str, Any]) -> str:
             retries = counts.get("retries", 0)
             aborts = counts.get("aborts", 0)
             lines.append(f"  {prov}: {retries} retries, {aborts} aborts")
+
+    # 0.3.0 observability: latency + error counters. Each block is
+    # conditional on having data so a fresh session's /status stays
+    # clean. Values are in milliseconds with one decimal -- p50/p95/
+    # p99 read at a glance for "is the model getting slower" or
+    # "which tool is dragging".
+    turn_lat = snapshot.get("turn_latency_ms")
+    if turn_lat:
+        lines.append("")
+        lines.append(
+            f"turn latency (n={turn_lat['count']}): "
+            f"p50 {turn_lat['p50_ms']:.0f}ms  "
+            f"p95 {turn_lat['p95_ms']:.0f}ms  "
+            f"p99 {turn_lat['p99_ms']:.0f}ms"
+        )
+    tool_lat = snapshot.get("tool_latencies_ms") or {}
+    if tool_lat:
+        lines.append("")
+        lines.append("tool latency (p50 / p95):")
+        # Sort by p95 desc so the slowest tool surfaces first --
+        # that's the one most likely to be worth investigating.
+        for tool, s in sorted(
+            tool_lat.items(),
+            key=lambda kv: -float(kv[1].get("p95_ms", 0)),
+        ):
+            lines.append(
+                f"  {tool:<20} "
+                f"{s['p50_ms']:>6.0f}ms / "
+                f"{s['p95_ms']:>6.0f}ms  (n={s['count']})"
+            )
+    prov_err = int(snapshot.get("provider_errors") or 0)
+    tool_err = int(snapshot.get("tool_errors") or 0)
+    if prov_err or tool_err:
+        lines.append("")
+        lines.append(f"errors:  provider={prov_err}  tool={tool_err}")
+
     return "\n".join(lines)
 
 

@@ -157,7 +157,18 @@ class AgentRuntime:
                 current_input = user_input
                 tokens_at_loop_start = self.stats.prompt_tokens + self.stats.eval_tokens
                 while True:
-                    self._run_turn_inner(current_input)
+                    # 0.3.0 observability: time each inner turn so
+                    # /status surfaces p50/p95/p99 turn latency.
+                    # perf_counter avoids wall-clock skew if the
+                    # system clock jumps mid-turn.
+                    import time as _time
+                    _turn_start = _time.perf_counter()
+                    try:
+                        self._run_turn_inner(current_input)
+                    finally:
+                        self.stats.record_turn_duration(
+                            _time.perf_counter() - _turn_start
+                        )
                     next_input = self._consult_goal_continuation(
                         tokens_at_loop_start=tokens_at_loop_start,
                     )
@@ -559,6 +570,10 @@ class AgentRuntime:
                 status.stop()
             typewriter.finalize(markdown=False)
             ui.error(f"provider error: {e}")
+            # 0.3.0 observability: count provider failures so /status
+            # surfaces "the model endpoint is flaky" without operators
+            # having to grep logs.
+            self.stats.record_provider_error()
             return "".join(text_parts), [], None
         finally:
             # Tool-only or empty responses never trip the in-loop stop().
@@ -919,7 +934,22 @@ class AgentRuntime:
         if name in ("Write", "write_file"):
             self._preview_write(args)
 
-        result = tools.dispatch(name, args)
+        # 0.3.0 observability: time the dispatch so /status surfaces
+        # per-tool p50/p95/p99 and tool_errors (dispatch-raised count).
+        # The histogram is what reveals "tool X went from 50ms p95 to
+        # 5s p95 after rebuild Y" -- the kind of regression that
+        # eval suites miss.
+        import time as _time
+        _tool_start = _time.perf_counter()
+        try:
+            result = tools.dispatch(name, args)
+        except Exception:
+            self.stats.record_tool_error()
+            raise
+        finally:
+            self.stats.record_tool_duration(
+                name, _time.perf_counter() - _tool_start
+            )
         with ui_lock:
             ui.tool_result(name, result)
 
