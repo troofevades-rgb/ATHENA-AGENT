@@ -57,13 +57,22 @@ class RateLimiter:
                 self._buckets.pop(webhook_id, None)
 
     def current_count(self, webhook_id: str) -> int:
-        """For diagnostics / status output."""
+        """For diagnostics / status output. Read-only -- does NOT
+        mutate the bucket.
+
+        The previous implementation called ``bucket.popleft()`` to
+        drop expired entries before returning the count. That had
+        the side effect of permanently dropping timestamps a
+        concurrent ``check()`` may still have needed (e.g., a /status
+        call mid-burst could under-count the next ``check()``'s view
+        of the bucket). Diagnostics must never alter the limiter's
+        observable behavior. The cost: we walk the bucket once per
+        call instead of popping in place; bucket sizes are bounded
+        by ``per_minute`` so this is O(per_minute) and cheap."""
         now = time.monotonic()
         cutoff = now - _WINDOW_SECONDS
         with self._lock:
             bucket = self._buckets.get(webhook_id)
             if bucket is None:
                 return 0
-            while bucket and bucket[0] < cutoff:
-                bucket.popleft()
-            return len(bucket)
+            return sum(1 for ts in bucket if ts >= cutoff)
