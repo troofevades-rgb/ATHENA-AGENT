@@ -30,8 +30,10 @@ Every other hook (``on_session_start``, ``on_session_end``,
 ``on_turn_end``) is still called from the foreground turn thread only --
 worker-thread concurrency is scoped to the tool-dispatch hooks.
 
-This module deliberately doesn't import :mod:`athena.hooks` — the
-settings-driven hook system there is a separate, additive layer.
+This is the plugin-side hook dispatcher. The settings.json hooks
+block is read by ``ShellHookPlugin`` (``athena/plugins/bundled/
+shell_hook/``) -- a separate, additive layer that registers itself
+through this dispatcher.
 """
 
 from __future__ import annotations

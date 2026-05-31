@@ -12,9 +12,10 @@ and runs the same shell commands on the equivalent plugin lifecycle events:
   Stop            on_turn_end            Observation only.
   ============ ====================== ====================================
 
-This is the migration path from the legacy ``athena.hooks`` module to the
-plugin system. ``athena/hooks.py`` is a deprecation shim that now delegates
-through here.
+This plugin owns the settings.json hooks block. ``athena/hooks.py``
+(the deprecation shim from Phase 0) was removed in the 0.3.0 dogfood
+sweep; external callers should import from this plugin directly or
+let the plugin's lifecycle hooks fire automatically.
 
 Settings are loaded once on ``on_session_start`` from
 ``~/.athena/settings.json`` AND ``<workspace>/.athena/settings.json``.
