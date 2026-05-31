@@ -193,8 +193,7 @@ class AgentRuntime:
         # Per-plugin veto on the user prompt. The first plugin to return
         # (False, reason) cancels the turn. The bundled ShellHookPlugin
         # bridges the settings.json UserPromptSubmit hook into this
-        # check, so existing user configs keep working without going
-        # through the legacy athena.hooks path.
+        # check, so existing user configs keep working.
         allow, msg = self.plugin_hooks.check_user_message(user_input)
         if not allow:
             ui.error(f"prompt cancelled by plugin: {msg}")
