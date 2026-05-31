@@ -112,6 +112,19 @@ def test_bearer_empty_header() -> None:
     assert verify_bearer("", "my-token") is False
 
 
-def test_bearer_extra_whitespace_in_token_ignored() -> None:
-    """Trailing whitespace in the header value is stripped."""
-    assert verify_bearer("Bearer my-token   ", "my-token") is True
+def test_bearer_trailing_whitespace_is_significant() -> None:
+    """Byte-for-byte equality only -- the previous implementation
+    called .strip() on the value, which masked operator config bugs
+    (if the stored expected_token had accidental trailing whitespace
+    the comparison still succeeded, so the operator never saw the
+    config mistake). Post-fix: whitespace counts as part of the
+    token."""
+    # Header has trailing whitespace; expected does NOT.
+    assert verify_bearer("Bearer my-token   ", "my-token") is False
+    # Header is clean; expected has trailing whitespace.
+    assert verify_bearer("Bearer my-token", "my-token   ") is False
+    # Both have matching trailing whitespace -- bytes are equal,
+    # comparison succeeds. (Not recommended config, but the result
+    # is at least consistent and lets the operator see what they
+    # actually wrote.)
+    assert verify_bearer("Bearer my-token  ", "my-token  ") is True
