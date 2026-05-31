@@ -134,6 +134,7 @@ class AgentRuntime:
         _param_policy: ParamPolicy
         _last_assistant_text: str
         _last_turn_interrupted: bool
+        _last_stop_reason: str | None
         cancel_pending: bool
 
     def _log_event(
@@ -251,6 +252,11 @@ class AgentRuntime:
         # consults after this method returns. Reset on entry.
         self._last_assistant_text = ""
         self._last_turn_interrupted = False
+        # Reset the last stop reason so a stale circuit-breaker trip
+        # from a prior turn doesn't pause the goal loop on a clean
+        # turn that ended via the interrupt path (which returns
+        # without calling _fire_stop).
+        self._last_stop_reason = None
         # Per-plugin veto on the user prompt. The first plugin to return
         # (False, reason) cancels the turn. The bundled ShellHookPlugin
         # bridges the settings.json UserPromptSubmit hook into this
@@ -592,6 +598,10 @@ class AgentRuntime:
         return stop
 
     def _fire_stop(self, reason: str) -> None:
+        # Record the stop reason for the goal-continuation hook so a
+        # circuit-breaker trip pauses the goal loop instead of being
+        # papered over by another synthetic turn.
+        self._last_stop_reason = reason
         stats = {
             "turns": self.stats.turns,
             "tool_calls": self.stats.tool_calls,
@@ -1314,7 +1324,19 @@ class AgentRuntime:
                         chunks.append(payload)
             return "".join(chunks)
 
-        result = compress(self.messages, summarizer=_summarizer, cfg=cfg)
+        # Compression is observability, not correctness. A summarizer
+        # failure (provider 404 from a misrouted model, transport blip,
+        # auth rejection on the summary call) must NEVER propagate --
+        # historically that crashed the whole agent process at the
+        # call site three frames up (run_turn). Catch broadly, warn,
+        # leave self.messages untouched; the next provider call will
+        # 404 just like this one did and the circuit breaker will
+        # halt the turn cleanly instead of via a fatal traceback.
+        try:
+            result = compress(self.messages, summarizer=_summarizer, cfg=cfg)
+        except Exception as e:  # noqa: BLE001
+            ui.warn(f"context compression skipped: {type(e).__name__}: {e}")
+            return
         if result.middle_message_count == 0:
             return
         ui.info(

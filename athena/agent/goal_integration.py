@@ -52,6 +52,7 @@ class AgentGoalIntegration:
         goal_state: GoalState | None
         _last_turn_interrupted: bool
         _last_assistant_text: str
+        _last_stop_reason: str | None
         _goal_loop_tokens_used: int
 
     def _consult_goal_continuation(self, *, tokens_at_loop_start: int) -> str | None:
@@ -80,6 +81,29 @@ class AgentGoalIntegration:
             self.goal_state.status = "paused"
             self._persist_goal_state()
             ui.warn("goal paused (interrupt detected) — /goal resume to continue")
+            return None
+
+        # Circuit-breaker trip on the inner turn pauses the goal
+        # loop. Without this, a wedged provider (404 on a misrouted
+        # model, repeated 5xx, identical-tool-call loop) burns the
+        # full goal_max_turns budget hammering the same broken
+        # endpoint -- in the dogfood that surfaced this fix, the
+        # loop reached turn 174/10000 before the operator killed
+        # athena. The breaker already ended the inner turn cleanly;
+        # the goal hook just has to stop re-injecting.
+        last_stop = getattr(self, "_last_stop_reason", None)
+        # isinstance gate handles MagicMock stubs (which are truthy
+        # and have a callable .startswith returning a MagicMock); the
+        # production attribute is set to ``str | None`` in
+        # ``lifecycle.py``, so anything non-str here is test debris.
+        if isinstance(last_stop, str) and last_stop.startswith("circuit_breaker:"):
+            self.goal_state.status = "paused"
+            self._persist_goal_state()
+            ui.warn(
+                f"goal paused ({last_stop}) — /goal resume once the "
+                "provider stabilizes (check `athena doctor` and "
+                "`/model` to verify routing)."
+            )
             return None
 
         # Token-cap check. The cap counts tokens consumed since

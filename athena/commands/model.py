@@ -273,6 +273,61 @@ def _resolve_picker_index(arg: str) -> str | None:
     return _LAST_PICKER[n - 1].label
 
 
+_KNOWN_PROVIDER_PREFIXES: tuple[str, ...] = (
+    "anthropic",
+    "codex",
+    "openai",
+    "google",
+    "openrouter",
+    "nous",
+    "xai",
+)
+
+
+def _typo_suggestion(name: str) -> str | None:
+    """Detect ``<prefix>/<rest>`` where ``<prefix>`` is a near-miss
+    of a known provider routing prefix and return a suggestion
+    string. ``None`` means "no typo detected; let the regular router
+    handle this" -- which preserves the legitimate
+    ``vendor/model`` ollama tag form (``mistralai/mistral-7b``)
+    that doesn't resemble any provider name.
+
+    Surfaced via ``_switch_model`` so the operator gets a clear
+    "did you mean X?" instead of a 404 cascade on every subsequent
+    turn (the dogfood that surfaced this: ``/model
+    athropic/claude-opus-4-7`` silently fell through to ollama and
+    burned 174 goal-loop turns hammering Ollama with the typo'd
+    model name)."""
+    import difflib
+
+    if "/" not in name:
+        return None
+    prefix = name.split("/", 1)[0]
+    # Already a known provider — _route handles it; not a typo.
+    if prefix in _KNOWN_PROVIDER_PREFIXES:
+        return None
+    # Skip prefixes that aren't plausible provider names (host:port,
+    # http(s):// URL components, or anything with non-letters). Those
+    # are legitimate Ollama / openai_compat tag forms.
+    if not prefix.isalpha():
+        return None
+    # The cutoff is intentionally aggressive (0.75). At that
+    # threshold, ``athropic`` -> ``anthropic`` (one deletion, 9 vs
+    # 8 chars) matches at ~0.94 ratio, ``opena`` -> ``openai``
+    # matches, and unrelated vendor names like ``mistralai`` or
+    # ``qwen`` correctly score below cutoff and pass through.
+    matches = difflib.get_close_matches(
+        prefix.lower(),
+        _KNOWN_PROVIDER_PREFIXES,
+        n=1,
+        cutoff=0.75,
+    )
+    if not matches:
+        return None
+    rest = name.split("/", 1)[1]
+    return f"unknown provider prefix '{prefix}/'. Did you mean '{matches[0]}/{rest}'?"
+
+
 def _switch_model(agent: Any, new_name: str) -> None:
     """The actual switch path -- shared by the name-arg and
     picker-index branches. Rebuilds the provider when the new name
@@ -280,6 +335,10 @@ def _switch_model(agent: Any, new_name: str) -> None:
     whose catalog entry doesn't list ``tools`` in
     ``supported_parameters`` -- such a model 404s on every athena
     turn (we ship tool schemas unconditionally)."""
+    typo = _typo_suggestion(new_name)
+    if typo is not None:
+        ui.error(typo)
+        return
     current_provider_name = getattr(agent.provider, "name", "")
     new_provider_name = _route(new_name, agent.cfg)
     if new_provider_name != current_provider_name:

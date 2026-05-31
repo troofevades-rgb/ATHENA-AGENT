@@ -182,6 +182,15 @@ ALLOWLIST: frozenset[str] = frozenset(
         # raising mid-tool-error). Bounded by MAX_LOG_FILES rotation.
         # See athena/event_log.py module docstring.
         "athena/event_log.py",
+        # Boot tracer -- opt-in (gated on ATHENA_BOOT_TRACE=1)
+        # append-only JSONL into ~/.athena/boot-trace.jsonl for
+        # debugging silent-exit / hang bugs at startup. Same
+        # diagnostic-only rationale as crash_log / event_log:
+        # tracing fires BEFORE any other state is reachable
+        # (excepthook, agent, snapshot_and_record), so routing
+        # through the audit subsystem is impossible by definition.
+        # See athena/boot_trace.py module docstring.
+        "athena/boot_trace.py",
     }
 )
 

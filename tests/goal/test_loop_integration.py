@@ -45,6 +45,7 @@ def _agent(
     interrupted: bool = False,
     cfg: SimpleNamespace | None = None,
     stats: SimpleNamespace | None = None,
+    last_stop_reason: str | None = None,
 ) -> SimpleNamespace:
     """Compose a stub agent matching what _consult_goal_continuation reads."""
     a = SimpleNamespace(
@@ -53,6 +54,7 @@ def _agent(
         goal_state=goal_state,
         _last_assistant_text=assistant_text,
         _last_turn_interrupted=interrupted,
+        _last_stop_reason=last_stop_reason,
         _goal_loop_tokens_used=0,
     )
     a._profile_dir = lambda: tmp_path  # type: ignore[assignment]
@@ -337,3 +339,66 @@ def test_announcement_does_not_repeat_when_state_already_paused(
     captured = capsys.readouterr()
     combined = (captured.out + captured.err).lower()
     assert "goal blocked" not in combined
+
+
+# ---------------------------------------------------------------------------
+# Circuit-breaker integration (dogfood-driven, runtime.py:_fire_stop)
+# ---------------------------------------------------------------------------
+
+
+def test_circuit_breaker_stop_pauses_goal_loop(tmp_path: Path):
+    """A circuit-breaker trip on the inner turn must pause the goal
+    loop. Pre-fix behavior: the breaker halted the inner turn but
+    the goal-continuation hook didn't read the stop reason and
+    just kept injecting synthetic turns, burning the whole
+    goal_max_turns budget hammering the same broken provider.
+
+    The dogfood that surfaced this: a typo'd ``athropic/`` model
+    name silently routed to Ollama, 404'd every turn, breaker
+    tripped every turn, goal loop reached turn 174/10000 before
+    the operator killed athena."""
+    st = GoalState(text="x", max_turns=10)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="working on it",
+        last_stop_reason="circuit_breaker:provider_errors",
+    )
+    assert a._consult_goal_continuation(tokens_at_loop_start=0) is None
+    assert st.status == "paused"
+    persisted = load_state(tmp_path)
+    assert persisted is not None
+    assert persisted.status == "paused"
+
+
+def test_circuit_breaker_identical_tools_also_pauses_goal_loop(tmp_path: Path):
+    """The other breaker (identical-tool-calls) must pause the
+    loop just like provider_errors does -- both indicate the
+    inner turn is stuck and re-injecting synthetic turns burns
+    budget on the same broken pattern."""
+    st = GoalState(text="x", max_turns=10)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="working",
+        last_stop_reason="circuit_breaker:identical_tool_calls",
+    )
+    assert a._consult_goal_continuation(tokens_at_loop_start=0) is None
+    assert st.status == "paused"
+
+
+def test_completed_stop_does_not_pause_goal_loop(tmp_path: Path):
+    """Sanity guard: only ``circuit_breaker:*`` stop reasons should
+    pause. A normal ``completed`` stop must continue to inject
+    the next synthetic turn (otherwise no goal would ever make
+    progress past the first reply)."""
+    st = GoalState(text="x", max_turns=10)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="working",
+        last_stop_reason="completed",
+    )
+    next_input = a._consult_goal_continuation(tokens_at_loop_start=0)
+    assert next_input is not None
+    assert st.status == "active"
