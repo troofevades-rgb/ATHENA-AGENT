@@ -446,6 +446,20 @@ def main() -> int:
         _cp("post_headless", status=str(result.status), exit_code=result.exit_code())
         return result.exit_code()
 
+    # Belt + suspenders: register terminal-restore at atexit BEFORE
+    # the REPL spawns the TUI so any crash path (uncaught exception
+    # mid-turn, signal-driven termination, etc.) still resets the
+    # alt-screen / cursor / SGR state before PowerShell takes over.
+    # Without this, a hard-killed TUI leaves the terminal in
+    # alt-screen mode and the user sees a "frozen" window. Idempotent:
+    # the helper writes mode-setting (not state-toggling) ANSI codes
+    # so a duplicate call from gateway.close() and from atexit is
+    # safe.
+    import atexit
+
+    from .tui_gateway.server import _restore_terminal
+
+    atexit.register(_restore_terminal)
     _cp("pre_repl")
     _rc = _run_interactive_repl(agent, cfg, workspace)
     _cp("post_repl", rc=_rc)

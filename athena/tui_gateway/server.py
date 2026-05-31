@@ -129,6 +129,46 @@ _OUTBOUND_COALESCE_THRESHOLD = int(_OUTBOUND_MAXSIZE * 0.8)
 _RING_MAXSIZE = 500
 
 
+def _restore_terminal() -> None:
+    """Emit the ANSI sequences that undo Ink's terminal setup.
+
+    Ink installs (1) alt-screen mode, (2) raw input, (3) hidden
+    cursor. When the TUI subprocess exits cleanly, Ink's own
+    cleanup restores all three. When the subprocess is killed
+    (Ctrl+C path where Python's ``proc.kill()`` fires before Ink's
+    SIGTERM handler runs, or any forced-shutdown path), the
+    terminal stays in alt-screen + raw mode -- PowerShell renders
+    its prompt into the invisible alt-screen, and the user is
+    forced to close the terminal window entirely.
+
+    Best-effort: writes to stderr so it doesn't collide with any
+    final stdout the operator might be piping. A write failure
+    (closed stderr, unusual stdio routing) is silently swallowed
+    -- the cleanup is observability, not correctness; we must
+    never raise out of shutdown.
+
+    The sequences emitted:
+      * ``ESC[?1049l`` -- exit alt-screen, restore main screen
+      * ``ESC[?25h``   -- show cursor
+      * ``ESC[?7h``    -- re-enable line wrap (Ink may have
+                          disabled it for pixel-perfect layout)
+      * ``ESC[0m``     -- reset SGR (colours / attributes)
+
+    These work on every modern terminal emulator including
+    Windows Terminal, ConPTY (PowerShell), and the legacy Win10
+    conhost with VT mode enabled. The order matters: leaving
+    alt-screen FIRST means the cursor / SGR reset lands on the
+    visible (main) screen rather than the discarded alt buffer.
+    """
+    try:
+        # Single contiguous write so partial-write doesn't leave
+        # the terminal in a half-restored state.
+        sys.stderr.write("\x1b[?1049l\x1b[?25h\x1b[?7h\x1b[0m")
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _locate_bundle() -> Path:
     """Find the Ink bundle. Dev: ui-tui/dist/main.js. Wheel:
     athena/_tui_bundle/main.js. Raises FileNotFoundError so the
@@ -729,6 +769,7 @@ class TuiGateway:
             self._reader_thread.join(timeout=1.0)
         proc = self._proc
         if proc is None:
+            _restore_terminal()
             return
         try:
             proc.wait(timeout=timeout_s)
@@ -740,6 +781,16 @@ class TuiGateway:
             except subprocess.TimeoutExpired:
                 logger.warning("TUI did not respond to SIGTERM; killing")
                 proc.kill()
+        # Restore the terminal state regardless of whether the TUI
+        # exited cleanly or was force-killed. Ink installs alt-screen
+        # + raw mode when it boots; if it doesn't get to run its
+        # own cleanup (Ctrl+C path where Ink's exit() unmounts React
+        # but Node is forcibly terminated before its SIGTERM/EOF
+        # cleanup runs), the user is left with a "frozen" terminal --
+        # PowerShell's prompt renders into an alt-screen the user
+        # can't see, requiring them to close the window entirely.
+        # Surfaced repeatedly on Windows ConPTY.
+        _restore_terminal()
 
     # ---- handshake + heartbeat ---------------------------------
 
