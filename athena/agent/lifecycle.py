@@ -916,6 +916,16 @@ class AgentLifecycle:
         # Fire on_session_start once the session_id exists.
         if self.session_id is not None:
             self.plugin_hooks.on_session_start(self.session_id, cfg.profile or "default")
+        # Audit P1 structured event log: rotate old session files
+        # once per session start so the cap (MAX_LOG_FILES, default
+        # 200) is enforced without operators having to manage it.
+        # Best-effort -- a rotate failure must never block startup.
+        try:
+            from ..event_log import rotate_logs
+
+            rotate_logs()
+        except Exception:  # noqa: BLE001
+            logger.debug("event_log rotate failed", exc_info=True)
         # Wire ShellHookPlugin's workspace AFTER on_session_start so it
         # can re-read settings.json with the correct workspace context.
         self._configure_shell_hook_plugin()
@@ -1054,6 +1064,16 @@ class AgentLifecycle:
                 _nudge_reset(self.session_id)
             except Exception:  # noqa: BLE001
                 logger.debug("review nudge reset raised", exc_info=True)
+            # Audit P1 structured event log: release the per-session
+            # writer + file handle so long-lived daemons (gateway,
+            # cron) don't accumulate one EventLog instance per
+            # evicted session.
+            try:
+                from ..event_log import close_event_log
+
+                close_event_log(self.session_id)
+            except Exception:  # noqa: BLE001
+                logger.debug("event_log close raised", exc_info=True)
         if self._owns_client:
             try:
                 self.client.close()

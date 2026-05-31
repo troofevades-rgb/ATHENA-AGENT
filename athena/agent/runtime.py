@@ -136,6 +136,35 @@ class AgentRuntime:
         _last_turn_interrupted: bool
         cancel_pending: bool
 
+    def _log_event(
+        self,
+        *,
+        kind: str,
+        level: str = "error",
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        """Write one structured event to ``~/.athena/logs/session-<id>.jsonl``.
+
+        Best-effort: a missing session_id, an import failure, or an
+        underlying write error all silently no-op. The event log is
+        observability, not correctness; it must never break the
+        agent's hot path. Operators consume the file later for
+        incident triage via ``athena doctor`` (recent-error count)
+        or direct ``jq`` queries.
+        """
+        if self.session_id is None:
+            return
+        try:
+            from ..event_log import get_event_log
+
+            get_event_log(self.session_id).log(
+                kind=kind,  # type: ignore[arg-type]
+                level=level,  # type: ignore[arg-type]
+                data=data,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("event_log write failed", exc_info=True)
+
     def run_turn(self, user_input: str) -> None:
         """Run one user turn to completion (model may call tools several times).
 
@@ -569,6 +598,21 @@ class AgentRuntime:
             "prompt_tokens": self.stats.prompt_tokens,
             "eval_tokens": self.stats.eval_tokens,
         }
+        # Audit P1 structured logging: log circuit-breaker stops to
+        # the event timeline so operators can see WHY a turn ended
+        # without scrolling stderr. Normal stop reasons ("completed",
+        # "step_limit", "cancelled") aren't logged -- they're noise
+        # and the snapshot already records the last reason.
+        if reason.startswith("circuit_breaker:"):
+            self._log_event(
+                kind="circuit_breaker",
+                level="error",
+                data={
+                    "reason": reason,
+                    "turn": self.stats.turns,
+                    "tool_calls": self.stats.tool_calls,
+                },
+            )
         # Per-turn end-of-turn hook. The bundled ShellHookPlugin
         # bridges the settings.json Stop event into this dispatch.
         try:
@@ -684,6 +728,21 @@ class AgentRuntime:
             # surfaces "the model endpoint is flaky" without operators
             # having to grep logs.
             self.stats.record_provider_error()
+            # Audit P1 structured logging: write a JSONL event so
+            # operators can grep ``~/.athena/logs/session-<id>.jsonl``
+            # for a timeline of provider failures rather than scrolling
+            # stderr. Secrets in the exception message are scrubbed.
+            self._log_event(
+                kind="provider_error",
+                level="error",
+                data={
+                    "provider": getattr(self.provider, "name", None),
+                    "model": self.model,
+                    "exception_type": type(e).__name__,
+                    "message": str(e),
+                    "turn": self.stats.turns,
+                },
+            )
             return "".join(text_parts), [], None
         finally:
             # Tool-only or empty responses never trip the in-loop stop().
@@ -1053,8 +1112,18 @@ class AgentRuntime:
         _tool_start = _time.perf_counter()
         try:
             result = tools.dispatch(name, args)
-        except Exception:
+        except Exception as _tool_exc:
             self.stats.record_tool_error()
+            self._log_event(
+                kind="tool_error",
+                level="error",
+                data={
+                    "tool": name,
+                    "exception_type": type(_tool_exc).__name__,
+                    "message": str(_tool_exc),
+                    "turn": self.stats.turns,
+                },
+            )
             raise
         finally:
             self.stats.record_tool_duration(

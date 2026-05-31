@@ -173,6 +173,15 @@ ALLOWLIST: frozenset[str] = frozenset(
         # MAX_CRASH_RECORDS rotation so disk usage is capped.
         # See athena/crash_log.py module docstring.
         "athena/crash_log.py",
+        # Event log writer -- append-only JSONL into
+        # ~/.athena/logs/session-<id>.jsonl. Same diagnostic-only
+        # rationale as crash_log: captures provider_error /
+        # tool_error / circuit_breaker events at the moments they
+        # happen, which is exactly when the audit subsystem may
+        # itself be the failing surface (think: snapshot_and_record
+        # raising mid-tool-error). Bounded by MAX_LOG_FILES rotation.
+        # See athena/event_log.py module docstring.
+        "athena/event_log.py",
     }
 )
 

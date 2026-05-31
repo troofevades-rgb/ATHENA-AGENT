@@ -452,6 +452,37 @@ def _check_tui_bundle() -> CheckResult:
 # ── Section: crash log ──────────────────────────────────────────────
 
 
+def _check_recent_event_log_errors() -> CheckResult:
+    """Count ``level == "error"`` events in session logs from the
+    last 24h. Zero -> OK; any errors recorded -> WARN with a count
+    so operators triage failed turns at a glance. Always points at
+    the log directory so they can ``jq`` a specific session."""
+    from ..event_log import count_errors_within_days, recent_log_files
+
+    log_dir = Path.home() / ".athena" / "logs"
+    error_count = count_errors_within_days(1)
+    file_count = len(recent_log_files(within_days=1))
+    if error_count == 0:
+        return CheckResult(
+            section="events",
+            name="events.recent_errors",
+            label="Event log errors (24h)",
+            severity="ok",
+            detail=f"0 errors across {file_count} session(s) -- log dir: {log_dir}",
+        )
+    return CheckResult(
+        section="events",
+        name="events.recent_errors",
+        label="Event log errors (24h)",
+        severity="warn",
+        detail=(
+            f"{error_count} error event(s) across {file_count} session(s). "
+            f"Inspect: {log_dir} (one JSONL per session)"
+        ),
+        extra={"error_count": error_count, "session_count": file_count},
+    )
+
+
 def _check_recent_crashes() -> CheckResult:
     """Count crash records from the last 7 days. Zero -> OK; any
     crashes recorded -> WARN with a count so operators triage at
@@ -530,6 +561,7 @@ def run_all_checks(skip_network: bool = False) -> list[CheckResult]:
         ("~/.athena writable", _check_athena_home_writable),
         ("node on PATH", _check_node_on_path),
         ("Ink TUI bundle", _check_tui_bundle),
+        ("Event log errors (24h)", _check_recent_event_log_errors),
         ("Recent crashes (7d)", _check_recent_crashes),
         ("/godmode gate", _check_godmode_gate),
     ]
