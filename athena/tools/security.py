@@ -18,7 +18,6 @@ import json
 import logging
 from typing import Any
 
-from ..config import load_config
 from .registry import tool
 
 logger = logging.getLogger(__name__)
