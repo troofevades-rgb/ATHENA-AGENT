@@ -214,6 +214,126 @@ def test_429_propagates_to_caller(provider):
             )
 
 
+def test_payload_omits_temperature_for_deprecated_opus_4_7(provider):
+    """``claude-opus-4-7`` rejects ``temperature`` with
+    ``"temperature is deprecated for this model"`` (400). Pin from
+    dogfood: the field must be omitted from the payload, not sent
+    with a default."""
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            content=_sse(
+                {"type": "message_start", "message": {"usage": {}}},
+                {"type": "message_stop"},
+            ),
+        )
+
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+        list(
+            provider.stream_chat(
+                model="claude-opus-4-7",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+    assert "temperature" not in captured["body"]
+
+
+def test_payload_omits_temperature_for_date_suffixed_opus_4_7(provider):
+    """The deprecation also covers the date-suffixed variant
+    (``claude-opus-4-7-20251201``) -- substring match catches both."""
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            content=_sse(
+                {"type": "message_start", "message": {"usage": {}}},
+                {"type": "message_stop"},
+            ),
+        )
+
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+        list(
+            provider.stream_chat(
+                model="claude-opus-4-7-20251201",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+    assert "temperature" not in captured["body"]
+
+
+def test_payload_omits_temperature_for_sonnet_4_6(provider):
+    """Same family rule for ``claude-sonnet-4-6``."""
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            content=_sse(
+                {"type": "message_start", "message": {"usage": {}}},
+                {"type": "message_stop"},
+            ),
+        )
+
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+        list(
+            provider.stream_chat(
+                model="claude-sonnet-4-6",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+    assert "temperature" not in captured["body"]
+
+
+def test_payload_includes_temperature_for_pre_deprecation_models(provider):
+    """Older models still accept ``temperature``. Quiet path so the
+    deprecation omission means something when it fires.
+
+    Covers ``claude-3-5-sonnet`` (legacy), ``claude-sonnet-4-5``
+    (current 4.5 series, not yet deprecated), and
+    ``claude-haiku-4-5`` (4.5 Haiku)."""
+    def _capture_and_call(model: str) -> dict:
+        bucket: dict = {}
+
+        def _record(request):
+            bucket["body"] = json.loads(request.content)
+            return httpx.Response(
+                200,
+                content=_sse(
+                    {"type": "message_start", "message": {"usage": {}}},
+                    {"type": "message_stop"},
+                ),
+            )
+
+        with respx.mock() as m:
+            m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+            list(
+                provider.stream_chat(
+                    model=model,
+                    messages=[{"role": "user", "content": "x"}],
+                )
+            )
+        return bucket
+
+    for model in (
+        "claude-3-5-sonnet-20241022",
+        "claude-sonnet-4-5-20250929",
+        "claude-haiku-4-5-20251001",
+    ):
+        body = _capture_and_call(model)["body"]
+        assert "temperature" in body, (
+            f"{model} should still receive temperature"
+        )
+
+
 def test_payload_includes_max_tokens_default(provider):
     captured: dict = {}
 

@@ -44,6 +44,29 @@ def _synth_tool_id() -> str:
     return f"toolu_athena_{next(_synth_counter):08d}"
 
 
+# Model substrings whose API rejects the ``temperature`` field with
+# ``"temperature is deprecated for this model"`` (400). The pattern
+# set captures the extended-thinking 4.x family -- ``claude-opus-4-7``,
+# ``claude-sonnet-4-6``, plus their date-suffixed variants
+# (``claude-opus-4-7-20251201`` etc.). Add new entries here when
+# Anthropic deprecates the parameter on another family. Empty match
+# means temperature passes through.
+_TEMPERATURE_DEPRECATED_SUBSTRINGS: tuple[str, ...] = (
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-opus-4-8",
+    "claude-sonnet-4-7",
+)
+
+
+def _temperature_deprecated(model: str) -> bool:
+    """Return True when ``model`` matches a known temperature-deprecated
+    family. Pure substring check -- cheap on the hot path."""
+    if not model:
+        return False
+    return any(pattern in model for pattern in _TEMPERATURE_DEPRECATED_SUBSTRINGS)
+
+
 import httpx
 
 from . import register_provider
@@ -176,8 +199,15 @@ class AnthropicProvider(Provider):
             "messages": body_messages,
             "max_tokens": max_tokens or 4096,
             "stream": True,
-            "temperature": temperature,
         }
+        # Anthropic deprecated ``temperature`` on the extended-thinking
+        # ``claude-opus-4-7`` / ``claude-sonnet-4-6`` families -- sending
+        # it returns 400 ``"temperature is deprecated for this model"``.
+        # Omit when the model id matches a known-deprecated pattern;
+        # otherwise pass through. Pattern-based so a new family release
+        # extends the list without other code changes.
+        if not _temperature_deprecated(model):
+            payload["temperature"] = temperature
         if system:
             payload["system"] = system
         if tools:
