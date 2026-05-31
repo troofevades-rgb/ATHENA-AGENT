@@ -734,8 +734,8 @@ class AgentLifecycle:
             Path(getattr(cfg, "tool_result_storage_path", "~/.athena/tool_results")).expanduser(),
             session_id="pending",  # rebound below once session_id is allocated
         )
-        # ShellHookPlugin (bundled, enabled by default) replaces the legacy
-        # athena.hooks settings.json reader. The plugin's
+        # ShellHookPlugin (bundled, enabled by default) reads the
+        # settings.json hooks block. The plugin's
         # ``configure_workspace`` call below runs AFTER plugin_hooks is
         # built so workspace-local .athena/settings.json contributes
         # alongside ~/.athena/settings.json.
