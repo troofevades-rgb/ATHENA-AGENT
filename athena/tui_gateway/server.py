@@ -133,7 +133,7 @@ def _restore_terminal() -> None:
     """Emit the ANSI sequences that undo Ink's terminal setup.
 
     Ink installs (1) alt-screen mode, (2) raw input, (3) hidden
-    cursor. When the TUI subprocess exits cleanly, Ink's own
+    cursor. When the TUI subprocess exits cleanly Ink's own
     cleanup restores all three. When the subprocess is killed
     (Ctrl+C path where Python's ``proc.kill()`` fires before Ink's
     SIGTERM handler runs, or any forced-shutdown path), the
@@ -141,11 +141,21 @@ def _restore_terminal() -> None:
     its prompt into the invisible alt-screen, and the user is
     forced to close the terminal window entirely.
 
-    Best-effort: writes to stderr so it doesn't collide with any
-    final stdout the operator might be piping. A write failure
-    (closed stderr, unusual stdio routing) is silently swallowed
-    -- the cleanup is observability, not correctness; we must
-    never raise out of shutdown.
+    Delivery strategy (most-direct path wins, others tried as
+    fallback so a half-broken stdio state still gets restored):
+      1. ``os.write(2, ...)`` -- raw write to fd 2, bypasses every
+         Python-level TextIO / Rich console / gateway-bridge
+         layer that may have intercepted ``sys.stderr`` during
+         the session.
+      2. ``sys.__stderr__.write`` -- the pre-redirection stderr
+         object preserved by Python at interpreter startup. Even
+         if user code reassigned ``sys.stderr``, ``__stderr__``
+         points at the original.
+      3. ``sys.stderr.write`` -- whatever's currently bound.
+
+    All three are tried; failures are silenced. The cleanup is
+    observability, not correctness; we must never raise out of
+    shutdown.
 
     The sequences emitted:
       * ``ESC[?1049l`` -- exit alt-screen, restore main screen
@@ -153,17 +163,35 @@ def _restore_terminal() -> None:
       * ``ESC[?7h``    -- re-enable line wrap (Ink may have
                           disabled it for pixel-perfect layout)
       * ``ESC[0m``     -- reset SGR (colours / attributes)
+      * ``\\r\\n``      -- nudge the cursor to a fresh line so
+                          PowerShell's prompt doesn't overdraw
+                          whatever Ink left at the cursor pos
 
-    These work on every modern terminal emulator including
-    Windows Terminal, ConPTY (PowerShell), and the legacy Win10
-    conhost with VT mode enabled. The order matters: leaving
-    alt-screen FIRST means the cursor / SGR reset lands on the
-    visible (main) screen rather than the discarded alt buffer.
+    Order matters: leaving alt-screen FIRST means the cursor /
+    SGR reset lands on the visible (main) screen rather than the
+    discarded alt buffer.
     """
+    payload = b"\x1b[?1049l\x1b[?25h\x1b[?7h\x1b[0m\r\n"
+    # Path 1: raw fd write. This is the most reliable on Windows
+    # ConPTY because it bypasses Rich.Console / Live state and any
+    # athena-internal stderr replacement.
     try:
-        # Single contiguous write so partial-write doesn't leave
-        # the terminal in a half-restored state.
-        sys.stderr.write("\x1b[?1049l\x1b[?25h\x1b[?7h\x1b[0m")
+        os.write(2, payload)
+    except OSError:
+        pass
+    # Path 2: pre-redirection stderr if present and different from
+    # current sys.stderr.
+    saved = getattr(sys, "__stderr__", None)
+    if saved is not None and saved is not sys.stderr:
+        try:
+            saved.write(payload.decode("ascii"))
+            saved.flush()
+        except Exception:  # noqa: BLE001
+            pass
+    # Path 3: current sys.stderr (which may be a redirection but
+    # in worst-case-everything-broken still might land somewhere).
+    try:
+        sys.stderr.write(payload.decode("ascii"))
         sys.stderr.flush()
     except Exception:  # noqa: BLE001
         pass
