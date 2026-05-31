@@ -45,6 +45,13 @@ _LOAD_CONFIG_ALLOWLIST: frozenset[str] = frozenset(
         # patch it. The agent-first branch in ``_resolve_cfg`` is the
         # primary path; the load_config fallback is the test seam.
         "diagnose.py",
+        # ``security.py`` similarly exposes ``load_config`` as a
+        # module-level symbol for test monkeypatching. Seven tests
+        # under tests/safety_migration/ patch it. The actual runtime
+        # config reads go through ``active_cfg()``; the import is the
+        # test seam. Marked ``noqa: F401`` in the source so ruff
+        # doesn't flag the unused import.
+        "security.py",
     }
 )
 

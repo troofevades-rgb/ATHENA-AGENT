@@ -605,6 +605,30 @@ class Config:
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     # Hard cap on tool-call rounds per user turn. Stops runaway loops.
     max_turn_steps: int = 25
+    # 0.3.0 circuit breakers -- bound the OTHER ways a turn can burn
+    # tokens / money without the step cap firing:
+    #
+    #   * ``max_consecutive_provider_errors`` -- if the provider
+    #     returns an error (provider_error chunk, transport failure,
+    #     400/429/5xx after retries) N times in a row, halt the
+    #     turn. The audit ticket called this out: hosted-model 400s
+    #     burn input tokens on every attempt; without this guard,
+    #     a misconfigured key or a model deprecation can drain a
+    #     budget before the operator notices.
+    #   * ``max_identical_tool_calls`` -- if the model invokes the
+    #     same ``(tool_name, args)`` pair N times in a row, halt.
+    #     Catches the stuck-loop pattern where the model can't
+    #     interpret a tool's result and keeps calling it. Distinct
+    #     calls (different args OR different tool) reset the
+    #     counter, so a legitimate iterative pass (e.g. Read on
+    #     three files with different paths) is unaffected.
+    #
+    # Set either to 0 to disable that breaker individually.
+    # ``_fire_stop`` records ``circuit_breaker:provider_errors`` or
+    # ``circuit_breaker:identical_tool_calls`` as the stop reason
+    # so /status and the on-disk snapshot surface the trip.
+    max_consecutive_provider_errors: int = 3
+    max_identical_tool_calls: int = 3
     # Phase 18.2 stage 3: max worker threads for parallel tool
     # dispatch. ``1`` (default) keeps the pre-Phase-18.2 serial
     # behaviour -- every tool call in a round runs one after the

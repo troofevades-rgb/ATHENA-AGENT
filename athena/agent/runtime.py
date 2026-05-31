@@ -56,6 +56,38 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 
+def _tool_call_signature(
+    tool_calls: list[dict[str, Any]] | None,
+) -> tuple[tuple[str, str], ...]:
+    """Canonical signature for the identical-tool-call circuit
+    breaker. Returns a tuple of ``(name, args_json)`` per call, in
+    the order the model emitted them. ``args_json`` uses
+    sort_keys=True so two semantically-equal arg dicts produce the
+    same string regardless of key order.
+
+    Order-sensitive: ``[Read(a), Read(b)]`` is NOT the same as
+    ``[Read(b), Read(a)]``. The model emitting the SAME ordered
+    list two turns in a row is the loop pattern; emitting them in
+    different order is more like a parallel batch.
+    """
+    items: list[tuple[str, str]] = []
+    for call in tool_calls or []:
+        fn = call.get("function") or {}
+        name = str(fn.get("name") or "")
+        args = fn.get("arguments")
+        if isinstance(args, dict):
+            try:
+                args_str = json.dumps(args, sort_keys=True)
+            except (TypeError, ValueError):
+                # Defensive: non-JSON-serializable args fall back to
+                # a deterministic-enough string repr.
+                args_str = repr(sorted(args.items()))
+        else:
+            args_str = str(args)
+        items.append((name, args_str))
+    return tuple(items)
+
+
 def _emit_tool_round_progress(tool_calls: list[dict[str, Any]]) -> None:
     """Emit a one-line summary of the tools about to run this round to
     the bound progress sink. No-op when no sink is bound (terminal /
@@ -213,6 +245,23 @@ class AgentRuntime:
 
         # Loop until the model produces a final assistant message with no tool calls.
         max_steps = max(1, int(self.cfg.max_turn_steps))
+
+        # 0.3.0 circuit breakers (cfg.max_consecutive_provider_errors,
+        # cfg.max_identical_tool_calls). Tracked across the in-turn
+        # loop; reset on success / different shape. Setting either
+        # cfg knob to 0 disables that specific breaker. The trip
+        # path fires ``_fire_stop("circuit_breaker:<reason>")`` so
+        # ``/status`` + on-disk snapshots show why the turn ended.
+        consecutive_provider_errors = 0
+        max_consecutive_errors = max(
+            0, int(getattr(self.cfg, "max_consecutive_provider_errors", 0) or 0)
+        )
+        last_tool_signature: tuple[tuple[str, str], ...] | None = None
+        identical_tool_count = 0
+        max_identical = max(
+            0, int(getattr(self.cfg, "max_identical_tool_calls", 0) or 0)
+        )
+
         for step in range(max_steps):
             # T2-04: check token watermark before each provider call.
             # The compressor is a no-op when below threshold; when
@@ -231,8 +280,44 @@ class AgentRuntime:
                 )
                 self._fire_stop("cancelled")
                 return
+            errors_before = self.stats.provider_errors
             assistant_text, tool_calls, raw_done = self._stream_one(tool_call_round=step)
             interrupted = bool(raw_done and raw_done.get("_interrupted"))
+
+            # Provider-error circuit breaker: ``_stream_one`` catches
+            # streaming exceptions, calls ``record_provider_error``,
+            # and returns ``("", [], None)``. We detect the trip via
+            # the stats delta rather than a per-call return signal so
+            # the count survives multi-error paths that may add other
+            # observations in the future.
+            #
+            # Pre-0.3.0 behaviour: a provider error fell through to
+            # the "no tool_calls -> completed" branch below and the
+            # turn ended after the single failure. That gave the
+            # operator no retry on transient 5xx / rate-limit blips.
+            # New behaviour: on error, ``continue`` the loop to
+            # re-attempt (still bounded by ``max_turn_steps``). The
+            # breaker fires after N consecutive failures.
+            if self.stats.provider_errors > errors_before:
+                consecutive_provider_errors += 1
+                if (
+                    max_consecutive_errors
+                    and consecutive_provider_errors >= max_consecutive_errors
+                ):
+                    ui.error(
+                        f"circuit breaker tripped: "
+                        f"{consecutive_provider_errors} provider errors in a "
+                        f"row (cfg.max_consecutive_provider_errors="
+                        f"{max_consecutive_errors}). Halting the turn before "
+                        "more tokens burn on a stuck endpoint."
+                    )
+                    self._fire_stop("circuit_breaker:provider_errors")
+                    return
+                # Skip the rest of this iteration -- no usage to
+                # record, no tool_calls to dispatch. Loop around for
+                # another attempt.
+                continue
+            consecutive_provider_errors = 0
 
             # Track usage if the provider reported it (skip phantom raw on
             # interrupt). Accept both Ollama-flavoured field names
@@ -291,6 +376,32 @@ class AgentRuntime:
                 # continuation hook in run_turn.
                 self._last_assistant_text = assistant_text or ""
                 return
+
+            # Identical-tool-call circuit breaker: if the same set of
+            # tool calls fires N rounds in a row, the model is in a
+            # stuck-loop pattern. Distinct calls (different tool or
+            # different args) reset the counter, so a legitimate
+            # iterative pass (Read on file A, then B, then C) is
+            # unaffected. The signature is order-sensitive --
+            # ``[Read(a), Read(b)]`` is NOT the same as
+            # ``[Read(b), Read(a)]``.
+            sig = _tool_call_signature(tool_calls)
+            if last_tool_signature is not None and sig == last_tool_signature:
+                identical_tool_count += 1
+                if max_identical and identical_tool_count >= max_identical:
+                    ui.error(
+                        f"circuit breaker tripped: same tool call(s) "
+                        f"{identical_tool_count} times in a row "
+                        f"(cfg.max_identical_tool_calls={max_identical}). "
+                        "The model is stuck -- halting the turn."
+                    )
+                    self._fire_stop("circuit_breaker:identical_tool_calls")
+                    return
+            else:
+                # New shape: start a fresh streak at 1 (this round
+                # counts as one occurrence of the new signature).
+                identical_tool_count = 1
+                last_tool_signature = sig
 
             # Execute each tool call and append a tool message for it.
             # Phase 18.2 stage 2: walk the calls in batches of contiguous

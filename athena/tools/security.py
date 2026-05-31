@@ -18,6 +18,7 @@ import json
 import logging
 from typing import Any
 
+from ..config import load_config  # noqa: F401 -- test-monkeypatch seam
 from .registry import tool
 
 logger = logging.getLogger(__name__)
