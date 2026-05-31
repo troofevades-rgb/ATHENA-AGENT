@@ -49,17 +49,22 @@ _OPENROUTER_CATALOG_TTL_S = 600
 class PickerEntry:
     """One row in the picker. ``label`` is what the user types into
     ``/model`` to select this entry (either the prefixed form for
-    routing or the bare Ollama tag)."""
+    routing or the bare Ollama tag). ``supports_tools`` is False for
+    OpenRouter models whose ``/api/v1/models`` ``supported_parameters``
+    lacks ``"tools"`` -- these models will 404 every agent turn since
+    every athena turn ships tool schemas."""
 
     provider: str
     label: str
     note: str = ""
+    supports_tools: bool = True
 
 
 # Module-level state: the last-rendered picker entries (so ``/model N``
 # can map a number back to a label) and the OpenRouter catalog cache.
+# Cache shape: ``(fetched_at_unix, {model_id: supports_tools})``.
 _LAST_PICKER: list[PickerEntry] = []
-_OPENROUTER_CACHE: tuple[float, list[str]] | None = None
+_OPENROUTER_CACHE: tuple[float, dict[str, bool]] | None = None
 
 
 def _ollama_models(agent: Any) -> list[str]:
@@ -92,9 +97,21 @@ def _ollama_models(agent: Any) -> list[str]:
         return []
 
 
-def _openrouter_models() -> list[str]:
-    """Fetch and cache the OpenRouter catalog. Returns ``[]`` when
-    no credential is configured or the API is unreachable."""
+def _openrouter_models() -> dict[str, bool]:
+    """Fetch and cache the OpenRouter catalog as ``{model_id:
+    supports_tools}``.
+
+    ``supports_tools`` reads OpenRouter's ``/api/v1/models``
+    ``supported_parameters`` array -- a model is tool-capable when
+    that array contains ``"tools"``. The agent ships tool schemas on
+    every turn, so a non-tool model 404s the moment the user sends a
+    prompt. Surfacing this at the picker (and warning at the switch)
+    catches the mismatch before it bites.
+
+    Returns an empty dict when no credential is configured or the
+    API is unreachable -- callers degrade gracefully (the picker
+    still shows local Ollama models).
+    """
     global _OPENROUTER_CACHE
     now = time.time()
     if _OPENROUTER_CACHE is not None:
@@ -107,7 +124,7 @@ def _openrouter_models() -> list[str]:
     except Exception:  # noqa: BLE001
         cred = None
     if cred is None or not cred.key:
-        return []
+        return {}
 
     try:
         import httpx
@@ -119,30 +136,56 @@ def _openrouter_models() -> list[str]:
         )
         if r.status_code != 200:
             logger.debug("openrouter /models -> %d", r.status_code)
-            return []
+            return {}
         data = r.json().get("data", []) or []
-        ids = [
-            entry.get("id", "")
-            for entry in data
-            if isinstance(entry, dict) and entry.get("id")
-        ]
-        ids.sort()
-        _OPENROUTER_CACHE = (now, ids)
-        return ids
+        models: dict[str, bool] = {}
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            model_id = entry.get("id", "")
+            if not model_id:
+                continue
+            params = entry.get("supported_parameters") or []
+            supports_tools = isinstance(params, list) and "tools" in params
+            models[model_id] = supports_tools
+        _OPENROUTER_CACHE = (now, models)
+        return models
     except Exception as e:  # noqa: BLE001
         logger.debug("openrouter catalog fetch failed: %s", e)
-        return []
+        return {}
+
+
+def _openrouter_model_supports_tools(bare_model: str) -> bool | None:
+    """Return whether ``bare_model`` (e.g.
+    ``nousresearch/hermes-4-405b``, without the ``openrouter/``
+    routing prefix) supports tool calling. ``None`` when the catalog
+    hasn't been fetched / the model isn't in it -- callers treat
+    None as "don't know, assume yes" so an unknown model doesn't
+    spam warnings."""
+    cached = _OPENROUTER_CACHE
+    if cached is None:
+        return None
+    _ts, models = cached
+    return models.get(bare_model)
 
 
 def _build_picker(agent: Any) -> list[PickerEntry]:
     """Combine Ollama and OpenRouter into one ordered list. Ollama
     first (local, free), then OpenRouter (remote, billed). Updates
-    the module-level cache so ``/model N`` can resolve."""
+    the module-level cache so ``/model N`` can resolve.
+
+    OpenRouter entries carry ``supports_tools`` so the picker can
+    flag models that won't work for the agent (every athena turn
+    ships tool schemas; a no-tools model 404s on the first prompt)."""
     global _LAST_PICKER
     entries: list[PickerEntry] = []
     for name in _ollama_models(agent):
+        # Ollama models -- assume tools (Ollama's tool-calling
+        # support is per-model but we can't probe it cheaply;
+        # operators figure out fast which local models tool-call).
         entries.append(PickerEntry(provider="ollama", label=name))
-    for name in _openrouter_models():
+    or_catalog = _openrouter_models()
+    for name in sorted(or_catalog.keys()):
         # The ``openrouter/`` prefix is what ``_route`` looks for to
         # dispatch to OpenRouterProvider. Bare names that contain a
         # ``/`` (vendor/model) without the prefix would route to
@@ -152,6 +195,7 @@ def _build_picker(agent: Any) -> list[PickerEntry]:
                 provider="openrouter",
                 label=f"openrouter/{name}",
                 note=name,
+                supports_tools=or_catalog[name],
             )
         )
     _LAST_PICKER = entries
@@ -194,11 +238,24 @@ def _render_picker(agent: Any) -> None:
             # Trim the redundant ``openrouter/`` prefix for visual
             # density -- the operator already sees the section header.
             display = entry.note or entry.label
-        ui.console.print(f"  {marker} [dim]{i:>3}[/]  {display}")
+        # Tool-capability marker: only flag the negative case (no
+        # tools) so the operator's eye catches it. The agent ships
+        # tool schemas every turn; picking a no-tools model is a
+        # dead-end in practice.
+        tools_marker = (
+            " [dim red][no-tools][/]" if not entry.supports_tools else ""
+        )
+        ui.console.print(
+            f"  {marker} [dim]{i:>3}[/]  {display}{tools_marker}"
+        )
 
     ui.console.print(
         "\nswitch with: [bold]/model N[/] (pick a number) or "
         "[bold]/model NAME[/]"
+    )
+    ui.console.print(
+        "[dim red][no-tools][/] [dim]entries can't run agent "
+        "turns -- they 404 on every tool-schema request[/]"
     )
 
 
@@ -219,7 +276,10 @@ def _resolve_picker_index(arg: str) -> str | None:
 def _switch_model(agent: Any, new_name: str) -> None:
     """The actual switch path -- shared by the name-arg and
     picker-index branches. Rebuilds the provider when the new name
-    routes elsewhere."""
+    routes elsewhere. Warns when switching to an OpenRouter model
+    whose catalog entry doesn't list ``tools`` in
+    ``supported_parameters`` -- such a model 404s on every athena
+    turn (we ship tool schemas unconditionally)."""
     current_provider_name = getattr(agent.provider, "name", "")
     new_provider_name = _route(new_name, agent.cfg)
     if new_provider_name != current_provider_name:
@@ -243,9 +303,31 @@ def _switch_model(agent: Any, new_name: str) -> None:
             f"model set to {new_name} "
             f"(provider: {current_provider_name} -> {new_provider_name})"
         )
+        _warn_if_openrouter_no_tools(new_provider_name, bare_model)
         return
     agent.model = new_name
     ui.info(f"model set to {agent.model}")
+    _warn_if_openrouter_no_tools(new_provider_name, agent.model)
+
+
+def _warn_if_openrouter_no_tools(provider_name: str, bare_model: str) -> None:
+    """Emit a clear warning when the operator switched to an
+    OpenRouter model that won't tool-call. Best-effort -- a None
+    answer (catalog not fetched yet) is silently OK so a fresh
+    session that switches directly via ``/model NAME`` doesn't
+    spam an unjustified warning."""
+    if provider_name != "openrouter":
+        return
+    supports = _openrouter_model_supports_tools(bare_model)
+    if supports is False:
+        ui.warn(
+            f"{bare_model} does NOT advertise tool-calling support on "
+            "OpenRouter. The agent ships tool schemas every turn, so "
+            "your next prompt will 404. Pick a model whose "
+            "/api/v1/models supported_parameters includes 'tools' "
+            "(e.g. anthropic/claude-sonnet-4.6, openai/gpt-4o, "
+            "meta-llama/llama-3.3-70b-instruct)."
+        )
 
 
 @command("model")
