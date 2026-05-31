@@ -1222,30 +1222,46 @@ class TuiGateway:
                     self._dispatch_ask_question_reply(cmd)
                     continue
                 if isinstance(cmd, InterruptCommand):
-                    # Side-channel like ConfirmReply: when an
-                    # interrupt arrives, the REPL is blocked inside
-                    # ``agent.run_turn`` and can't drain _cmd_queue.
-                    # Two-step interrupt:
-                    #   1. Raise KeyboardInterrupt on the main thread
-                    #      via ``_thread.interrupt_main()`` — queued,
-                    #      delivered at the next bytecode boundary.
-                    #   2. Fire cancel hooks (close provider httpx
+                    # Three-step interrupt:
+                    #   1. ALWAYS enqueue the InterruptCommand so an
+                    #      idle ``recv_command`` blocked in
+                    #      queue.get() wakes up. Without this,
+                    #      ``_thread.interrupt_main()`` alone is
+                    #      unreliable on Windows: the KeyboardInterrupt
+                    #      is queued for delivery at the next bytecode
+                    #      boundary, but a main thread parked in the
+                    #      C-level condition-var wait inside queue.get
+                    #      never reaches that boundary. Users saw this
+                    #      as "Ctrl+C does nothing at the prompt -- I
+                    #      have to kill the terminal." Putting the
+                    #      command on the queue first guarantees the
+                    #      idle case unblocks immediately.
+                    #   2. Raise KeyboardInterrupt on the main thread
+                    #      via ``_thread.interrupt_main()`` so the
+                    #      MID-TURN case (main is inside agent.run_turn
+                    #      not recv_command) unwinds via except
+                    #      KeyboardInterrupt. The REPL loop's
+                    #      ``isinstance(cmd, InterruptCommand)``
+                    #      handler in __main__.py decides what to do
+                    #      with the queued cmd: at idle it exits, in
+                    #      a turn it's a no-op (run_turn already
+                    #      caught the KeyboardInterrupt).
+                    #   3. Fire cancel hooks (close provider httpx
                     #      clients, etc.) so the main thread ACTUALLY
-                    #      reaches a bytecode boundary. Without (2),
+                    #      reaches a bytecode boundary. Without (3),
                     #      a blocked ``socket.recv`` inside an LLM
                     #      stream can sit in C code for many minutes
                     #      while the queued KeyboardInterrupt waits.
-                    #      Users saw this as "ESC does nothing — I
-                    #      have to kill the terminal."
                     import _thread
 
+                    self._cmd_queue.put(cmd)
                     try:
                         _thread.interrupt_main()
                     except RuntimeError:
-                        # Some embedded contexts don't allow this;
-                        # fall back to queuing so the REPL can at
-                        # least observe the request after it drains.
-                        self._cmd_queue.put(cmd)
+                        # Some embedded contexts don't allow this.
+                        # The queue.put above already handles the
+                        # idle wake-up so we're not stuck either way.
+                        pass
                     try:
                         from .. import interrupt_hooks
 

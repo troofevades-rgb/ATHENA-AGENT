@@ -15022,9 +15022,12 @@ var SLASH_COMMANDS = [
   { name: "/goal", description: "set/pause/resume/inspect/clear active goal" },
   { name: "/subgoal", description: "append (arg: MSG) or 'done' the next subgoal" },
   { name: "/board", description: "render the kanban (or 'clear' to wipe)" },
+  { name: "/computer", description: "show computer-use status (backend, mode, allow/deny)" },
+  { name: "/skill", description: "import a SKILL.md / dir / archive, or 'reload'" },
   { name: "/video", description: "video backends: list/set/clear" },
   { name: "/theme", description: "TUI palette: list, 'set NAME', or 'save'" },
   { name: "/hooks", description: "list configured hooks" },
+  { name: "/godmode", description: "jailbreak toolkit (gated: ATHENA_ALLOW_GODMODE=1)" },
   { name: "/exit", description: "quit" }
 ];
 function matchSlashCommands(query, limit = 7) {
@@ -18098,7 +18101,7 @@ function App2() {
       dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + vb });
       return;
     }
-    if (key.pageDown || key.ctrl && typedChar === "d" && editor.text === "") {
+    if (key.pageDown) {
       const vb = computeVisibleBudget();
       dispatch({ type: "SET_SCROLL", offset: state.scrollOffset - vb });
       return;
@@ -18181,6 +18184,11 @@ function App2() {
       return;
     }
     if (key.ctrl && typedChar === "c") {
+      client.sendCommand({ type: "interrupt" });
+      exit();
+      return;
+    }
+    if (key.ctrl && typedChar === "d" && editor.text === "") {
       client.sendCommand({ type: "interrupt" });
       exit();
       return;

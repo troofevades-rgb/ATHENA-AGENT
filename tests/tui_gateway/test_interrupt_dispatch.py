@@ -1,21 +1,35 @@
 """Interrupt-command side-channel dispatch.
 
-ESC in the Ink TUI ships an ``InterruptCommand`` to the gateway.
-The REPL is blocked inside ``agent.run_turn`` at that moment, so
-queueing the command for the next ``recv_command()`` call would
-never fire — the agent would have to finish naturally first, by
-which point the interrupt is pointless.
+ESC / Ctrl+C in the Ink TUI ships an ``InterruptCommand`` to the
+gateway. Two cases the dispatch has to cover:
 
-The fix: the reader thread treats ``InterruptCommand`` like
-``ConfirmReplyCommand`` — bypass the queue, dispatch immediately.
-Specifically, call ``_thread.interrupt_main()`` to raise
-``KeyboardInterrupt`` on the main thread at the next bytecode
-boundary. The agent's tool dispatch / LLM call unwinds and the
-existing ``except KeyboardInterrupt`` in the REPL catches it.
+  IDLE: main thread is blocked in ``recv_command -> queue.get()``
+        waiting for the next user prompt. Putting the command on
+        the queue is the ONLY reliable wake-up on Windows --
+        ``_thread.interrupt_main`` queues a KeyboardInterrupt for
+        the next bytecode boundary, but a main thread parked in a
+        C-level condition-var wait inside queue.get never reaches
+        that boundary, so the signal sits indefinitely. Users saw
+        this as "Ctrl+C does nothing at the prompt -- I have to
+        kill the terminal."
+
+  MID-TURN: main thread is inside ``agent.run_turn`` (possibly
+        deep inside an LLM stream). The queue is useless here --
+        nothing's draining it. ``_thread.interrupt_main`` raises
+        KeyboardInterrupt at the next bytecode boundary, and
+        cancel hooks close in-flight httpx clients so that
+        boundary actually gets reached.
+
+So the dispatch does ALL THREE: enqueue (idle wake-up) + interrupt
+main (mid-turn unwind) + cancel hooks (unblock C-level waits).
+The REPL's ``isinstance(cmd, InterruptCommand)`` handler in
+__main__.py decides what to do with the queued cmd: at idle it
+exits cleanly, in a turn it's a no-op (run_turn already caught
+the KeyboardInterrupt).
 
 These tests pin that:
-  1. Interrupts do NOT land on the cmd queue (would defeat their purpose)
-  2. interrupt_main IS called when an interrupt frame arrives
+  1. Interrupts ARE queued (so idle queue.get wakes up)
+  2. interrupt_main IS called (so mid-turn KeyboardInterrupt fires)
   3. Other command types still queue normally (regression guard)
 """
 
@@ -81,12 +95,14 @@ def _frame(method: str, params: dict | None = None) -> bytes:
     return (json.dumps(obj) + "\n").encode("utf-8")
 
 
-def test_interrupt_does_not_land_on_cmd_queue(
+def test_interrupt_enqueued_and_interrupts_main(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An interrupt frame must bypass the REPL queue entirely.
-    Otherwise the queued interrupt would only fire AFTER the
-    currently-running turn finishes — exactly when it's useless."""
+    """An interrupt frame must do BOTH: enqueue so an idle
+    queue.get() wakes up (the only reliable Windows wake-up for a
+    main thread parked in a C-level condition-var wait), AND call
+    interrupt_main so a mid-turn run_turn unwinds via
+    KeyboardInterrupt. The REPL decides which case applies."""
     interrupt_main_calls = [0]
     monkeypatch.setattr(
         "_thread.interrupt_main",
@@ -96,10 +112,10 @@ def test_interrupt_does_not_land_on_cmd_queue(
     g = _make_gateway_stub([_frame("interrupt")])
     g._read_loop()
 
-    assert g._cmd_queue.empty(), (
-        "InterruptCommand was queued — REPL will not see it until "
-        "the in-flight turn finishes, defeating the whole purpose"
-    )
+    # 1. Enqueued -- idle wake-up.
+    cmd = g._cmd_queue.get_nowait()
+    assert isinstance(cmd, InterruptCommand)
+    # 2. interrupt_main called -- mid-turn unwind path.
     assert interrupt_main_calls[0] == 1, (
         f"interrupt_main was called {interrupt_main_calls[0]} times; expected exactly 1"
     )
@@ -120,12 +136,13 @@ def test_user_input_still_queues_normally(
     assert cmd.text == "hello"
 
 
-def test_interrupt_after_user_input_does_not_block_queue(
+def test_interrupt_after_user_input_both_on_queue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Mixed-frame scenario: user.input then interrupt arrives. The
-    user.input must be queued AND the interrupt must dispatch
-    independently — they don't have to land in order."""
+    """Mixed-frame scenario: user.input then interrupt arrives. Both
+    land on the queue in order (FIFO) and interrupt_main also
+    fires. The REPL drains the user.input first, runs the turn,
+    then sees the interrupt and exits if still applicable."""
     interrupt_main_calls = [0]
     monkeypatch.setattr(
         "_thread.interrupt_main",
@@ -140,21 +157,22 @@ def test_interrupt_after_user_input_does_not_block_queue(
     )
     g._read_loop()
 
-    # user.input is on the queue
-    cmd = g._cmd_queue.get_nowait()
-    assert isinstance(cmd, UserInputCommand)
-    # Interrupt was dispatched (not queued)
-    assert g._cmd_queue.empty()
+    # Both on the queue in FIFO order.
+    first = g._cmd_queue.get_nowait()
+    assert isinstance(first, UserInputCommand)
+    second = g._cmd_queue.get_nowait()
+    assert isinstance(second, InterruptCommand)
     assert interrupt_main_calls[0] == 1
 
 
-def test_interrupt_main_runtime_error_falls_back_to_queue(
+def test_interrupt_main_runtime_error_does_not_prevent_enqueue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Some embedded contexts (Jupyter, certain WSGI servers) raise
     RuntimeError from ``_thread.interrupt_main`` because they
-    monkey-patch the main thread. Must fall back to the queue so
-    the request is at least observable to the REPL later."""
+    monkey-patch the main thread. The queue.put fires unconditionally
+    BEFORE interrupt_main so this case still produces a wake-up
+    even when the signal can't fire."""
 
     def _boom() -> None:
         raise RuntimeError("can't signal main in this context")
@@ -164,7 +182,7 @@ def test_interrupt_main_runtime_error_falls_back_to_queue(
     g = _make_gateway_stub([_frame("interrupt")])
     g._read_loop()
 
-    # Fell back to the queue
+    # Enqueue happened regardless of the RuntimeError.
     cmd = g._cmd_queue.get_nowait()
     assert isinstance(cmd, InterruptCommand)
 

@@ -473,6 +473,7 @@ def _run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
     from .tui_gateway.banner_data import build_banner
     from .tui_gateway.events import (
         ConfirmReplyCommand,
+        InterruptCommand,
         ResizeCommand,
         UserInputCommand,
     )
@@ -604,9 +605,18 @@ def _run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
                 except Exception:  # noqa: BLE001 — never crash on UX writes
                     pass
                 continue
+            if isinstance(cmd, InterruptCommand):
+                # Ctrl+C at the idle prompt: exit cleanly. The
+                # gateway enqueues InterruptCommand unconditionally
+                # so this branch fires even when the queue.get()
+                # was parked in a Windows condition-var wait that
+                # _thread.interrupt_main() couldn't punch through.
+                # The TUI already initiated its own exit() before
+                # sending the interrupt; this break drops us into
+                # the finally that closes the gateway and agent.
+                break
             if not isinstance(cmd, UserInputCommand):
-                # Other command types (interrupt) land here;
-                # ignore for now.
+                # Other command types we don't act on (pong, etc.).
                 continue
             line = cmd.text.strip()
             if not line:
