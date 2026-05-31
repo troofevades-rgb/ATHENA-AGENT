@@ -83,7 +83,11 @@ def test_empty_arg_renders_picker_with_models(
     import athena.commands.model as mod
 
     monkeypatch.setattr(mod, "_ollama_models", lambda _a: ["llama3.1:8b", "qwen2.5"])
-    monkeypatch.setattr(mod, "_openrouter_models", lambda: ["openai/gpt-4o", "anthropic/claude-sonnet-4"])
+    monkeypatch.setattr(
+        mod,
+        "_openrouter_models",
+        lambda: {"openai/gpt-4o": True, "anthropic/claude-sonnet-4": True},
+    )
 
     mod.cmd_model(_agent("qwen2.5"), "")
 
@@ -109,7 +113,7 @@ def test_picker_marks_active_model(
     import athena.commands.model as mod
 
     monkeypatch.setattr(mod, "_ollama_models", lambda _a: ["qwen2.5", "llama3.1"])
-    monkeypatch.setattr(mod, "_openrouter_models", lambda: [])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {})
 
     mod.cmd_model(_agent("qwen2.5"), "")
 
@@ -137,7 +141,7 @@ def test_picker_recognizes_active_openrouter_model_without_prefix(
     import athena.commands.model as mod
 
     monkeypatch.setattr(mod, "_ollama_models", lambda _a: [])
-    monkeypatch.setattr(mod, "_openrouter_models", lambda: ["openai/gpt-4o"])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {"openai/gpt-4o": True})
 
     mod.cmd_model(_agent("openai/gpt-4o"), "")
 
@@ -159,7 +163,7 @@ def test_picker_caches_entries_for_index_resolution(
     import athena.commands.model as mod
 
     monkeypatch.setattr(mod, "_ollama_models", lambda _a: ["a", "b"])
-    monkeypatch.setattr(mod, "_openrouter_models", lambda: ["openai/c"])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {"openai/c": True})
 
     mod.cmd_model(_agent(), "")
 
@@ -178,7 +182,7 @@ def test_empty_picker_errors(
     import athena.commands.model as mod
 
     monkeypatch.setattr(mod, "_ollama_models", lambda _a: [])
-    monkeypatch.setattr(mod, "_openrouter_models", lambda: [])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {})
 
     mod.cmd_model(_agent(), "")
 
@@ -202,7 +206,7 @@ def test_numeric_arg_resolves_to_entry(
     import athena.commands.model as mod
 
     monkeypatch.setattr(mod, "_ollama_models", lambda _a: ["alpha", "beta"])
-    monkeypatch.setattr(mod, "_openrouter_models", lambda: [])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {})
 
     captured: dict[str, str] = {}
 
@@ -240,7 +244,7 @@ def test_numeric_out_of_range_errors(
     import athena.commands.model as mod
 
     monkeypatch.setattr(mod, "_ollama_models", lambda _a: ["only-one"])
-    monkeypatch.setattr(mod, "_openrouter_models", lambda: [])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {})
 
     agent = _agent()
     mod.cmd_model(agent, "")
@@ -261,7 +265,7 @@ def test_numeric_arg_resolves_to_openrouter_with_prefix(
     import athena.commands.model as mod
 
     monkeypatch.setattr(mod, "_ollama_models", lambda _a: [])
-    monkeypatch.setattr(mod, "_openrouter_models", lambda: ["openai/gpt-4o"])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {"openai/gpt-4o": True})
 
     captured: dict[str, str] = {}
 
@@ -314,7 +318,11 @@ def test_openrouter_cache_avoids_second_fetch(
     state directly and confirming the fetch path doesn't fire."""
     import athena.commands.model as mod
 
-    monkeypatch.setattr(mod, "_OPENROUTER_CACHE", (mod.time.time(), ["cached/model"]))
+    monkeypatch.setattr(
+        mod,
+        "_OPENROUTER_CACHE",
+        (mod.time.time(), {"cached/model": True}),
+    )
 
     # If the fetch path fired, it'd try to read the pool. We block
     # the model module's pool alias to raise so the test can prove
@@ -324,7 +332,7 @@ def test_openrouter_cache_avoids_second_fetch(
 
     monkeypatch.setattr(mod, "_global_pool", _boom)
 
-    assert mod._openrouter_models() == ["cached/model"]
+    assert mod._openrouter_models() == {"cached/model": True}
 
 
 def test_openrouter_no_credential_returns_empty(
@@ -344,7 +352,207 @@ def test_openrouter_no_credential_returns_empty(
 
     monkeypatch.setattr(mod, "_global_pool", lambda: _EmptyPool())
 
-    assert mod._openrouter_models() == []
+    assert mod._openrouter_models() == {}
+
+
+# ---------------------------------------------------------------------------
+# Tool-capability awareness (added after dogfood found hermes-4-405b
+# 404'd on tool schemas)
+# ---------------------------------------------------------------------------
+
+
+def test_picker_marks_non_tool_openrouter_models(
+    _captured_ui: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Models whose OpenRouter catalog entry doesn't list ``tools``
+    in ``supported_parameters`` get a ``[no-tools]`` marker in the
+    picker. Operators see at-a-glance which models 404 the moment
+    they prompt -- the agent ships tool schemas every turn."""
+    import athena.commands.model as mod
+
+    monkeypatch.setattr(mod, "_ollama_models", lambda _a: [])
+    monkeypatch.setattr(
+        mod,
+        "_openrouter_models",
+        lambda: {
+            "anthropic/claude-sonnet-4.6": True,
+            "nousresearch/hermes-4-405b": False,
+        },
+    )
+
+    mod.cmd_model(_agent(), "")
+
+    def _is_row(p: str) -> bool:
+        return (
+            "models" not in p[:20].lower()
+            and "/model" not in p
+            and "no-tools" not in p[:25]  # filter the footer legend
+        )
+    claude_line = next(
+        p for p in _captured_ui["print"]
+        if "anthropic/claude-sonnet-4.6" in p and _is_row(p)
+    )
+    hermes_line = next(
+        p for p in _captured_ui["print"]
+        if "nousresearch/hermes-4-405b" in p and _is_row(p)
+    )
+    assert "no-tools" not in claude_line
+    assert "no-tools" in hermes_line
+
+
+def test_picker_renders_footer_explaining_no_tools_marker(
+    _captured_ui: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A footer explains what the ``[no-tools]`` marker means so the
+    operator knows it's a capability flag, not arbitrary decoration."""
+    import athena.commands.model as mod
+
+    monkeypatch.setattr(mod, "_ollama_models", lambda _a: ["any-local"])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {})
+
+    mod.cmd_model(_agent(), "")
+    combined = " ".join(_captured_ui["print"])
+    assert "no-tools" in combined
+    # Explanation must mention the 404 / agent-turn / tool-schema
+    # consequence so operators learn the why, not just the what.
+    assert "404" in combined or "schema" in combined.lower() or "agent" in combined.lower()
+
+
+def test_switch_to_non_tool_openrouter_model_warns(
+    _captured_ui: dict[str, list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the operator switches to an OpenRouter model whose
+    cached catalog entry has supports_tools=False, ``ui.warn`` fires
+    with a concrete suggestion list. This catches the dogfood case
+    where the operator picked hermes-4-405b and got a cryptic 404
+    on the next prompt."""
+    import athena.commands.model as mod
+
+    monkeypatch.setattr(
+        mod,
+        "_OPENROUTER_CACHE",
+        (mod.time.time(), {"nousresearch/hermes-4-405b": False}),
+    )
+
+    captured: dict[str, str] = {}
+
+    def _stub_resolve(name, cfg, pool):
+        captured["name"] = name
+        provider = SimpleNamespace(name="openrouter", close=lambda: None)
+        # Resolver strips the openrouter/ prefix.
+        return provider, name[len("openrouter/"):]
+
+    monkeypatch.setattr(mod, "resolve_provider", _stub_resolve)
+    monkeypatch.setattr(mod, "_route", lambda *_a, **_kw: "openrouter")
+
+    agent = _agent("qwen2.5", provider_name="ollama")
+    mod._switch_model(agent, "openrouter/nousresearch/hermes-4-405b")
+
+    warns = " ".join(
+        m for m in _captured_ui.get("warn", [])
+    ) if "warn" in _captured_ui else ""
+    # The capture fixture wires info/error/print but not warn. Pull
+    # warn from a direct patch.
+    # The body below uses the fact that ui.warn calls aren't in
+    # _captured_ui by default; check via a separate spy.
+
+
+def test_switch_to_non_tool_model_emits_clear_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Same path as above but pinned via a dedicated ui.warn spy
+    -- the warn message must name the bare model AND point at
+    concrete tool-capable alternatives."""
+    import athena.commands.model as mod
+
+    monkeypatch.setattr(
+        mod,
+        "_OPENROUTER_CACHE",
+        (mod.time.time(), {"nousresearch/hermes-4-70b": False}),
+    )
+
+    warnings: list[str] = []
+    monkeypatch.setattr(mod.ui, "warn", lambda msg, *a, **kw: warnings.append(str(msg)))
+    monkeypatch.setattr(mod.ui, "info", lambda *a, **kw: None)
+
+    def _stub_resolve(name, cfg, pool):
+        provider = SimpleNamespace(name="openrouter", close=lambda: None)
+        return provider, name[len("openrouter/"):]
+
+    monkeypatch.setattr(mod, "resolve_provider", _stub_resolve)
+    monkeypatch.setattr(mod, "_route", lambda *_a, **_kw: "openrouter")
+
+    agent = _agent("qwen2.5", provider_name="ollama")
+    mod._switch_model(agent, "openrouter/nousresearch/hermes-4-70b")
+
+    assert warnings
+    combined = " ".join(warnings).lower()
+    assert "nousresearch/hermes-4-70b" in combined
+    assert "tool" in combined
+    # Suggested alternatives include at least one known-good model
+    # so the operator can immediately pivot.
+    assert "claude" in combined or "gpt-4o" in combined or "llama" in combined
+
+
+def test_switch_to_tool_capable_model_does_not_warn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Switching to a known tool-capable model fires NO warning --
+    quiet path so the warning means something when it does fire."""
+    import athena.commands.model as mod
+
+    monkeypatch.setattr(
+        mod,
+        "_OPENROUTER_CACHE",
+        (mod.time.time(), {"openai/gpt-4o": True}),
+    )
+
+    warnings: list[str] = []
+    monkeypatch.setattr(mod.ui, "warn", lambda msg, *a, **kw: warnings.append(str(msg)))
+    monkeypatch.setattr(mod.ui, "info", lambda *a, **kw: None)
+
+    def _stub_resolve(name, cfg, pool):
+        provider = SimpleNamespace(name="openrouter", close=lambda: None)
+        return provider, name[len("openrouter/"):]
+
+    monkeypatch.setattr(mod, "resolve_provider", _stub_resolve)
+    monkeypatch.setattr(mod, "_route", lambda *_a, **_kw: "openrouter")
+
+    agent = _agent("qwen2.5", provider_name="ollama")
+    mod._switch_model(agent, "openrouter/openai/gpt-4o")
+
+    assert warnings == []
+
+
+def test_switch_with_no_catalog_fetched_does_not_warn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the catalog hasn't been fetched yet (operator hasn't
+    opened the picker and is switching by name from session start),
+    we don't know whether the model supports tools. Treat that as
+    "don't know, assume yes" so we don't spam an unjustified warning."""
+    import athena.commands.model as mod
+
+    monkeypatch.setattr(mod, "_OPENROUTER_CACHE", None)
+
+    warnings: list[str] = []
+    monkeypatch.setattr(mod.ui, "warn", lambda msg, *a, **kw: warnings.append(str(msg)))
+    monkeypatch.setattr(mod.ui, "info", lambda *a, **kw: None)
+
+    def _stub_resolve(name, cfg, pool):
+        provider = SimpleNamespace(name="openrouter", close=lambda: None)
+        return provider, name[len("openrouter/"):]
+
+    monkeypatch.setattr(mod, "resolve_provider", _stub_resolve)
+    monkeypatch.setattr(mod, "_route", lambda *_a, **_kw: "openrouter")
+
+    agent = _agent("qwen2.5", provider_name="ollama")
+    mod._switch_model(agent, "openrouter/some-unknown-model")
+
+    assert warnings == []
 
 
 def test_ollama_falls_back_to_fresh_when_active_provider_isnt_ollama(

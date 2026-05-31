@@ -67,7 +67,7 @@ def test_no_arg_renders_picker(monkeypatch) -> None:
     import athena.commands.model as mod
 
     monkeypatch.setattr(mod, "_ollama_models", lambda _a: ["qwen2.5-coder:14b"])
-    monkeypatch.setattr(mod, "_openrouter_models", lambda: [])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {})
 
     printed: list[str] = []
     monkeypatch.setattr(
