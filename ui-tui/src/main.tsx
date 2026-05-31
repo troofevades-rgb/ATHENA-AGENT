@@ -412,7 +412,10 @@ function App(): React.JSX.Element {
       dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + vb });
       return;
     }
-    if (key.pageDown || (key.ctrl && typedChar === "d" && editor.text === "")) {
+    // Ctrl+D-empty-buffer is bound to exit below (POSIX-shell
+    // convention). PageDown covers the scroll case directly so we
+    // don't need the Ctrl+D fallback that previously lived here.
+    if (key.pageDown) {
       const vb = computeVisibleBudget();
       dispatch({ type: "SET_SCROLL", offset: state.scrollOffset - vb });
       return;
@@ -520,6 +523,17 @@ function App(): React.JSX.Element {
       return;
     }
     if (key.ctrl && typedChar === "c") {
+      client.sendCommand({ type: "interrupt" });
+      exit();
+      return;
+    }
+    // Ctrl+D at empty buffer exits the session -- standard
+    // POSIX-shell convention (bash, python REPL, node). The earlier
+    // Ctrl+D-empty-buffer binding (scroll-down at line 415) only
+    // fires when text is non-empty after this guard, so the
+    // pageDown binding above already covers the scroll case via
+    // PageDown directly.
+    if (key.ctrl && typedChar === "d" && editor.text === "") {
       client.sendCommand({ type: "interrupt" });
       exit();
       return;
