@@ -523,3 +523,125 @@ def test_snapshot_headers_forwards_known_prefixes() -> None:
     assert "X-Webhook-Signature" not in out
     assert "X-Hub-Signature-256" not in out
     assert "Random-Header" not in out
+
+
+# ---- review #7: duplicate header values aggregated, not overwritten
+
+
+def test_snapshot_headers_aggregates_duplicate_values() -> None:
+    """When a sender supplies the same header twice (legal HTTP;
+    GitHub does this on some events), every value must be visible
+    to the skill -- not just the last. The pre-fix ``headers.items()``
+    iteration overwrote ``out[key]`` on each duplicate, silently
+    keeping only the last value."""
+    from multidict import CIMultiDict
+
+    headers = CIMultiDict()
+    headers.add("X-GitHub-Event", "push")
+    headers.add("X-GitHub-Event", "ping")  # duplicate
+    headers.add("Content-Type", "application/json")
+
+    out = _snapshot_headers(headers)
+    # Both values must be present (order matches insertion).
+    assert out["X-GitHub-Event"] == "push, ping"
+    assert out["Content-Type"] == "application/json"
+
+
+def test_snapshot_headers_handles_plain_dict_without_getall() -> None:
+    """Test seam: when callers pass a plain dict (unit-test
+    convenience), the absence of ``getall`` must not raise."""
+    headers = {"X-GitHub-Event": "push", "Content-Type": "application/json"}
+    out = _snapshot_headers(headers)
+    assert out["X-GitHub-Event"] == "push"
+    assert out["Content-Type"] == "application/json"
+
+
+# ---- review #5: top-level array warning
+
+
+def test_parse_body_top_level_array_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The ``{"_top_level": ...}`` wrapper silently breaks skills
+    written against a top-level-array schema. The wrap still
+    happens (preserves the callback signature) but a WARNING in the
+    log tells the operator to update the skill or handle the
+    wrapper."""
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="athena.webhooks.server")
+    _parse_body(b"[1, 2, 3]")
+    assert any("_top_level" in r.message for r in caplog.records)
+    assert any("list" in r.message.lower() for r in caplog.records)
+
+
+def test_parse_body_top_level_object_does_not_warn(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The wrap-and-warn path must NOT fire on a normal dict body --
+    that's the happy path and operators would tune out the warning
+    if it fired every request."""
+    import logging
+
+    caplog.set_level(logging.WARNING, logger="athena.webhooks.server")
+    _parse_body(b'{"a": 1}')
+    assert not any("_top_level" in r.message for r in caplog.records)
+
+
+# ---- review #4: shutdown rejects new requests
+
+
+async def test_handle_returns_503_when_stopping(server_client, store) -> None:
+    """A request landing during the shutdown window must be rejected
+    before it spawns a dispatch task. Otherwise the task lands in
+    _dispatch_tasks AFTER stop() cleared the set, orphaning it past
+    the listener teardown."""
+    server, client, _dispatch = server_client
+    sub = WebhookSubscription(
+        skill_name="echo",
+        auth_type="none",
+        auth_secret="",
+        rate_limit_per_minute=60,
+    )
+    store.add(sub)
+    # Latch the shutdown flag without actually tearing down the
+    # AppRunner -- we want to verify the handler's guard fires.
+    server._stopping = True
+    resp = await client.post(f"/webhook/{sub.id}", data=b"{}")
+    assert resp.status == 503
+
+
+# ---- review #12: auth failures log at WARNING
+
+
+async def test_auth_failure_logs_at_warning(
+    server_client,
+    store,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Auth failures are a security event -- log aggregation /
+    alert rules key off WARNING and above. INFO was too quiet for
+    the post-incident search you'd run after a credential leak."""
+    import logging
+
+    _server, client, _dispatch = server_client
+    sub = WebhookSubscription(
+        skill_name="echo",
+        auth_type="bearer",
+        auth_secret="correct-token",
+        rate_limit_per_minute=60,
+    )
+    store.add(sub)
+    caplog.set_level(logging.WARNING, logger="athena.webhooks.server")
+    resp = await client.post(
+        f"/webhook/{sub.id}",
+        data=b"{}",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+    assert resp.status == 401
+    assert any("auth failed" in r.message for r in caplog.records)
+    assert all(
+        r.levelno >= logging.WARNING
+        for r in caplog.records
+        if "auth failed" in r.message
+    )
