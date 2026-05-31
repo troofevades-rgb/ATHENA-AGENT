@@ -28,6 +28,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from athena.agent.core import Agent
 from athena.agent.runtime import _tool_call_signature
 from athena.config import Config
@@ -377,3 +379,73 @@ def test_different_args_reset_identical_counter(
 
     # All three different reads went through + final assistant call.
     assert provider.calls == 4
+
+
+# ---------------------------------------------------------------------------
+# Compressor crash containment (dogfood, runtime.py:_maybe_compress_context)
+# ---------------------------------------------------------------------------
+
+
+def test_compressor_summarizer_failure_does_not_crash_agent(
+    isolated_home: Path,
+    workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Context compression is observability, not correctness. A
+    summarizer exception (provider 404 from a misrouted model,
+    transport blip, auth rejection) must NOT propagate through
+    ``_maybe_compress_context`` -- pre-fix the HTTPStatusError flew
+    three frames up to ``main()`` and crashed the entire process.
+
+    The dogfood that surfaced this: a typo'd ``/model
+    athropic/claude-opus-4-7`` silently routed to Ollama, every
+    turn 404'd, eventually compression kicked in and the summarizer's
+    own 404 became the fatal exception (see crash-20260531-201159).
+    Post-fix the compressor logs a warning, skips compression, and
+    the turn proceeds (the circuit breaker handles the underlying
+    provider failure cleanly)."""
+    cfg = Config(model="always-error")
+    # Reuse the from earlier in this file -- raises on every
+    # stream_chat, which is exactly what the summarizer will hit
+    # when the routed model is bogus.
+    provider = _AlwaysErrorProvider()
+    agent = Agent(cfg, workspace, provider=provider)
+
+    # Force should_compress -> True so the summarizer actually runs.
+    monkeypatch.setattr(
+        "athena.agent.context_compressor.should_compress",
+        lambda messages, cfg: True,
+    )
+
+    # Call _maybe_compress_context directly -- the wrapping try/except
+    # is what's under test; we don't need a full run_turn.
+    pre_messages = list(agent.messages)
+    agent._maybe_compress_context()  # MUST NOT raise.
+
+    # State is untouched on summarizer failure (no synthetic summary
+    # injected, no original middle dropped).
+    assert agent.messages == pre_messages
+
+
+def test_compressor_skip_when_should_compress_is_false(
+    isolated_home: Path,
+    workspace: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sanity guard for the no-op short-circuit -- when
+    should_compress returns False, _maybe_compress_context returns
+    without ever invoking the summarizer (so an exception-raising
+    provider is never touched and the try/except is never tested).
+    Pin that path so a future refactor that reorders the guards
+    doesn't silently make compression always run."""
+    cfg = Config(model="always-error")
+    provider = _AlwaysErrorProvider()
+    agent = Agent(cfg, workspace, provider=provider)
+    monkeypatch.setattr(
+        "athena.agent.context_compressor.should_compress",
+        lambda messages, cfg: False,
+    )
+
+    agent._maybe_compress_context()
+    # Provider should NEVER have been called.
+    assert provider.calls == 0

@@ -166,12 +166,16 @@ class AgentLifecycle:
         Both are best-effort; the foreground REPL must never crash because
         a background loop misbehaved.
         """
+        from ..boot_trace import cp as _cp
+
+        _cp("session_start_hooks_entry")
         try:
             from ..skills.state_machine_runner import run_lifecycle
 
             run_lifecycle(self.workspace)
         except Exception as e:
             ui.info(f"lifecycle pass skipped: {e}")
+        _cp("session_start_hooks_lifecycle_done")
 
         # ``ATHENA_DISABLE_BACKGROUND_CURATOR=1`` short-circuits the
         # session-start curator spawn. The spawn launches a daemon
@@ -188,6 +192,7 @@ class AgentLifecycle:
         import os
 
         if os.environ.get("ATHENA_DISABLE_BACKGROUND_CURATOR") == "1":
+            _cp("curator_skipped_env_disabled")
             return
         try:
             import threading
@@ -195,18 +200,23 @@ class AgentLifecycle:
             from ..curator.orchestrator import maybe_run_curator
 
             def _spawn():
+                _cp("curator_thread_entry")
                 try:
                     maybe_run_curator(self)
                 except Exception as e:
                     ui.info(f"curator run failed: {e}")
+                    _cp("curator_thread_exception", exc=f"{type(e).__name__}: {e}")
+                _cp("curator_thread_exit")
 
             threading.Thread(
                 target=_spawn,
                 daemon=True,
                 name=f"curator-{(self.session_id or 'init')[:8]}",
             ).start()
+            _cp("curator_thread_spawned")
         except Exception as e:
             ui.info(f"curator could not start: {e}")
+            _cp("curator_spawn_exception", exc=f"{type(e).__name__}: {e}")
 
     def _init_cross_session_cache(self) -> None:
         """T5-06 -- at session start, look up the cross-session
@@ -774,6 +784,11 @@ class AgentLifecycle:
         # decision. Reset on every _run_turn_inner entry.
         self._last_assistant_text: str = ""
         self._last_turn_interrupted: bool = False
+        # Last stop reason recorded by _fire_stop. Consulted by
+        # _consult_goal_continuation so a circuit-breaker trip pauses
+        # the goal loop instead of being papered over by another
+        # synthetic turn.
+        self._last_stop_reason: str | None = None
         # Running token budget for the active goal loop. Reset when
         # a new goal is set or the loop terminates. Each
         # continuation step adds the turn's prompt + eval tokens.

@@ -176,6 +176,9 @@ def _json_invalid_envelope(
 
 
 def main() -> int:
+    from .boot_trace import cp as _cp
+
+    _cp("main_entry", argv=sys.argv[1:])
     # Install the crash-log excepthook FIRST so any uncaught exception
     # during startup (migration, config parse, provider construction,
     # MCP load, gateway spawn) lands in ~/.athena/crashes/ rather than
@@ -188,6 +191,7 @@ def main() -> int:
         # The hook is best-effort -- if it can't install, the operator
         # gets the default traceback. Never block startup.
         pass
+    _cp("excepthook_installed")
 
     # One-time migration of legacy single-profile layout (everything at
     # ~/.athena/<x>) into ~/.athena/profiles/default/<x>. Naturally
@@ -330,20 +334,26 @@ def main() -> int:
     if not workspace.is_dir():
         ui.error(f"workspace not a directory: {workspace}")
         return 2
+    _cp("pre_agent_init", workspace=str(workspace), model=args.model or cfg.model)
 
     agent = Agent(cfg, workspace, model=args.model)
+    _cp("post_agent_init", session_id=getattr(agent, "session_id", None))
 
     # Load MCP servers — register their tools into the same registry as the
     # built-ins so the model sees one unified tool list.
     def _mcp_log(level: str, msg: str) -> None:
         {"info": ui.info, "warn": ui.warn, "error": ui.error}.get(level, ui.info)(msg)
 
+    _cp("pre_mcp_load")
     try:
         load_mcp_servers(mcp_config_paths(workspace), on_message=_mcp_log)
     except Exception as e:
         ui.error(f"MCP load failed: {e}")
+        _cp("mcp_load_exception", exc=f"{type(e).__name__}: {e}")
+    _cp("post_mcp_load")
 
     # Sanity: verify Ollama is reachable
+    _cp("pre_ollama_check")
     try:
         models = agent.provider.list_models()
         if not _model_pulled(agent.model, models) and models:
@@ -352,7 +362,9 @@ def main() -> int:
     except Exception as e:
         ui.error(f"cannot reach Ollama at {cfg.ollama_host}: {e}")
         ui.warn("start it with `ollama serve` or set OLLAMA_HOST.")
+        _cp("ollama_unreachable", exc=f"{type(e).__name__}: {e}")
         return 2
+    _cp("post_ollama_check")
 
     # T7-01: resolve task — inline -p / --prompt OR --task FILE.
     # The two are mutually exclusive; --task wins when both
@@ -387,6 +399,7 @@ def main() -> int:
         return 2
 
     if task is not None:
+        _cp("pre_headless")
         # Headless path — wraps the existing one-shot via T7-01's
         # run_headless. JSON mode routes UI chatter to stderr so
         # stdout stays a single clean envelope. Default (non-JSON)
@@ -430,9 +443,13 @@ def main() -> int:
                 f"run {result.run_id} ended {result.status}"
                 + (f": {result.error}" if result.error else "")
             )
+        _cp("post_headless", status=str(result.status), exit_code=result.exit_code())
         return result.exit_code()
 
-    return _run_interactive_repl(agent, cfg, workspace)
+    _cp("pre_repl")
+    _rc = _run_interactive_repl(agent, cfg, workspace)
+    _cp("post_repl", rc=_rc)
+    return _rc
 
 
 def _run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
