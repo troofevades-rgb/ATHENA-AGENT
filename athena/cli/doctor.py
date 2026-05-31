@@ -119,6 +119,41 @@ def _check_config_loads() -> CheckResult:
     )
 
 
+def _check_deprecated_config_keys() -> CheckResult:
+    """One-stop summary of deprecated keys that fired warnings
+    during config load this process. Empty -> OK. Non-empty ->
+    WARN with the full list so operators see every key to fix in
+    one place instead of scattered ``warning:`` lines."""
+    from ..config import load_config, reported_deprecations
+
+    # Ensure the config has actually been loaded at least once so
+    # the dedup set is populated. ``load_config()`` is cheap (parses
+    # a small TOML file) and idempotent.
+    load_config()
+    deprecations = reported_deprecations()
+    if not deprecations:
+        return CheckResult(
+            section="config",
+            name="config.deprecations",
+            label="Deprecated config keys",
+            severity="ok",
+            detail="none",
+        )
+    # Sort for stable ordering across runs.
+    keys = sorted({legacy_key for _path, legacy_key in deprecations})
+    return CheckResult(
+        section="config",
+        name="config.deprecations",
+        label="Deprecated config keys",
+        severity="warn",
+        detail=(
+            f"{len(keys)} key(s) flagged: {', '.join(keys)}. "
+            "Each emits a stderr warning once per process."
+        ),
+        extra={"keys": keys},
+    )
+
+
 def _check_config_path_exists() -> CheckResult:
     config_path = Path.home() / ".athena" / "config.toml"
     if config_path.exists():
@@ -487,6 +522,7 @@ def run_all_checks(skip_network: bool = False) -> list[CheckResult]:
     checks: list[tuple[str, Callable[[], CheckResult]]] = [
         ("Config parses", _check_config_loads),
         ("Config file present", _check_config_path_exists),
+        ("Deprecated config keys", _check_deprecated_config_keys),
         ("Credential pool", _check_credentials_pool),
         ("~/.athena/.env", _check_dotenv_present),
         ("Ollama daemon reachable", _check_ollama_daemon),

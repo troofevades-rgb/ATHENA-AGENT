@@ -1262,6 +1262,43 @@ _LEGACY_FIELD_MAP: dict[str, tuple[str, str]] = {
 }
 
 
+    # Deprecation-warning dedup. Each (config_path, legacy_key) pair
+    # fires its warning ONCE per process. The audit ticket motivated
+    # this: ``__main__.py`` calls ``load_config()`` twice during
+    # startup (startup_notice + the real cfg), which made every
+    # deprecation surface twice. The set is also a read source for
+    # callers that want to display a one-stop summary later (the
+    # ``athena doctor`` integration uses this in a follow-up).
+_DEPRECATION_WARNED: set[tuple[str, str]] = set()
+
+
+def reset_deprecation_dedup() -> None:
+    """Clear the in-process dedup state. Called from tests so
+    deprecation pins are hermetic regardless of the order test
+    files run in (each test gets a clean slate to assert warning
+    emission)."""
+    _DEPRECATION_WARNED.clear()
+
+
+def reported_deprecations() -> frozenset[tuple[str, str]]:
+    """Public read of the dedup state: returns the set of
+    ``(config_path, legacy_key)`` pairs that have warned this
+    process. Callers (e.g. ``athena doctor``) can surface a
+    one-stop summary without re-reading the config file."""
+    return frozenset(_DEPRECATION_WARNED)
+
+
+def _emit_deprecation(config_path: Path, legacy_key: str, message: str) -> None:
+    """Emit ``message`` to stderr the FIRST time the
+    ``(config_path, legacy_key)`` pair is reported in this process.
+    Subsequent calls are silent."""
+    key = (str(config_path), legacy_key)
+    if key in _DEPRECATION_WARNED:
+        return
+    _DEPRECATION_WARNED.add(key)
+    print(message, file=sys.stderr)
+
+
 def load_config() -> Config:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1272,10 +1309,11 @@ def load_config() -> Config:
         # Back-compat: accept old key name and map it forward
         if "auto_approve_bash" in data and "auto_approve_tools" not in data:
             data["auto_approve_tools"] = data.pop("auto_approve_bash")
-            print(
+            _emit_deprecation(
+                CONFIG_PATH,
+                "auto_approve_bash",
                 f"warning: {CONFIG_PATH}: 'auto_approve_bash' is deprecated; "
                 "rename to 'auto_approve_tools'.",
-                file=sys.stderr,
             )
         # Phase 18.1 R4: legacy flat keys (skills_autoload, bash_allowlist,
         # ...) are accepted with a one-line stderr note and folded into
@@ -1290,10 +1328,11 @@ def load_config() -> Config:
                 data.pop(legacy_key)
                 continue
             data.setdefault(nested_name, {})[sub_name] = data.pop(legacy_key)
-            print(
+            _emit_deprecation(
+                CONFIG_PATH,
+                legacy_key,
                 f"warning: {CONFIG_PATH}: '{legacy_key}' is deprecated; "
                 f"move to [{nested_name}] table with key '{sub_name}'.",
-                file=sys.stderr,
             )
         # Phase 18.1 R4 stage 4b: PluginsConfig needs custom TOML
         # translation. The block has two layers -- a fixed ``enabled``
