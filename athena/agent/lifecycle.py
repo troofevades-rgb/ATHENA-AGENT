@@ -969,6 +969,34 @@ class AgentLifecycle:
         except Exception:  # noqa: BLE001
             logger.debug("cancel hook registration failed", exc_info=True)
 
+        # Register a crash-context supplier so an uncaught exception
+        # anywhere in the process surfaces a record with live state
+        # (model, provider, profile, workspace, session_id, counters,
+        # last-N message roles). The excepthook itself is installed
+        # in ``__main__.py:main()`` before this code runs; the
+        # supplier is what gives the hook live context to capture.
+        try:
+            from ..crash_log import CrashContext, register_context_supplier
+
+            def _crash_context() -> CrashContext:
+                msgs = getattr(self, "messages", []) or []
+                return CrashContext(
+                    model=getattr(self, "model", None),
+                    provider=getattr(getattr(self, "provider", None), "name", None),
+                    profile=getattr(cfg, "profile", None),
+                    workspace=str(self.workspace),
+                    session_id=self.session_id,
+                    turn_count=getattr(self.stats, "turns", None),
+                    tool_call_count=getattr(self.stats, "tool_calls", None),
+                    last_message_roles=[
+                        str(m.get("role", "")) for m in msgs[-10:]
+                    ],
+                )
+
+            register_context_supplier(_crash_context)
+        except Exception:  # noqa: BLE001
+            logger.debug("crash context supplier registration failed", exc_info=True)
+
         # Optional skill watcher (cfg.skills.autoload). Kicks off a
         # daemon thread that polls the skill search paths and triggers
         # reload_skills() when a SKILL.md is added, edited, or

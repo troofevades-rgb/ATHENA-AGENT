@@ -414,6 +414,39 @@ def _check_tui_bundle() -> CheckResult:
     )
 
 
+# ── Section: crash log ──────────────────────────────────────────────
+
+
+def _check_recent_crashes() -> CheckResult:
+    """Count crash records from the last 7 days. Zero -> OK; any
+    crashes recorded -> WARN with a count so operators triage at
+    a glance. Always points at the directory."""
+    from ..crash_log import recent_crashes
+
+    recent = recent_crashes(within_days=7)
+    crash_dir = Path.home() / ".athena" / "crashes"
+    if not recent:
+        return CheckResult(
+            section="crashes",
+            name="crashes.recent",
+            label="Recent crashes (7d)",
+            severity="ok",
+            detail=f"none recorded -- log dir: {crash_dir}",
+        )
+    newest = recent[0]
+    return CheckResult(
+        section="crashes",
+        name="crashes.recent",
+        label="Recent crashes (7d)",
+        severity="warn",
+        detail=(
+            f"{len(recent)} record(s); newest: {newest.name}. "
+            f"Inspect: {crash_dir}"
+        ),
+        extra={"count": len(recent), "newest": str(newest)},
+    )
+
+
 # ── Section: gates / feature flags ──────────────────────────────────
 
 
@@ -461,6 +494,7 @@ def run_all_checks(skip_network: bool = False) -> list[CheckResult]:
         ("~/.athena writable", _check_athena_home_writable),
         ("node on PATH", _check_node_on_path),
         ("Ink TUI bundle", _check_tui_bundle),
+        ("Recent crashes (7d)", _check_recent_crashes),
         ("/godmode gate", _check_godmode_gate),
     ]
     return [_safe(label, fn) for label, fn in checks]
