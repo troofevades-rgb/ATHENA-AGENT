@@ -163,6 +163,16 @@ ALLOWLIST: frozenset[str] = frozenset(
         # File is closed and replaced with the real sys.stdout
         # on TUI shutdown.
         "athena/ui.py",
+        # Crash log writer -- atomic tmp + os.replace into
+        # ~/.athena/crashes/. Diagnostic-only files; never user
+        # content. Routing through snapshot_and_record would
+        # require the audit subsystem to be alive at crash time,
+        # which is exactly when it can't be assumed -- the
+        # crash_log writer must work from a sys.excepthook before
+        # any other state is reachable. Bounded by
+        # MAX_CRASH_RECORDS rotation so disk usage is capped.
+        # See athena/crash_log.py module docstring.
+        "athena/crash_log.py",
     }
 )
 

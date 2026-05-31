@@ -395,3 +395,41 @@ def test_credentials_pool_reports_provider_names(
     assert "openai" in result.detail
     assert "openrouter" in result.detail
     assert result.extra["providers"] == ["anthropic", "openai", "openrouter"]
+
+
+# ---------------------------------------------------------------------------
+# Recent crashes check (added with the crash-log feature)
+# ---------------------------------------------------------------------------
+
+
+def test_recent_crashes_ok_when_none(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """Empty crash dir -> OK with a pointer at the directory so
+    operators know where to look if a crash happens."""
+    monkeypatch.setattr(
+        "athena.crash_log.recent_crashes", lambda within_days=None: []
+    )
+    result = doctor._check_recent_crashes()
+    assert result.severity == "ok"
+    assert "none recorded" in result.detail.lower()
+
+
+def test_recent_crashes_warn_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    """Crash records in the last 7 days -> WARN with a count so
+    the operator triages at a glance. Not FAIL: an old crash from
+    yesterday shouldn't gate CI on its own."""
+    fake_newest = tmp_path / "crash-20260531-aaaaaaaa.json"
+    fake_newest.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        "athena.crash_log.recent_crashes",
+        lambda within_days=None: [fake_newest, fake_newest],
+    )
+    result = doctor._check_recent_crashes()
+    assert result.severity == "warn"
+    assert "2 record" in result.detail
+    assert result.extra["count"] == 2

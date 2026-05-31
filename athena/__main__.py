@@ -176,6 +176,19 @@ def _json_invalid_envelope(
 
 
 def main() -> int:
+    # Install the crash-log excepthook FIRST so any uncaught exception
+    # during startup (migration, config parse, provider construction,
+    # MCP load, gateway spawn) lands in ~/.athena/crashes/ rather than
+    # being lost when the operator closes the terminal. Idempotent.
+    try:
+        from .crash_log import install_excepthook
+
+        install_excepthook()
+    except Exception:  # noqa: BLE001
+        # The hook is best-effort -- if it can't install, the operator
+        # gets the default traceback. Never block startup.
+        pass
+
     # One-time migration of legacy single-profile layout (everything at
     # ~/.athena/<x>) into ~/.athena/profiles/default/<x>. Naturally
     # idempotent — once profiles/ exists, this short-circuits.
