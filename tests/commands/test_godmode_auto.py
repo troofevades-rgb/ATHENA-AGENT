@@ -285,10 +285,24 @@ def test_race_without_api_key_errors_clearly(
     Phase 1D "not implemented" stub assertion is obsolete. The
     surviving operator-facing failure mode is missing
     OPENROUTER_API_KEY -- the command must error with that
-    specific marker so operators know what to fix."""
+    specific marker so operators know what to fix.
+
+    Isolate the credential pool so a real openrouter entry in the
+    test machine's credentials.json doesn't satisfy the lookup
+    (the pool resolution was added in commit 62ae52a and the test
+    needs to exercise the both-sources-empty path)."""
     from athena.commands.godmode import cmd_godmode
 
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    class _EmptyPool:
+        def get(self, name: str):
+            return None
+
+    monkeypatch.setattr(
+        "athena.providers.credential_pool.global_pool", lambda: _EmptyPool()
+    )
+
     agent = _agent()
     cmd_godmode(agent, "race what is the meaning of life")
 

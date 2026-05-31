@@ -54,12 +54,35 @@ def _fake_agent(model: str = "qwen", provider_name: str = "ollama"):
 # ---- no arg: show current --------------------------------------------
 
 
-def test_no_arg_prints_current_model() -> None:
+def test_no_arg_renders_picker(monkeypatch) -> None:
+    """``/model`` (no args) now renders the multi-provider picker
+    instead of just printing the current name. The picker still
+    shows the current model (with a ``*`` marker), so the bare
+    name is still visible. No agent mutation.
+
+    Captures ``ui.console.print`` directly because the picker
+    writes through Rich's console, not ``ui.info`` like the legacy
+    path did. The shared ``_run`` helper only sees the info/warn/
+    error channels."""
+    import athena.commands.model as mod
+
+    monkeypatch.setattr(mod, "_ollama_models", lambda _a: ["qwen2.5-coder:14b"])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: [])
+
+    printed: list[str] = []
+    monkeypatch.setattr(
+        mod.ui.console, "print", lambda msg="", *a, **kw: printed.append(str(msg))
+    )
+
     agent = _fake_agent(model="qwen2.5-coder:14b")
-    out = _run(agent, "")
+    mod.cmd_model(agent, "")
+    out = "\n".join(printed)
+
     assert "qwen2.5-coder:14b" in out
-    assert "current model" in out.lower()
-    # No mutation
+    # Picker header + switch instruction visible.
+    assert "models" in out.lower()
+    assert "/model" in out
+    # No mutation.
     assert agent.model == "qwen2.5-coder:14b"
 
 
