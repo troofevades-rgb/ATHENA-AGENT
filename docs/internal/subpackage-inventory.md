@@ -149,12 +149,20 @@ have 27+ external imports. These are the load-bearing cores. Consolidation
 work should NOT touch their import surfaces without an architectural
 plan; their changeability ripples to every caller.
 
-### `eval/` is the coverage outlier
+### `eval/` is the coverage outlier — but it's a testing-style mismatch, not a code problem
 
 `eval/` has 10 external imports (substantial wiring) but only 43.1%
-coverage — the largest gap in the codebase. This is reachable, real,
-load-bearing code that doesn't have tests. Highest-value follow-up
-work for the consolidation pass.
+coverage on the headline. Drilling in: the gap is concentrated in
+seven `agent/tasks/*.py` files (all 0%) which are DSL-like
+SCENARIO definitions verified by running ``athena eval --task X``
+against a real or stubbed model. The rest of `eval/` (runner,
+scorers, summary, report, agent/runner, agent/report) sits at
+67-100% covered.
+
+These are appropriately-structured scenario specs measured against
+a unit-test rubric. The fix is one end-to-end test that runs the
+harness against a stub provider, not consolidation work. See
+``coverage-census.md`` for the per-file breakdown.
 
 ---
 
@@ -163,8 +171,11 @@ work for the consolidation pass.
 Based on this inventory + the coverage census, the actionable surface
 for a Karpathy-CLAUDE.md-style cleanup pass is:
 
-1. **`eval/`** — Real, important, under-tested. Adding integration tests
-   here closes the biggest coverage gap.
+1. **`eval/`** — Real, important. The "43.1% covered" headline is
+   misleading; drill-in shows it's eval scenario definitions at 0%
+   (verified by running ``athena eval``, not unit tests). The fix
+   is one end-to-end harness test against a stub provider, NOT
+   consolidation work.
 2. ~~**`document/` and `video/`** — Candidates for folding into
    `tools/` as modules~~ — RULED OUT after deeper look. Both are
    1000+ LOC packages with appropriate internal modularity

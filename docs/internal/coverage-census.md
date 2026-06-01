@@ -87,47 +87,71 @@ on architectural / cohesion grounds, not on the assumption they're unused.
 
 ## Actionable subset (coverage < 75%)
 
-These six subpackages are the ones where additional tests would give the
-biggest correctness uplift. None are dead code; they're under-tested
-relative to the rest of the codebase.
+**Important caveat surfaced after the first pass:** the headline
+coverage % for `eval/` (43.1%) and `cli/` (60.8%) is misleading.
+Drilling into the per-file numbers shows the gap isn't in
+poorly-written code — it's concentrated in two specific code shapes
+that are HARD to unit-test, not under-tested glue:
 
-### 1. `eval/` (43.1%) — Highest priority
+  * **CLI subcommand entry points** — eleven `cli/*.py` files at
+    literally 0% coverage (`audit`, `checkpoint`, `cleanup_blobs`,
+    `image_demo`, `plugins`, `proxy`, `recall`, `reindex`,
+    `sessions`, `theme`, `wordmark`). These are argparse + small
+    drivers that call into well-tested modules. The CLI files
+    that ARE tested (`model`, `profile`, `snapshot`, `webhook`)
+    sit at 90%+. Coverage here means someone wrote argparse-level
+    tests; absence means they didn't.
+  * **Eval scenario definitions** — all seven `eval/agent/tasks/*.py`
+    files at 0%. These are DSL-like scenario specs that the eval
+    harness runs against real (or stubbed) models. Verified by
+    running `athena eval --task X`, NOT by unit tests. The rest
+    of `eval/` (runner, scorers, summary, report) is 67%+.
 
-776 uncovered statements out of 1,329. The eval harness has lots of
-glue code (run loaders, scoring backends, dataset builders). Suggested
-focus areas:
+So the "consolidation work" that the census's per-subpackage rollup
+appeared to flag is largely NOT a consolidation problem. It's a
+testing-style mismatch: integration-style code measured against a
+unit-test rubric.
 
-- The trajectory-extraction and dataset-assembly path
-- Score-aggregation across model families
-- Race / autoscore orchestration (touches multiple providers)
+The remaining items below ARE legitimate gaps where additional
+unit-level tests would give correctness uplift:
 
-A focused integration test that runs one eval end-to-end against a stub
-provider would close significant gaps.
-
-### 2. `cli/` (60.8%) — Second priority
-
-1,541 uncovered statements. Many one-off `argparse` paths. The high-
-value gaps are in:
-
-- `cli/train.py` — multi-step training subcommands
-- `cli/cron.py` — schedule + daemon paths
-- `cli/gateway.py` — daemon lifecycle
-
-Subcommand `--help` rendering is usually testable cheaply.
-
-### 3. `audio/` (70.4%), `mcp/` (73.1%), `lsp/` (73.3%)
+### 1. `audio/` (70.4%), `mcp/` (73.1%), `lsp/` (73.3%)
 
 These three sit at a similar level. For `mcp/` specifically, the gaps
 are concentrated in the HTTP/SSE transport + OAuth flow — both newer
 than the stdio path and harder to test without a real server.
 
-### 4. `tools/` (73.4%) — Look here for hidden gaps
+### 2. `tools/` (73.4%) — Look here for hidden gaps
 
 Core agent tool surface. 544 uncovered statements is a lot. Worth
 spot-checking which tools are well-tested vs which slipped through.
 Likely culprits: tools that wrap external SDKs (gemini image, web
 fetch, etc.) where the integration surface is mocked but the post-
 processing paths aren't.
+
+### 3. `cli/` — argparse driver tests for the 0% files
+
+If you want CLI-level coverage uplift, the 11 files at 0% are the
+target. Each is 25-130 statements (small). The high-value ones:
+
+- `cli/sessions.py` (119 statements) — `athena sessions {list,
+  browse, search, purge}` — exercising these is mostly about
+  asserting JSON output format and exit codes.
+- `cli/plugins.py` (87 statements) — same shape, plugin management.
+- `cli/checkpoint.py` (82 statements) — same shape.
+
+The remaining 0% files (`theme`, `wordmark`, `image_demo`) are
+demo / display utilities and probably not worth investing test
+budget in.
+
+### 4. `eval/` — integration tests for the harness
+
+If you want eval-level coverage uplift, write **one** end-to-end
+test that runs `athena eval --task default` against a stub
+provider that returns a deterministic response. That would
+exercise the harness, the task-loader, the scorer, and the
+report-emit path in one go — likely closing 200+ uncovered
+statements with a single test.
 
 ---
 
