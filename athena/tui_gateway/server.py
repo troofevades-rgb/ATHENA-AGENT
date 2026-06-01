@@ -672,7 +672,19 @@ class TuiGateway:
             # stderr goes to the capture file (above) so a silent
             # Ink crash leaves a tail-able trail rather than
             # disappearing into the terminal scrollback.
-            popen_stdin: Any = sys.stdin
+            #
+            # CRITICAL: pass ``None`` for stdin (not ``sys.stdin``).
+            # ``sys.stdin`` is a TextIOWrapper; Popen calls its
+            # fileno() and on Windows duplicates the underlying
+            # handle via DuplicateHandle. The duplicate is NOT a
+            # TTY -- Node sees it as a pipe, ``process.stdin.isTTY``
+            # is false, and Ink's ``setRawMode`` throws "Raw mode is
+            # not supported on the current process.stdin" before
+            # the TUI ever renders. ``stdin=None`` tells subprocess
+            # "inherit the parent's stdin without redirection,"
+            # which on Windows passes through the original ConPTY
+            # TTY handle. (POSIX is unaffected either way.)
+            popen_stdin: Any = None
             popen_stdout: Any = sys.stdout
             popen_stderr: Any = (
                 self._tui_stderr_file if self._tui_stderr_file is not None
