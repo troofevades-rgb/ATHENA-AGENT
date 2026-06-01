@@ -111,10 +111,20 @@ cohesion sweep:
 | `video/` | `tools/` | 82.1% | Video analyze tool wrapper — same observation as `document/`; could fold |
 
 **Recommendation:** `document/` and `video/` are both invoked only from
-`tools/` as tool implementations. They could plausibly become
-`tools/document.py` and `tools/video.py` if their internal complexity
-doesn't warrant a package. Worth a deeper look at line count before
-deciding.
+`tools/` as tool implementations. They were initially flagged as fold
+candidates, but **further investigation rules that out**:
+
+- `document/` is 1146 LOC across 6 files (with an `extractors/` subpackage
+  for format-specific pdf/docx code). Folding to a single `tools/document.py`
+  would create a 1100+ LOC monster file and lose the format-extractor
+  modularity.
+- `video/` is 1331 LOC across 5 files (analyze, probe, extract, atoms).
+  Same observation: each file owns a distinct responsibility (analyze vs
+  metadata-probe vs frame-extract); folding loses that.
+
+Both packages have appropriate internal modularity. The "1 caller"
+inventory heuristic is a starting question, not a directive — it
+correctly flagged them for review, but the answer is "leave them alone."
 
 `migration/` and `proxy/` have their own CLI surfaces and lifecycles;
 they're fine as separate packages even with a single caller.
@@ -155,9 +165,13 @@ for a Karpathy-CLAUDE.md-style cleanup pass is:
 
 1. **`eval/`** — Real, important, under-tested. Adding integration tests
    here closes the biggest coverage gap.
-2. **`document/` and `video/`** — Candidates for folding into `tools/`
-   as modules instead of packages. Reduces subpackage count without
-   losing functionality. Verify line count first.
+2. ~~**`document/` and `video/`** — Candidates for folding into
+   `tools/` as modules~~ — RULED OUT after deeper look. Both are
+   1000+ LOC packages with appropriate internal modularity
+   (`document/extractors/{pdf,docx}.py`, `video/{analyze,probe,
+   extract,atoms}.py`). Folding would create monster files and
+   lose the per-format / per-responsibility separation. Leave
+   alone.
 3. **`__main__.py` and `config.py`** decomposition (logged in
    `MEMORY.md → project-consolidation-pass`) — Independent of this
    inventory; the size issue isn't load-bearing-package status.
