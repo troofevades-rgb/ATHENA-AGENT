@@ -282,7 +282,45 @@ def run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
         shutdown_all()
         agent.close()
 
+    # If the gateway dropped us out of the loop because the Ink
+    # subprocess crashed (rather than a clean /exit or Ctrl+C),
+    # surface WHY — otherwise the user just lands back at the shell
+    # prompt with no explanation ("it launched then sat there, then
+    # quit"). Tail the captured Ink stderr so the actual error
+    # (raw-mode failure, missing node module, JS exception) is right
+    # there in the terminal.
+    if getattr(gateway, "_child_crashed", False):
+        _report_tui_crash(gateway)
+        return 1
     return 0
+
+
+def _report_tui_crash(gateway: Any) -> None:
+    """Print a clear message + the tail of the Ink stderr capture
+    after the TUI subprocess died unexpectedly."""
+    sys.stderr.write(
+        "\nathena: the TUI exited unexpectedly (the Ink subprocess "
+        "crashed).\n"
+    )
+    path = getattr(gateway, "_tui_stderr_path", None)
+    if not path or not Path(path).exists():
+        sys.stderr.write("  No stderr capture was available.\n")
+        return
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as e:
+        sys.stderr.write(f"  Could not read {path}: {e}\n")
+        return
+    tail = [ln for ln in lines if ln.strip()][-15:]
+    sys.stderr.write(f"  Last lines of {path}:\n")
+    for ln in tail:
+        sys.stderr.write(f"    {ln}\n")
+    sys.stderr.write(
+        "\n  If this is a 'Raw mode is not supported' error, your "
+        "terminal isn't exposing a console stdin to the child.\n"
+        "  Try launching from Windows Terminal (not an IDE 'run' "
+        "panel), or run `athena doctor` for a full health check.\n"
+    )
 
 
 # Backwards-compatible alias. Drop in the next release.
