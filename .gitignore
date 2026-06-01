@@ -75,3 +75,4 @@ tests/video/fixtures/*.mov
 # never source.
 /athena-log.txt
 /athena-*.log
+coverage.json
