@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import re
 import sys
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -428,9 +430,39 @@ def _emit_flash(level: str, text: str) -> bool:
         return False
 
 
+# Thread-local mute. When set, ``info``/``warn`` are swallowed on the
+# CURRENT thread only — used to silence a forked sub-agent's
+# construction-time startup chatter ("inherited SYSTEM", "loaded
+# ATHENA.md", "loaded skills catalog") which Agent.__init__ emits.
+# Forks build their child agent synchronously on the calling thread
+# BEFORE entering their stdout-redirect, so without this the child's
+# boot messages leak to the console (a duplicate banner at startup
+# when the curator/review fork fires). Thread-local (not a module
+# global) so muting the fork-spawning thread never suppresses the
+# main thread's legitimate concurrent output. Errors are never muted.
+_mute_state = threading.local()
+
+
+def _muted() -> bool:
+    return bool(getattr(_mute_state, "on", False))
+
+
+@contextlib.contextmanager
+def muted() -> Iterator[None]:
+    """Suppress ``info``/``warn`` on the current thread for the block."""
+    prev = getattr(_mute_state, "on", False)
+    _mute_state.on = True
+    try:
+        yield
+    finally:
+        _mute_state.on = prev
+
+
 def info(msg: str) -> None:
     # In TUI mode: ephemeral toast above the prompt. In Rich
     # mode: console line as before.
+    if _muted():
+        return
     if _emit_flash("info", msg):
         return
     console.print(f"[{LIME_DIM}]·[/] [dim]{msg}[/]")
@@ -439,6 +471,8 @@ def info(msg: str) -> None:
 def warn(msg: str) -> None:
     # In TUI mode: ephemeral toast (level=warn). Persistent
     # failures should use ``ui.error`` instead.
+    if _muted():
+        return
     if _emit_flash("warn", msg):
         return
     console.print(f"[yellow]![/] [yellow]{msg}[/]")
