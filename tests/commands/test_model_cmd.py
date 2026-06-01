@@ -273,6 +273,44 @@ def test_legitimate_vendor_path_not_rejected() -> None:
     assert agent.model == "mistralai/mistral-7b"
 
 
+# ---- leading-slash strip (dogfood paste / typo) ---------------------
+
+
+def test_leading_slash_is_stripped_before_routing() -> None:
+    """``/model /troofevades-q35:athena`` -- the operator pasted /
+    typo'd a leading slash, which Ollama rejects as ``HTTP 400
+    invalid model name``. The picker strips the slash and
+    forwards the clean name. Surfaced after a dogfood session
+    burned several turns with Ollama returning 400 on every
+    prompt before the operator noticed."""
+    agent = _fake_agent(model="qwen2.5-coder:14b", provider_name="ollama")
+    with (
+        patch("athena.commands.model._route", return_value="ollama"),
+        patch(
+            "athena.commands.model._bare_model",
+            return_value="troofevades-q35:athena",
+        ),
+    ):
+        out = _run(agent, "/troofevades-q35:athena")
+    # Routed without the leading slash; agent.model is the clean name.
+    assert agent.model == "troofevades-q35:athena"
+    # No error about invalid model name.
+    assert "invalid" not in out.lower()
+    assert "model set to" in out.lower()
+
+
+def test_only_slash_input_rejected_cleanly() -> None:
+    """A bare ``/`` (or a string that's nothing but slashes) leaves
+    nothing to route after the strip. Surface a clear error rather
+    than silently calling resolve_provider with empty input."""
+    agent = _fake_agent(model="qwen", provider_name="ollama")
+    original_model = agent.model
+    out = _run(agent, "/")
+    # Model is unchanged.
+    assert agent.model == original_model
+    assert "empty" in out.lower() or "model name" in out.lower()
+
+
 def test_known_provider_prefix_passes_through_typo_guard() -> None:
     """``anthropic/claude-opus`` is the canonical spelling and must
     NOT trip the typo guard."""

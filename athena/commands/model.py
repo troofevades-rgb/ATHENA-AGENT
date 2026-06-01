@@ -335,6 +335,17 @@ def _switch_model(agent: Any, new_name: str) -> None:
     whose catalog entry doesn't list ``tools`` in
     ``supported_parameters`` -- such a model 404s on every athena
     turn (we ship tool schemas unconditionally)."""
+    # Strip a leading slash that snuck in from a paste / typo.
+    # Surfaced when an operator typed ``/model /troofevades-q35:athena``
+    # and Ollama rejected the request with HTTP 400 "invalid model
+    # name" (Ollama does not accept slash-prefixed names). A leading
+    # slash never has a valid provider-routing meaning -- every
+    # known prefix is ``<letters>/``, never starts with ``/`` --
+    # so this strip is safe.
+    new_name = new_name.lstrip("/")
+    if not new_name:
+        ui.error("model name is empty after stripping the leading slash")
+        return
     typo = _typo_suggestion(new_name)
     if typo is not None:
         ui.error(typo)
