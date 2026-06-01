@@ -327,13 +327,22 @@ def _stream_posix(proc: subprocess.Popen, timeout: int) -> str:
     """Live-stream stdout via select() on POSIX."""
     buf: list[str] = []
     pending = b""
-    deadline = time.time() + timeout
+    # Use monotonic clock for the deadline so an NTP sync (or any
+    # wall-clock adjustment) mid-command doesn't either:
+    #   * fire the timeout immediately because the clock jumped
+    #     forward past the deadline, killing a healthy process; or
+    #   * silently extend the timeout if the clock rolled backward.
+    # ``time.time()`` is wall-clock and CAN go backwards on Linux
+    # (ntpdate / chronyd small adjustments are usually slewed but
+    # large adjustments at boot are stepped). ``time.monotonic()``
+    # guarantees forward-only motion.
+    deadline = time.monotonic() + timeout
     timed_out = False
     assert proc.stdout is not None
     fd = proc.stdout.fileno()
     try:
         while True:
-            remaining = deadline - time.time()
+            remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out = True
                 break
