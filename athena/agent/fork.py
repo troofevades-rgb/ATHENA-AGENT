@@ -122,15 +122,28 @@ def fork(
     # plugin is silently ignored inside background_review and
     # curator forks -- a real escape hatch for a plugin that, e.g.,
     # blocks Bash in the REPL.
-    child = Agent(
-        child_cfg,
-        self.workspace,
-        model=self.model,
-        client=client,
-        session_store=self.session_store,
-        parent_session_id=self.session_id,
-        plugin_hooks=self.plugin_hooks,
-    )
+    # Construct the child agent under a UI mute when quiet. Agent
+    # __init__ runs _build_system() which emits startup chatter
+    # ("inherited SYSTEM", "loaded ATHENA.md", "loaded skills
+    # catalog") via ui.info — and construction happens HERE on the
+    # calling thread, BEFORE the stdout-redirect set up inside the
+    # fork's _runner thread. Without the mute those messages leak to
+    # the console, showing as a duplicate boot banner whenever a fork
+    # fires before the TUI gateway is wired (notably the curator's
+    # session-start pass). The mute is thread-local, so it never
+    # suppresses the parent/main thread's concurrent output.
+    from .. import ui
+
+    with ui.muted() if quiet else contextlib.nullcontext():
+        child = Agent(
+            child_cfg,
+            self.workspace,
+            model=self.model,
+            client=client,
+            session_store=self.session_store,
+            parent_session_id=self.session_id,
+            plugin_hooks=self.plugin_hooks,
+        )
     # If we built an auxiliary client, the child owns it (close on shutdown).
     # If we passed the parent's client, the child does NOT own it.
     child._owns_client = auxiliary_client
