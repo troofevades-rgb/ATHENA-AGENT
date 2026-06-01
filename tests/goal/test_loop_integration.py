@@ -321,6 +321,51 @@ def test_announcement_does_fire_on_transition_into_achieved(
     )
 
 
+def test_announcement_turn_count_includes_bootstrap(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """Dogfood: "Goal achieved in 0 turn(s)" was confusing because
+    the model clearly DID produce one response (the bootstrap turn
+    after /goal MSG). turns_taken counts CONTINUATIONS only -- the
+    loop hook bumps it for each synthetic prompt it injects, not
+    for the bootstrap. The display adds 1 so the count matches
+    the operator's mental model ("how many model responses
+    produced this result")."""
+    # Bootstrap response achieved the goal on its first reply --
+    # internal turns_taken=0, displayed as "1 turn(s)".
+    st = GoalState(text="x", status="active", turns_taken=0)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="Done.\n\nGOAL ACHIEVED",
+    )
+    capsys.readouterr()
+    a._consult_goal_continuation(tokens_at_loop_start=0)
+    combined = (capsys.readouterr().out).lower()
+    # turns_taken=0 + 1 = "1 turn(s)"
+    assert "1 turn(s)" in combined or "in 1 turn" in combined, (
+        f"expected '1 turn(s)' display when achieved on bootstrap; "
+        f"got: {combined!r}"
+    )
+
+    # After 1 continuation that achieved -- internal turns_taken=1,
+    # displayed as "2 turn(s)".
+    st2 = GoalState(text="y", status="active", turns_taken=1)
+    a2 = _agent(
+        tmp_path=tmp_path,
+        goal_state=st2,
+        assistant_text="finished\n\nGOAL ACHIEVED",
+    )
+    capsys.readouterr()
+    a2._consult_goal_continuation(tokens_at_loop_start=0)
+    combined2 = (capsys.readouterr().out).lower()
+    assert "2 turn(s)" in combined2 or "in 2 turn" in combined2, (
+        f"expected '2 turn(s)' display for one-continuation case; "
+        f"got: {combined2!r}"
+    )
+
+
 def test_announcement_does_not_repeat_when_state_already_paused(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

@@ -164,17 +164,28 @@ class AgentGoalIntegration:
             # model said done, we believed it). This matters because a
             # silent "Goal achieved" with no verifier looks identical to
             # a properly-checked completion, masking the gap.
+            #
+            # Display includes the bootstrap turn: ``turns_taken``
+            # counts CONTINUATIONS only (the loop hook bumps it for
+            # each synthetic prompt it injects), so achievement on
+            # the very first response shows turns_taken=0. From the
+            # operator's POV the bootstrap IS a turn -- the model
+            # responded once and that response achieved the goal --
+            # so the display reads ``1 turn(s)``, not ``0``. Avoids
+            # the confusing "Goal achieved in 0 turn(s)" that
+            # surfaced in dogfood.
+            displayed_turns = self.goal_state.turns_taken + 1
             verifier_configured = bool(getattr(self.cfg, "goal_verifier_command", None))
             if verifier_configured:
                 ui.console.print(
                     f"[bold green]Goal achieved[/] in "
-                    f"{self.goal_state.turns_taken} turn(s) "
+                    f"{displayed_turns} turn(s) "
                     "[dim](verifier passed)[/]"
                 )
             else:
                 ui.console.print(
                     f"[bold green]Goal achieved[/] in "
-                    f"{self.goal_state.turns_taken} turn(s) "
+                    f"{displayed_turns} turn(s) "
                     "[yellow](self-declared; no verifier configured -- "
                     "set cfg.goal_verifier_command to gate this)[/]"
                 )
