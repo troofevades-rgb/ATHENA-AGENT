@@ -427,6 +427,61 @@ def test_compressor_summarizer_failure_does_not_crash_agent(
     assert agent.messages == pre_messages
 
 
+def test_last_assistant_text_strips_think_blocks(
+    isolated_home: Path,
+    workspace: Path,
+) -> None:
+    """``self._last_assistant_text`` was being set to the RAW
+    ``assistant_text`` (with ``<think>`` blocks intact) even
+    after the persistence-side strip landed. Two consumers
+    read this attribute:
+
+      1. ``headless/runner.py`` -- exposes it as
+         ``RunResult.assistant_text``, which downstream
+         JSON-envelope parsers shouldn't have to filter.
+      2. ``goal_integration.py`` -- passes it to
+         ``scan_sentinels``, which would otherwise match
+         ``GOAL ACHIEVED`` appearing inside the model's own
+         reasoning trace and end the loop spuriously on turn 1.
+
+    This test pins that the strip runs at the assignment site
+    (alongside the message-persistence strip), so both
+    consumers see the polished text."""
+    cfg = Config(model="thinker2")
+
+    class _ThinkerProvider:
+        name = "thinker2"
+        requires_api_key = False
+
+        def stream_chat(self, **kwargs: Any) -> Iterator[StreamChunk]:
+            yield StreamChunk(
+                "content",
+                "<think>I should consider whether to claim GOAL ACHIEVED here</think>\n"
+                "Actual reply to the user.",
+            )
+            yield StreamChunk("end", {})
+
+        def parse_tool_calls(self, content: str, raw_response: dict) -> tuple:
+            return content, []
+
+        def list_models(self) -> list[str]:
+            return ["thinker2"]
+
+        def show_model(self, model: str) -> dict[str, Any]:
+            return {}
+
+        def close(self) -> None:
+            return None
+
+    agent = Agent(cfg, workspace, provider=_ThinkerProvider())
+    agent.run_turn("hi")
+
+    surfaced = getattr(agent, "_last_assistant_text", "")
+    assert "<think>" not in surfaced
+    assert "GOAL ACHIEVED" not in surfaced
+    assert "Actual reply to the user." in surfaced
+
+
 def test_assistant_message_persists_with_think_blocks_stripped(
     isolated_home: Path,
     workspace: Path,

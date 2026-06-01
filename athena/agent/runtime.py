@@ -420,8 +420,17 @@ class AgentRuntime:
                 self._fire_stop("completed")
                 self._maybe_fire_review()
                 # T5-07: surface the final assistant text for the
-                # continuation hook in run_turn.
-                self._last_assistant_text = assistant_text or ""
+                # continuation hook in run_turn. STRIPPED of <think>
+                # blocks for the same reason persisted history is
+                # stripped above: (1) the goal sentinel scanner would
+                # otherwise match GOAL ACHIEVED appearing inside the
+                # model's own reasoning trace (false positive end-loop),
+                # (2) the headless RunResult.assistant_text field
+                # carries this into machine-readable envelopes that
+                # downstream parsers shouldn't have to filter.
+                self._last_assistant_text = strip_think_blocks(
+                    assistant_text or ""
+                )
                 return
 
             # Identical-tool-call circuit breaker: if the same set of
