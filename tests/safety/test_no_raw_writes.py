@@ -191,6 +191,15 @@ ALLOWLIST: frozenset[str] = frozenset(
         # through the audit subsystem is impossible by definition.
         # See athena/boot_trace.py module docstring.
         "athena/boot_trace.py",
+        # TUI subprocess stderr capture -- append-only file at
+        # ~/.athena/tui-stderr.log that receives the Ink
+        # subprocess's stderr stream (production routes stderr
+        # there instead of inheriting sys.stderr so a silent
+        # Ink crash leaves a tail-able forensic trail). Pure
+        # diagnostic: opened once at gateway.start() and lives
+        # the lifetime of the subprocess; never carries
+        # user-content data.
+        "athena/tui_gateway/server.py",
     }
 )
 
