@@ -293,16 +293,14 @@ def test_tui_bundle_check_passes_when_file_exists(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    """The check finds the bundle by walking up from
-    ``athena/__file__``. Mock that to a tmp_path so the test is
-    independent of repo state."""
-    bundle_dir = tmp_path / "ui-tui" / "dist"
-    bundle_dir.mkdir(parents=True)
-    bundle = bundle_dir / "main.js"
+    """Doctor validates the SAME bundle the gateway will spawn, so it
+    delegates to ``_locate_bundle``. Mock that to a tmp file so the
+    test is independent of repo state."""
+    bundle = tmp_path / "main.js"
     bundle.write_text("// bundle bytes", encoding="utf-8")
-
-    fake_athena = SimpleNamespace(__file__=str(tmp_path / "athena" / "__init__.py"))
-    monkeypatch.setitem(__import__("sys").modules, "athena", fake_athena)
+    monkeypatch.setattr(
+        "athena.tui_gateway.server._locate_bundle", lambda: bundle
+    )
 
     result = doctor._check_tui_bundle()
     assert result.severity == "ok"
@@ -311,11 +309,20 @@ def test_tui_bundle_check_passes_when_file_exists(
 
 def test_tui_bundle_check_fails_when_missing(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
 ) -> None:
-    """No ``ui-tui/dist/main.js`` -> FAIL with the bun-build hint."""
-    fake_athena = SimpleNamespace(__file__=str(tmp_path / "athena" / "__init__.py"))
-    monkeypatch.setitem(__import__("sys").modules, "athena", fake_athena)
+    """When ``_locate_bundle`` can't find a bundle on either the wheel
+    or dev path, it raises FileNotFoundError -> doctor reports FAIL
+    with the bun-build hint carried in the exception message."""
+
+    def _raise() -> None:
+        raise FileNotFoundError(
+            "Ink TUI bundle not found. ... Build it with: "
+            "cd ui-tui && bun run build"
+        )
+
+    monkeypatch.setattr(
+        "athena.tui_gateway.server._locate_bundle", _raise
+    )
 
     result = doctor._check_tui_bundle()
     assert result.severity == "fail"

@@ -419,26 +419,26 @@ def _check_node_on_path() -> CheckResult:
 
 
 def _check_tui_bundle() -> CheckResult:
-    """The Ink bundle is built into ``ui-tui/dist/main.js`` at
-    install time. Operators editing the TUI need to ``bun run build``
-    in ``ui-tui/``; without the bundle, the REPL can't launch."""
-    # The bundle path is relative to the installed athena package.
-    # ``athena/tui_gateway/`` knows how to find it; we just check the
-    # canonical location.
-    import athena
+    """The Ink bundle ships at ``athena/_tui_bundle/main.js`` in
+    wheels and falls back to ``ui-tui/dist/main.js`` in dev trees.
+    Operators editing the TUI need to ``bun run build`` in
+    ``ui-tui/``; without the bundle, the REPL can't launch.
 
-    pkg_root = Path(athena.__file__).parent.parent
-    bundle = pkg_root / "ui-tui" / "dist" / "main.js"
-    if not bundle.exists():
+    Check the SAME path the gateway will actually spawn (via
+    ``_locate_bundle``) rather than a hardcoded location -- otherwise
+    doctor can report a healthy dev bundle while the gateway runs (or
+    fails to find) the wheel bundle, masking a launch failure."""
+    from ..tui_gateway.server import _locate_bundle
+
+    try:
+        bundle = _locate_bundle()
+    except FileNotFoundError as e:
         return CheckResult(
             section="tui",
             name="tui.bundle",
             label="Ink TUI bundle",
             severity="fail",
-            detail=(
-                f"{bundle} missing -- "
-                "run `cd ui-tui && bun run build`"
-            ),
+            detail=f"{e}",
         )
     return CheckResult(
         section="tui",

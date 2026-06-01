@@ -581,6 +581,19 @@ class TuiGateway:
         self._conn_reader: io.BufferedReader | None = None
         self._accept_timeout_s = accept_timeout_s
         self._tty_passthrough = tty_passthrough
+        # Windows-only: a fresh console-input handle (``\\.\CONIN$``)
+        # handed to the child as stdin so Ink's setRawMode works.
+        # See the long comment in start(). None on POSIX / when the
+        # open fails. Closed in close().
+        self._conin: Any = None
+        # Set by the accept-loop when the spawned child exits and no
+        # reconnect can arrive (embedded REPL has no supervisor to
+        # respawn it). Lets the REPL print a diagnostic instead of
+        # reporting a clean Ctrl-C-style exit.
+        self._child_crashed = False
+        # Path of the per-session Ink stderr capture, stashed so the
+        # REPL can tail it when the child dies unexpectedly.
+        self._tui_stderr_path: Path | None = None
         # Flips to True when the socket dies mid-session (TUI
         # crashed, network hiccup, etc). Once dead, send_event
         # raises so callers know not to keep trying.
@@ -653,6 +666,7 @@ class TuiGateway:
         # latest is always at the same path so operators can `tail`
         # it during a hang.
         tui_stderr_path = Path.home() / ".athena" / "tui-stderr.log"
+        self._tui_stderr_path = tui_stderr_path
         try:
             tui_stderr_path.parent.mkdir(parents=True, exist_ok=True)
             self._tui_stderr_file: Any = open(
@@ -673,18 +687,52 @@ class TuiGateway:
             # Ink crash leaves a tail-able trail rather than
             # disappearing into the terminal scrollback.
             #
-            # CRITICAL: pass ``None`` for stdin (not ``sys.stdin``).
-            # ``sys.stdin`` is a TextIOWrapper; Popen calls its
-            # fileno() and on Windows duplicates the underlying
-            # handle via DuplicateHandle. The duplicate is NOT a
-            # TTY -- Node sees it as a pipe, ``process.stdin.isTTY``
-            # is false, and Ink's ``setRawMode`` throws "Raw mode is
-            # not supported on the current process.stdin" before
-            # the TUI ever renders. ``stdin=None`` tells subprocess
-            # "inherit the parent's stdin without redirection,"
-            # which on Windows passes through the original ConPTY
-            # TTY handle. (POSIX is unaffected either way.)
+            # Giving Ink a real TTY on stdin is subtle on Windows.
+            #
+            # We redirect stderr (to the capture file) and stdout
+            # (to sys.stdout). On Windows, specifying ANY of the
+            # three std streams makes subprocess set
+            # ``STARTF_USESTDHANDLES`` -- and once that flag is set,
+            # CPython resolves a ``stdin=None`` by calling
+            # ``GetStdHandle(STD_INPUT_HANDLE)`` and then
+            # ``DuplicateHandle``-ing it into the child. Node does
+            # NOT treat that duplicated console handle as a TTY:
+            # ``process.stdin.isTTY`` is false, so Ink's
+            # ``setRawMode`` throws "Raw mode is not supported on the
+            # current process.stdin" and the UI crashes before it
+            # ever renders (then the gateway sits waiting for a
+            # reconnect that never comes -- a silent hang). Passing
+            # ``sys.stdin`` instead hits the same DuplicateHandle
+            # path with the same result; ``stdin=None`` was a prior
+            # attempted fix that did not actually work for this
+            # reason.
+            #
+            # The fix: open the console input device directly via
+            # ``\\.\CONIN$``. CreateFile on CONIN$ returns a fresh,
+            # inheritable console handle that the child sees as a
+            # real TTY regardless of how the parent's STD_INPUT_HANDLE
+            # was set up. r+ access (GENERIC_READ|GENERIC_WRITE) is
+            # what SetConsoleMode (raw mode) needs. POSIX has no such
+            # device and never had the problem, so it keeps
+            # ``stdin=None`` (true fd inheritance).
             popen_stdin: Any = None
+            if sys.platform == "win32":
+                try:
+                    self._conin = open(r"\\.\CONIN$", "r+b", buffering=0)
+                    popen_stdin = self._conin
+                except OSError:
+                    # No console (shouldn't happen past the REPL's
+                    # isatty guard) or access denied -- fall back to
+                    # None. Worst case Ink still can't raw-mode, but
+                    # the child-death detection below turns that into
+                    # a clean error instead of a hang.
+                    logger.warning(
+                        "could not open CONIN$ for TUI stdin; "
+                        "raw mode may be unavailable",
+                        exc_info=True,
+                    )
+                    self._conin = None
+                    popen_stdin = None
             popen_stdout: Any = sys.stdout
             popen_stderr: Any = (
                 self._tui_stderr_file if self._tui_stderr_file is not None
@@ -840,6 +888,14 @@ class TuiGateway:
         # stuck — short bounded join then move on.
         if self._reader_thread is not None and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=1.0)
+        # Release our copy of the CONIN$ handle (the child got its own
+        # duplicate at spawn; this is just the parent-side reference).
+        if self._conin is not None:
+            try:
+                self._conin.close()
+            except OSError:
+                pass
+            self._conin = None
         proc = self._proc
         if proc is None:
             _restore_terminal()
@@ -1006,6 +1062,27 @@ class TuiGateway:
                 except OSError:
                     pass
             logger.info("tui conn died; awaiting reconnect")
+
+            # If the child WE spawned has exited, no reconnect can
+            # ever arrive: the embedded REPL has no supervisor to
+            # respawn the Ink process. Blocking in accept() below
+            # would hang recv_command forever (the user sees the
+            # boot banner then "it just sits there"). Detect the
+            # dead child, flag it, and unblock the REPL with None so
+            # it can exit cleanly and tail the stderr capture. The
+            # reconnect path stays alive for the genuine case where
+            # the socket blipped but the child is still running.
+            proc = self._proc
+            if proc is not None and proc.poll() is not None:
+                logger.error(
+                    "TUI subprocess exited (code %s); no reconnect "
+                    "possible. See %s",
+                    proc.returncode,
+                    self._tui_stderr_path,
+                )
+                self._child_crashed = True
+                self._cmd_queue.put(None)
+                return
 
             # Accept a new conn. Loop with short timeout so
             # close() can preempt.
