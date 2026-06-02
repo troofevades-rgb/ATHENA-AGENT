@@ -16260,6 +16260,7 @@ function parseInline(text) {
 
 // src/components/Transcript.tsx
 var jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var FILE_LINE_RE = /^(\s*)([^\s:][^:]*?):(\d+)(.*)$/;
 function Transcript({
   banner,
   lines,
@@ -16467,6 +16468,31 @@ function renderLine(line, palette, promptColor) {
   }
   if (line.role === "tool") {
     const isHeader = line.content.startsWith("> ");
+    const fileLine = !isHeader ? line.content.match(FILE_LINE_RE) : null;
+    if (fileLine && /[/\\.]/.test(fileLine[2])) {
+      const [, lead, path, lineNo, rest2] = fileLine;
+      return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+        children: [
+          "   ",
+          lead,
+          /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+            color: palette?.primary_faint ?? "gray",
+            children: path
+          }),
+          /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+            color: palette?.accent_dim ?? "yellow",
+            children: [
+              ":",
+              lineNo
+            ]
+          }),
+          /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+            color: palette?.primary_dim ?? "gray",
+            children: rest2
+          })
+        ]
+      }, line.key);
+    }
     return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
       color: isHeader ? palette?.accent_dim ?? "yellow" : palette?.primary_dim ?? "gray",
       bold: isHeader,
