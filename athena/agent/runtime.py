@@ -296,6 +296,10 @@ class AgentRuntime:
         max_identical = max(
             0, int(getattr(self.cfg, "max_identical_tool_calls", 0) or 0)
         )
+        # Count tool calls across the whole turn so the narrate-without-act
+        # guard (below) can tell "described a next step but never acted"
+        # from a normal closing summary after real work.
+        turn_tool_calls = 0
 
         for step in range(max_steps):
             # T2-04: check token watermark before each provider call.
@@ -381,7 +385,7 @@ class AgentRuntime:
             # duplication), and (3) the JSONL transcript. Strip
             # once here, at the point where assistant_text becomes
             # part of the durable session state.
-            from ..text_utils import strip_think_blocks
+            from ..text_utils import detect_narrated_intent, strip_think_blocks
 
             clean_text = strip_think_blocks(assistant_text or "")
             assistant_msg: dict[str, Any] = {"role": "assistant", "content": clean_text}
@@ -417,6 +421,15 @@ class AgentRuntime:
                 # only (intermediate tool-calling rounds aren't surfaced).
                 if assistant_text:
                     self.plugin_hooks.on_assistant_message(assistant_text)
+                # Narrate-without-act guard: the turn made ZERO tool calls
+                # and the model signed off on a future-tense intent ("I'll
+                # run the tests") instead of doing it. One-line nudge, not
+                # a re-prompt — the operator decides whether to push it.
+                if turn_tool_calls == 0 and detect_narrated_intent(clean_text):
+                    ui.warn(
+                        "model described a next step but took no action this "
+                        "turn (narrated intent without a tool call)"
+                    )
                 self._fire_stop("completed")
                 self._maybe_fire_review()
                 # T5-07: surface the final assistant text for the
@@ -499,6 +512,10 @@ class AgentRuntime:
                     }
                 )
                 return
+
+            # Dispatch completed without interrupt — count this round's
+            # calls toward the turn total (consumed by the guard above).
+            turn_tool_calls += len(tool_calls)
 
         ui.warn(f"reached step limit ({max_steps}); stopping for safety.")
         self._fire_stop("step_limit")
