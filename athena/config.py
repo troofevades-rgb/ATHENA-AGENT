@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -1224,11 +1225,74 @@ class Config:
 # (the existing public surface) keep working without churn.
 from .config_deprecations import (
     _DEPRECATION_WARNED,
-    _emit_deprecation,
     _LEGACY_FIELD_MAP,
+    _emit_deprecation,
     reported_deprecations,
     reset_deprecation_dedup,
 )
+
+# Sections that legitimately accept arbitrary sub-keys (plugin names,
+# provider names, routing maps) — never flag their contents.
+_FREE_FORM_SECTIONS: frozenset[str] = frozenset({"plugins", "providers"})
+
+
+def _find_key_line(path: Path, section: str, key: str) -> int | None:
+    """Best-effort: line number where ``key =`` appears under
+    ``[section]`` in the raw TOML (tomllib doesn't expose positions)."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    header = re.compile(r"^\s*\[([^\]]+)\]\s*$")
+    key_re = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    in_section = False
+    for i, line in enumerate(lines, 1):
+        m = header.match(line)
+        if m:
+            in_section = m.group(1).split(".")[0].strip() == section
+            continue
+        if in_section and key_re.match(line):
+            return i
+    return None
+
+
+def _validate_section_placement(data: dict[str, Any], cfg: Config, path: Path) -> None:
+    """Guard the TOML "twice-hit" footgun.
+
+    A bare key written AFTER a ``[section]`` header is folded into that
+    section by TOML — so::
+
+        [skills]
+        autoload = true
+        model = "..."   # <- this is skills.model, NOT top-level model
+
+    silently drops the value the user meant to set at top level. Detect
+    a known TOP-LEVEL Config field appearing inside a known fixed-schema
+    section (where it isn't a valid field of that section) and raise a
+    clear, located error instead of ignoring it. Free-form sections
+    (``[plugins]`` / ``[providers]``) accept arbitrary sub-keys and are
+    skipped.
+    """
+    top_level = {f.name for f in fields(cfg)}
+    for section, table in data.items():
+        if not isinstance(table, dict) or section in _FREE_FORM_SECTIONS:
+            continue
+        sec_default = getattr(cfg, section, None)
+        if not is_dataclass(sec_default):
+            continue  # unknown / free-form table — not ours to police
+        sec_fields = {f.name for f in fields(sec_default)}
+        misplaced = [k for k in table if k in top_level and k not in sec_fields]
+        if misplaced:
+            key = misplaced[0]
+            line = _find_key_line(path, section, key)
+            loc = f"{path}:{line}" if line else str(path)
+            raise ValueError(
+                f"{loc}: '{key}' is a top-level setting but appears under "
+                f"[{section}] — TOML folds any key written after a [section] "
+                f"header into that section, so the value is lost. Move "
+                f"'{key}' ABOVE the first [section] header (or delete it from "
+                f"[{section}] if it was meant to be a {section} setting)."
+            )
 
 
 def load_config() -> Config:
@@ -1238,6 +1302,9 @@ def load_config() -> Config:
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, "rb") as f:
             data = tomllib.load(f)
+        # Catch the section-header footgun on the user's raw structure
+        # before any back-compat folding mutates it.
+        _validate_section_placement(data, cfg, CONFIG_PATH)
         # Back-compat: accept old key name and map it forward
         if "auto_approve_bash" in data and "auto_approve_tools" not in data:
             data["auto_approve_tools"] = data.pop("auto_approve_bash")
