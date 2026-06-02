@@ -85,6 +85,18 @@ class SearchHit:
     workspace: str | None = None
 
 
+@dataclass
+class SessionVerifyRow:
+    """One session's JSONL-vs-SQLite consistency result (see
+    :meth:`SessionStore.verify`)."""
+
+    session_id: str
+    jsonl_turns: int  # -1 when the .jsonl file is missing
+    db_turns: int
+    indexed: bool  # has a row in the sessions table
+    ok: bool
+
+
 # -- The store -----------------------------------------------------------
 
 
@@ -258,6 +270,39 @@ class SessionStore:
 
     def load(self, session_id: str) -> Iterator[dict[str, Any]]:
         yield from jsonl.read_jsonl(self.sessions_dir / f"{session_id}.jsonl")
+
+    def verify(self) -> list[SessionVerifyRow]:
+        """Compare each session's JSONL truth against the SQLite mirror.
+
+        ``append_turn`` writes one ``turns`` row per JSONL line, so a
+        healthy session has a ``.jsonl`` file, a ``sessions``-table row,
+        and an equal count of JSONL lines and ``turns`` rows. A mismatch
+        means the mirror drifted behind a crashed write (FTS search then
+        silently degrades) — ``athena reindex`` rebuilds it from the
+        JSONL. Returns one row per known session id (the union of on-disk
+        ``.jsonl`` files and indexed sessions) so orphans in either
+        direction surface too.
+        """
+        conn = self._conn()
+        jsonl_ids = {p.stem for p in self.sessions_dir.glob("*.jsonl")}
+        table_ids = {
+            r[0] for r in conn.execute("SELECT session_id FROM sessions").fetchall()
+        }
+        turn_counts: dict[str, int] = {
+            r[0]: int(r[1])
+            for r in conn.execute(
+                "SELECT session_id, COUNT(*) FROM turns GROUP BY session_id"
+            ).fetchall()
+        }
+        out: list[SessionVerifyRow] = []
+        for sid in sorted(jsonl_ids | table_ids | turn_counts.keys()):
+            jpath = self.sessions_dir / f"{sid}.jsonl"
+            jturns = jsonl.count_lines(jpath) if jpath.exists() else -1
+            dturns = turn_counts.get(sid, 0)
+            indexed = sid in table_ids
+            ok = jturns >= 0 and indexed and jturns == dturns
+            out.append(SessionVerifyRow(sid, jturns, dturns, indexed, ok))
+        return out
 
     def most_recent_other_session(self, *, exclude: str | None) -> SessionMeta | None:
         """Return the most recently *ended* session other than ``exclude``.

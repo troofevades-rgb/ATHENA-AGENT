@@ -39,6 +39,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--confirm", action="store_true", help="Required — purge is irreversible."
     )
 
+    sub_verify = sub.add_parser(
+        "verify",
+        help="Check JSONL ↔ SQLite-index consistency per session (drift detector).",
+    )
+    sub_verify.add_argument("--json", action="store_true", help="Machine-readable output.")
+
     return ap
 
 
@@ -129,11 +135,42 @@ def _cmd_purge(args, store: SessionStore) -> int:
             p = store.sessions_dir / f"{m.session_id}{suffix}"
             if p.exists():
                 p.unlink()
-        store._db.execute("DELETE FROM turns WHERE session_id = ?", (m.session_id,))
-        store._db.execute("DELETE FROM sessions WHERE session_id = ?", (m.session_id,))
-    store._db.commit()
+        conn = store._conn()
+        conn.execute("DELETE FROM turns WHERE session_id = ?", (m.session_id,))
+        conn.execute("DELETE FROM sessions WHERE session_id = ?", (m.session_id,))
+    store._conn().commit()
     print(f"purged {len(older)} session(s) before {cutoff.isoformat()}")
     return 0
+
+
+def _cmd_verify(args, store: SessionStore) -> int:
+    rows = store.verify()
+    if args.json:
+        import json as _json
+        from dataclasses import asdict
+
+        print(_json.dumps([asdict(r) for r in rows], indent=2))
+    else:
+        if not rows:
+            print("(no sessions)")
+        for r in rows:
+            if r.ok:
+                continue
+            if r.jsonl_turns < 0:
+                reason = "indexed but no JSONL file (truth missing)"
+            elif not r.indexed:
+                reason = f"JSONL present ({r.jsonl_turns} turns) but no sessions-table row"
+            else:
+                reason = f"drift: {r.jsonl_turns} JSONL turn(s) vs {r.db_turns} indexed"
+            print(f"{r.session_id}  {reason}")
+    bad = [r for r in rows if not r.ok]
+    ok_n = len(rows) - len(bad)
+    print(
+        f"{ok_n}/{len(rows)} session(s) consistent"
+        + (f"; {len(bad)} need attention — run `athena reindex`" if bad else ""),
+        file=sys.stderr,
+    )
+    return 1 if bad else 0
 
 
 def main(argv: list[str]) -> int:
@@ -148,6 +185,8 @@ def main(argv: list[str]) -> int:
             return _cmd_search(args, store)
         if args.cmd == "purge":
             return _cmd_purge(args, store)
+        if args.cmd == "verify":
+            return _cmd_verify(args, store)
         return 2
     finally:
         store.close()
