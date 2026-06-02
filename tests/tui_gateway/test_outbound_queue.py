@@ -153,6 +153,12 @@ def _build_stub_gateway(transport, outbound=None):
     gw._outbound = outbound or srv._OutboundQueue()
     gw._writer_thread = None
     gw._writer_stop = threading.Event()
+    # Writer-loop gating (Step 4b reconnect model): _writer_loop waits on
+    # _conn_ready and touches _conn_died on socket errors. Without these
+    # the writer AttributeErrors on its first tick and silently drops
+    # every event — exactly the all-zero failures Linux CI surfaced.
+    gw._conn_ready = threading.Event()
+    gw._conn_died = threading.Event()
     return gw
 
 
@@ -207,6 +213,9 @@ def _drive_gateway(gw, transport):
     gw._conn_reader = io.BufferedReader(socket.SocketIO(conn, "rb"))
     gw._do_handshake()
     gw._handshake_done = True
+    # Mark the conn ready so the writer loop proceeds past its
+    # _conn_ready gate (start() does this after a successful handshake).
+    gw._conn_ready.set()
     gw._writer_thread = threading.Thread(target=gw._writer_loop, daemon=True)
     gw._writer_thread.start()
     return conn
