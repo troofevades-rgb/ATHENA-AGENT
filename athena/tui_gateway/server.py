@@ -884,9 +884,13 @@ class TuiGateway:
             self._reader_thread.join(timeout=1.0)
         # Release our copy of the CONIN$ handle (the child got its own
         # duplicate at spawn; this is just the parent-side reference).
-        if self._conin is not None:
+        # getattr-guarded: close() runs on teardown/error paths and must
+        # tolerate a partially-constructed gateway (e.g. start() failing
+        # mid-way, or a test harness that builds the object via __new__).
+        conin = getattr(self, "_conin", None)
+        if conin is not None:
             try:
-                self._conin.close()
+                conin.close()
             except OSError:
                 pass
             self._conin = None
