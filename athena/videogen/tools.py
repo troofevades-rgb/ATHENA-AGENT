@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from ..tools.registry import tool
+from ..tools.status import status_payload
 from .job import GenerationRequest, resolve_backend, run_generation
 
 logger = logging.getLogger(__name__)
@@ -73,33 +74,29 @@ def _load_cfg():
 
 
 def _disabled_payload() -> str:
-    return json.dumps(
-        {
-            "status": "not_enabled",
-            "reason": (
-                "video_generation_enabled is False — set it in athena "
-                "config + ensure a provider declares the video_generation "
-                "capability"
-            ),
-        }
+    return status_payload(
+        "not_enabled",
+        reason=(
+            "video_generation_enabled is False — set it in athena "
+            "config + ensure a provider declares the video_generation "
+            "capability"
+        ),
     )
 
 
 def _no_backend_payload() -> str:
-    return json.dumps(
-        {
-            "status": "not_configured",
-            "reason": (
-                "no video-generation backend resolved — no provider "
-                "declares video_generation OR the declared provider "
-                "couldn't be instantiated (missing credentials?)"
-            ),
-        }
+    return status_payload(
+        "not_configured",
+        reason=(
+            "no video-generation backend resolved — no provider "
+            "declares video_generation OR the declared provider "
+            "couldn't be instantiated (missing credentials?)"
+        ),
     )
 
 
 def _rejected(reason: str) -> str:
-    return json.dumps({"status": "rejected", "reason": reason})
+    return status_payload("rejected", reason=reason)
 
 
 # ---------------------------------------------------------------------------

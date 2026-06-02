@@ -37,6 +37,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, Optional, Protocol, runtime_checkable
 
+from ..tools.status import ToolStatus
+
 logger = logging.getLogger(__name__)
 
 
@@ -118,7 +120,7 @@ class GenerationResult:
     """The orchestrator's return shape — what callers (the two
     tools in T6-05.3) surface to the model."""
 
-    status: str  # done | declined | timeout | error | cancelled
+    status: ToolStatus  # done | declined | timeout | error | cancelled
     path: Path | None = None
     sha256: str | None = None
     duration_s: float | None = None
