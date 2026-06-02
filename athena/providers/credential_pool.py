@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -392,6 +391,9 @@ def _seed_default_from_global_if_needed(path: Path) -> None:
     the user's existing file or break external tooling that still reads
     it. Default profile ONLY; other profiles start empty by design so a
     ``--profile x`` switch can never reuse another profile's keys.
+
+    Routed through ``secure_write_json`` (not a raw file copy) so the
+    seeded copy gets 0o600 regardless of the legacy file's permissions.
     """
     from ..config import CONFIG_DIR
 
@@ -399,8 +401,14 @@ def _seed_default_from_global_if_needed(path: Path) -> None:
     if path.exists() or not legacy.exists() or legacy.resolve() == path.resolve():
         return
     try:
+        raw = json.loads(legacy.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(raw, dict):
+        return
+    try:
         ensure_secure_dir(path.parent)
-        shutil.copy2(str(legacy), str(path))
+        secure_write_json(path, raw)
         logger.info("seeded default-profile credentials from %s", legacy)
     except OSError:
         logger.warning(
