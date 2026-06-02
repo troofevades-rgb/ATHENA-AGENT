@@ -82,6 +82,18 @@ _QUADRANT_GLYPHS: Final[tuple[str, ...]] = (
 # noise in dark areas, higher = blockier render of soft regions.
 _FLAT_SPREAD_THRESHOLD = 18  # tightened: more cells preserve edge detail
 
+# Tighten the framing after aspect-matching: crop to this fraction of
+# the (already aspect-correct) image, centered, so the owl subject
+# fills more of the panel and reads as a deliberate logo rather than a
+# photo with dead space around it. 1.0 = no zoom; lower = tighter.
+# Preserves aspect (same factor on both axes) so the downstream resize
+# still fills the cell target exactly.
+_TIGHTEN = 0.86
+# Vertical bias for the tighten crop: 0.0 keeps the top, 1.0 keeps the
+# bottom. Slightly above center keeps the owl's head + body while still
+# trimming empty sky; the glowing perch survives at the bottom edge.
+_TIGHTEN_Y_BIAS = 0.42
+
 
 def render_owl_pixels(
     target_w: int,
@@ -111,17 +123,19 @@ def render_owl_pixels(
         return None
 
     # Preprocess at source resolution so edges survive resize.
-    # Tuned for the cyber-owl source: high contrast to crisp the
-    # eyes + perch glow against shadow; saturation boost to keep
-    # the cyan from washing out at small cell counts; two-stage
-    # sharpen (UnsharpMask for detail + Pillow SHARPEN convolution
-    # for edges) to compensate for the 8x downsample blur.
+    # Tuned for a calmer, more "editorial" rendering of the cyber-owl
+    # source: a gentle contrast lift keeps the eyes + perch readable
+    # against shadow without the punchy neon look the heavier curve
+    # gave; near-neutral saturation lets the cyan read as a tasteful
+    # accent rather than a glow-stick. Sharpening stays (the 8x
+    # downsample still blurs edges) but is dialed back to match the
+    # softer tone.
     try:
         from PIL import ImageEnhance, ImageFilter
 
-        img = ImageEnhance.Contrast(img).enhance(1.35)
-        img = ImageEnhance.Color(img).enhance(1.25)
-        img = img.filter(ImageFilter.UnsharpMask(radius=2.2, percent=140, threshold=1))
+        img = ImageEnhance.Contrast(img).enhance(1.15)
+        img = ImageEnhance.Color(img).enhance(1.05)
+        img = img.filter(ImageFilter.UnsharpMask(radius=2.0, percent=110, threshold=1))
         img = img.filter(ImageFilter.SHARPEN)
     except ImportError:
         pass
@@ -141,6 +155,9 @@ def render_owl_pixels(
     # and cube pedestal both survive.
     visual_aspect = target_w / (target_h * 2)
     img = _aspect_crop(img, visual_aspect)
+    # Tighten the framing on the subject (preserves aspect, so the
+    # fill math below is unaffected).
+    img = _tighten_crop(img, _TIGHTEN, y_bias=_TIGHTEN_Y_BIAS)
     # After the crop, source has the matching visual aspect so
     # the resize fills the entire pixel target.
     out_pix_w = pixel_w_target
@@ -234,6 +251,21 @@ def _avg(pixels: list[Pixel]) -> tuple[int, int, int]:
 def _hex(rgb: Pixel) -> str:
     r, g, b = rgb[0], rgb[1], rgb[2]
     return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
+
+
+def _tighten_crop(img: Any, factor: float, *, y_bias: float = 0.5) -> Any:
+    """Zoom in by cropping to ``factor`` of each dimension, centered
+    horizontally and biased vertically by ``y_bias`` (0=keep top,
+    1=keep bottom). Same factor on both axes so the aspect ratio is
+    preserved. ``factor >= 1`` is a no-op."""
+    if factor >= 0.999:
+        return img
+    w, h = img.size
+    new_w = max(1, int(w * factor))
+    new_h = max(1, int(h * factor))
+    x = (w - new_w) // 2
+    y = int((h - new_h) * y_bias)
+    return img.crop((x, y, x + new_w, y + new_h))
 
 
 def _aspect_crop(img: Any, target_aspect: float) -> Any:
