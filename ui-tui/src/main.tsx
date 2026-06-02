@@ -203,8 +203,12 @@ function App(): React.JSX.Element {
   }, [cols, rows, client]);
 
   // ----- mouse wheel scrolling ----------------------------------------
-  // Off on Windows (ConPTY sends phantom mouse events). On elsewhere.
-  const mouseEnabled = process.platform !== "win32";
+  // Enabled on every platform now (modern Windows Terminal handles SGR
+  // mouse mode fine; the old "ConPTY phantom events" worry predates it).
+  // Turning on mouse mode means the terminal hands click-drag to the app,
+  // so native text selection needs Shift held — set ATHENA_TUI_MOUSE=0 to
+  // disable wheel capture and get plain selection back.
+  const mouseEnabled = process.env.ATHENA_TUI_MOUSE !== "0";
   const handleWheel = useCallback((delta: number) => {
     dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + delta });
   }, [state.scrollOffset]);
