@@ -159,6 +159,10 @@ def _build_stub_gateway(transport, outbound=None):
     # every event — exactly the all-zero failures Linux CI surfaced.
     gw._conn_ready = threading.Event()
     gw._conn_died = threading.Event()
+    # The writer records every shipped (seq, event) into the ring buffer
+    # after sendall — without _ring it AttributeErrors after the first
+    # event and the rest never ship (the residual all-zero failures).
+    gw._ring = srv._EventRing()
     return gw
 
 
