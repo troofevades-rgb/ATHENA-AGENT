@@ -131,7 +131,7 @@ Example:
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/matt/work"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/work"]
     },
     "git": {
       "command": "uvx",
