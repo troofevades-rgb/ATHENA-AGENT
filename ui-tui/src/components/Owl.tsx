@@ -60,6 +60,20 @@ function tone(ch: string): "body" | "field" | "blank" {
   return "field";
 }
 
+/** Braille art (U+2800–U+28FF) is a fixed-size line-art mark, not
+ * shaded ASCII. It must render verbatim in a single color — the
+ * ASCII two-tone + character-pick downscale would shred the dot
+ * patterns. Detect it so AsciiOwl can take the verbatim path. */
+function isBrailleArt(art: string[]): boolean {
+  for (const line of art) {
+    for (const ch of line) {
+      const c = ch.codePointAt(0) ?? 0;
+      if (c >= 0x2800 && c <= 0x28ff) return true;
+    }
+  }
+  return false;
+}
+
 export function downscaleArt(
   rows: string[],
   maxW: number,
@@ -209,13 +223,38 @@ function AsciiOwl({
   maxHeight: number;
   height?: number;
 }): React.JSX.Element | null {
+  // Braille marks render verbatim (no character-pick downscale, which
+  // would shred the dot patterns). useMemo is called unconditionally
+  // to honor the rules of hooks; it just passes braille art through.
+  const braille = isBrailleArt(art);
   const innerW = Math.max(1, width - 4);
   const innerH = Math.max(1, maxHeight - 2);
   const rendered = useMemo(
-    () => downscaleArt(art, innerW, innerH),
-    [art, innerW, innerH],
+    () => (braille ? art : downscaleArt(art, innerW, innerH)),
+    [art, innerW, innerH, braille],
   );
   if (rendered.length === 0) return null;
+
+  // Braille mark: every line verbatim in one color, no border (the
+  // minimal banner frames nothing — the mark floats). No two-tone
+  // (that's for shaded ASCII). Vertically centered within the given
+  // height so it balances against the info column beside it.
+  if (braille) {
+    const lines = rendered.map((row, i) => (
+      <Box key={i}>
+        <Text color={palette.primary}>{row}</Text>
+      </Box>
+    ));
+    return (
+      <Box
+        flexDirection="column"
+        justifyContent="center"
+        {...(height ? { height } : {})}
+      >
+        {lines}
+      </Box>
+    );
+  }
   const lines = rendered.map((row, rowIdx) => {
     const spans: React.JSX.Element[] = [];
     let runStart = 0;
