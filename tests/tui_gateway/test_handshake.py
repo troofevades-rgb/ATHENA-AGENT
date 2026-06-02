@@ -78,13 +78,21 @@ def _build_stub_gateway(transport):
     gw._writer_thread = None
     gw._writer_stop = threading.Event()
     gw._conn_ready = threading.Event()
+    gw._conn_died = threading.Event()
     gw._ring = srv._EventRing()
     return gw
 
 
-def _spawn_client(sock_path, *, send_pong=True, pongs_target=3, protocol_version=2):
+def _spawn_client(
+    sock_path, *, send_pong=True, pongs_target=3, protocol_version=2, drain_after_hello=0
+):
     """Background thread that simulates the Ink client. Returns
-    a dict you can read after thread.join() with what it saw."""
+    a dict you can read after thread.join() with what it saw.
+
+    ``drain_after_hello`` reads that many frames right after sending the
+    client hello, before the pong loop — needed when the server sends a
+    frame (e.g. protocol.error on a version mismatch) and then closes,
+    so ``pongs_target=0`` wouldn't otherwise read it."""
     state = {"events": [], "pongs": 0, "seqs": [], "err": None}
 
     def runner():
@@ -113,6 +121,11 @@ def _spawn_client(sock_path, *, send_pong=True, pongs_target=3, protocol_version
                 ).encode("utf-8")
             )
             f.flush()
+            for _ in range(drain_after_hello):
+                extra = f.readline()
+                if not extra:
+                    break
+                state["events"].append(json.loads(extra.decode("utf-8")))
             while state["pongs"] < pongs_target:
                 line = f.readline()
                 if not line:
@@ -153,6 +166,14 @@ def _drive_gateway_through_handshake(gw, transport):
     gw._do_handshake()
     gw._last_pong_at = time.monotonic()
     gw._handshake_done = True
+    # start() marks the conn ready + spawns the writer right after a
+    # successful handshake; mirror that so queued events/pings actually
+    # ship. (_do_handshake raises on version mismatch, so this is skipped
+    # there and the protocol.error goes out via the direct
+    # _send_event_raw path inside _do_handshake.)
+    gw._conn_ready.set()
+    gw._writer_thread = threading.Thread(target=gw._writer_loop, daemon=True)
+    gw._writer_thread.start()
     return conn
 
 
@@ -194,6 +215,7 @@ def test_mismatched_protocol_version_raises(fast_heartbeats):
             env_value,
             pongs_target=0,
             protocol_version=999,
+            drain_after_hello=1,  # read the protocol.error frame before EOF
         )
         try:
             with pytest.raises(srv._HandshakeError, match="version mismatch"):
