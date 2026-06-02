@@ -35,9 +35,13 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol, runtime_checkable
 
-from ..tools.status import ToolStatus
+if TYPE_CHECKING:
+    # Type-only: a runtime import would pull athena.tools.__init__ (which
+    # imports videogen.tools, which imports this module) → circular.
+    # Safe as an annotation because of `from __future__ import annotations`.
+    from ..tools.status import ToolStatus
 
 logger = logging.getLogger(__name__)
 
