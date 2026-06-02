@@ -13,6 +13,7 @@ from athena.providers.credential_pool import (
     Credential,
     CredentialPool,
     global_pool,
+    profile_pool,
     reset_global_pool,
 )
 
@@ -331,13 +332,76 @@ def test_global_pool_singleton(monkeypatch, tmp_path: Path):
         reset_global_pool()
 
 
-def test_global_pool_uses_config_dir(monkeypatch, tmp_path: Path):
+def test_global_pool_uses_active_profile_dir(monkeypatch, tmp_path: Path):
+    # global_pool() targets the ACTIVE profile. Force it to 'default'
+    # so the path is deterministic regardless of the dev's active file.
     monkeypatch.setattr("athena.config.CONFIG_DIR", tmp_path)
+    monkeypatch.setenv("ATHENA_PROFILE", "default")
     reset_global_pool()
     try:
         p = global_pool()
         p.add_credential("anthropic", Credential(key="sk-x"))
+        # Writes land under the profile, NOT the legacy global path.
+        assert (tmp_path / "profiles" / "default" / "credentials.json").exists()
+        assert not (tmp_path / "credentials.json").exists()
+    finally:
+        reset_global_pool()
+
+
+# ---- Profile-scoped credentials (strict isolation) ---------------------
+
+
+def test_profile_pool_strict_isolation(monkeypatch, tmp_path: Path):
+    """Keys in one profile must never leak into another."""
+    monkeypatch.setattr("athena.config.CONFIG_DIR", tmp_path)
+    reset_global_pool()
+    try:
+        profile_pool("default").add_credential("anthropic", Credential(key="sk-default"))
+        # A different profile starts empty — no cross-profile reuse.
+        assert profile_pool("experimental").get("anthropic") is None
+        assert profile_pool("experimental").providers() == []
+    finally:
+        reset_global_pool()
+
+
+def test_default_profile_seeds_from_global(monkeypatch, tmp_path: Path):
+    """The legacy global credentials.json seeds the default profile once."""
+    monkeypatch.setattr("athena.config.CONFIG_DIR", tmp_path)
+    reset_global_pool()
+    # Pre-existing legacy global file with a key.
+    CredentialPool(tmp_path / "credentials.json").add_credential(
+        "anthropic", Credential(key="sk-legacy")
+    )
+    try:
+        pool = profile_pool("default")
+        cred = pool.get("anthropic")
+        assert cred is not None and cred.key == "sk-legacy"
+        # Seed produced a profile-scoped copy; global file is untouched.
+        assert (tmp_path / "profiles" / "default" / "credentials.json").exists()
         assert (tmp_path / "credentials.json").exists()
+    finally:
+        reset_global_pool()
+
+
+def test_non_default_profile_does_not_seed_from_global(monkeypatch, tmp_path: Path):
+    """Only 'default' inherits the legacy global keys; others start empty."""
+    monkeypatch.setattr("athena.config.CONFIG_DIR", tmp_path)
+    reset_global_pool()
+    CredentialPool(tmp_path / "credentials.json").add_credential(
+        "anthropic", Credential(key="sk-legacy")
+    )
+    try:
+        assert profile_pool("experimental").get("anthropic") is None
+    finally:
+        reset_global_pool()
+
+
+def test_profile_pool_caches_per_profile(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("athena.config.CONFIG_DIR", tmp_path)
+    reset_global_pool()
+    try:
+        assert profile_pool("a") is profile_pool("a")
+        assert profile_pool("a") is not profile_pool("b")
     finally:
         reset_global_pool()
 

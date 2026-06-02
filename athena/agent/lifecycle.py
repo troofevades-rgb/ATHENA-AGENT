@@ -44,7 +44,7 @@ from ..config import profile_dir as _profile_dir
 from ..plugins.hooks import HookDispatcher
 from ..prompts import build_system_prompt
 from ..providers import Provider
-from ..providers.credential_pool import global_pool as _global_pool
+from ..providers.credential_pool import profile_pool as _profile_pool
 from ..providers.runtime_resolver import resolve_provider
 from ..sessions.store import SessionMeta, SessionStore, new_session_id
 from .param_policy import ParamPolicy, policy_from_config
@@ -685,7 +685,7 @@ class AgentLifecycle:
             self.provider, self.model = resolve_provider(
                 self.model,
                 cfg,
-                _global_pool(),
+                _profile_pool(cfg.profile),
             )
         self.client = self.provider  # back-compat alias
         self._owns_client = passed is None

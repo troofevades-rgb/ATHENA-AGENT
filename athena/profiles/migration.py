@@ -16,9 +16,15 @@ failure logs and skips that one item so the rest still migrate. The
 user can finish the move by hand for the holdout.
 
 Items that stay at ``~/.athena/`` (user-global, not profile-scope):
-``credentials.json``, ``mcp_tokens/``, ``plugins/``, ``logs/``,
-``plugins_state.json``, plus the new profile machinery
-(``profiles/``, ``active_profile``).
+``mcp_tokens/``, ``plugins/``, ``logs/``, ``plugins_state.json``, plus
+the new profile machinery (``profiles/``, ``active_profile``).
+
+``credentials.json`` is NOT moved by this migration even though
+credentials are now profile-scoped: ``credential_pool.profile_pool``
+seeds the ``default`` profile from the legacy global file lazily on
+first access (a copy), so this one-shot mover would race that and risk
+clobbering. The legacy global file is left in place and becomes
+vestigial once ``default`` has its own copy.
 """
 
 from __future__ import annotations
@@ -60,7 +66,7 @@ _PROFILE_ITEMS: tuple[str, ...] = (
 # (the migration only acts on _PROFILE_ITEMS).
 _GLOBAL_ITEMS: frozenset[str] = frozenset(
     {
-        "credentials.json",
+        "credentials.json",  # not moved here; seeded into default lazily
         "mcp_tokens",
         "plugins",
         "plugins_state.json",

@@ -248,15 +248,15 @@ def _list_available_models() -> list[dict[str, str]]:
     skip that provider rather than abort.
     """
     try:
-        from ..config import CONFIG_DIR, load_config
+        from ..config import load_config
         from ..providers import _REGISTRY
-        from ..providers.credential_pool import CredentialPool
+        from ..providers.credential_pool import profile_pool
     except ImportError:
         return []
 
     out: list[dict[str, str]] = []
     cfg = load_config()
-    pool = CredentialPool(CONFIG_DIR / "credentials.json")
+    pool = profile_pool(cfg.profile)
     for name in sorted(_REGISTRY.keys()):
         try:
             provider_cls = _REGISTRY[name]
