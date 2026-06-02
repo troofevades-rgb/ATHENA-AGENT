@@ -10,7 +10,7 @@ A terminal-based agentic coding assistant.
 
 > **Status:** Beta. Tested on Linux + macOS. Default Ollama path is
 > production-ready for single-user development. Multi-user gateway is
-> functional but actively hardening (Tier 2). The closed training loop
+> functional but actively hardening. The closed training loop
 > (`athena train`) requires GPU.
 
 ## Features
@@ -30,13 +30,14 @@ A terminal-based agentic coding assistant.
 - APScheduler-backed cron with watchdog and agent modes (`athena cron ...`)
 - In-flight redirection (`/steer`) and persistent invariant (`/goal`)
 - Closed training loop: review trajectories, build SFT+DPO datasets, train a new LoRA, register with Ollama (`athena train review|build-dataset|run|status`, `athena model switch`)
-- Rich terminal UI with diff rendering for edits
+
 
 ## Requirements
 
 - Python 3.10+
 - [Ollama](https://ollama.com) running locally (default `http://127.0.0.1:11434`)
 - A tool-capable model. Recommended for a 4070 Ti Super (16GB):
+  - `qwen3.5-35b-ab` — operating really well
   - `qwen2.5-coder:14b` — best balance of speed and capability (default)
   - `qwen2.5-coder:32b` — better reasoning, will spill to RAM, slower
   - `llama3.1:8b` — fast fallback
