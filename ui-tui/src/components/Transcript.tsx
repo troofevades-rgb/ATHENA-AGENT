@@ -20,6 +20,12 @@ import { parseInline } from "../stream/inlineMarkdown.js";
 import type { BannerEvent } from "../transport/protocol.js";
 import type { TranscriptLine } from "../state/types.js";
 
+// Matches a "path:line<rest>" prefix on a tool body line (groups:
+// leading whitespace, path, line number, rest). Path may not contain a
+// colon, so URLs ("https://…") and Windows drive letters ("C:\…") won't
+// match — that's fine; we only need relative-path matches to light up.
+const FILE_LINE_RE = /^(\s*)([^\s:][^:]*?):(\d+)(.*)$/;
+
 interface Props {
   banner: BannerEvent | null;
   lines: TranscriptLine[];
@@ -207,6 +213,23 @@ function renderLine(
   if (line.role === "tool") {
     // Header lines start with "> ", body lines with "  "
     const isHeader = line.content.startsWith("> ");
+    // Light-touch file:line accenting on body lines: ripgrep/Grep emit
+    // "path:line:text", and compiler-style output looks the same. Dim the
+    // path, accent the :line so references pop without per-tool coupling.
+    // The path-likeness guard (must contain "/", "\", or ".") keeps
+    // timestamps ("12:30") and "str | None:" from matching.
+    const fileLine = !isHeader ? line.content.match(FILE_LINE_RE) : null;
+    if (fileLine && /[/\\.]/.test(fileLine[2]!)) {
+      const [, lead, path, lineNo, rest] = fileLine;
+      return (
+        <Text key={line.key}>
+          {"   "}{lead}
+          <Text color={palette?.primary_faint ?? "gray"}>{path}</Text>
+          <Text color={palette?.accent_dim ?? "yellow"}>:{lineNo}</Text>
+          <Text color={palette?.primary_dim ?? "gray"}>{rest}</Text>
+        </Text>
+      );
+    }
     return (
       <Text
         key={line.key}
