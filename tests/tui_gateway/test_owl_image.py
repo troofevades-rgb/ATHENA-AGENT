@@ -145,12 +145,25 @@ def test_quadrant_pattern_high_contrast_diagonal():
     assert glyph == "▚"
 
 
-def test_banner_event_carries_pixels_field():
-    """The wired path: build_banner() invokes the renderer and
-    populates owl_pixels on the BannerEvent."""
+def test_banner_event_braille_owl_default():
+    """By default the owl is the braille mark: owl_pixels is None and
+    owl_art (athena/_owl_art.txt) is populated."""
     from athena.config import Config
     from athena.tui_gateway.banner_data import build_banner
 
+    banner = build_banner(model="m", cwd=Path("/tmp"), cfg=Config())
+    assert banner.owl_pixels is None
+    assert len(banner.owl_art) > 0
+
+
+def test_banner_event_carries_pixels_when_photo_enabled(monkeypatch):
+    """The photo path still works: with the braille mark disabled,
+    build_banner() invokes the renderer and populates owl_pixels."""
+    from athena.config import Config
+    from athena.tui_gateway import banner_data
+    from athena.tui_gateway.banner_data import build_banner
+
+    monkeypatch.setattr(banner_data, "_USE_BRAILLE_OWL", False)
     banner = build_banner(model="m", cwd=Path("/tmp"), cfg=Config())
     assert banner.owl_pixels is not None
     assert "cells" in banner.owl_pixels

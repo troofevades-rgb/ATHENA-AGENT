@@ -55,9 +55,9 @@ def test_build_banner_falls_back_on_unknown_theme():
 def test_build_banner_carries_owl_art():
     cfg = Config()
     banner = build_banner(model="m", cwd=Path("/tmp"), cfg=cfg)
-    # The bundled art has at least 50 rows per
-    # ``tests/test_ui_banner.py::test_owl_large_present``.
-    assert len(banner.owl_art) >= 50
+    # The owl mark is now a compact braille line-art (athena/_owl_art.txt),
+    # ~10 rows — not the old 90-row photo-ASCII dump.
+    assert len(banner.owl_art) >= 5
     # All rows ljust-padded to equal width.
     assert len({len(r) for r in banner.owl_art}) == 1
 
