@@ -49,43 +49,45 @@ logger = logging.getLogger(__name__)
 # Sentinel regexes
 # ---------------------------------------------------------------------------
 
-# Optional markdown lead-in (#, >, *, list bullets) + whitespace at the
+# Optional markdown lead-in (#, *, list bullets) + whitespace at the
 # start of a line, then the literal sentinel. ACHIEVED is a whole line;
 # BLOCKED captures the reason after the colon.
 #
-# Match only the LAST non-empty line of the assistant's message. The
-# previous MULTILINE regex matched the sentinel anywhere -- including
-# when the model quoted the contract back at the user ("> GOAL ACHIEVED
-# - when you see this line, stop"), ending the loop spuriously. The
-# spec says the model must END the message with the sentinel, so we
-# enforce that. ``_LEAD`` still tolerates a markdown bullet / blockquote
-# prefix because real model output frequently renders the final line
-# that way.
+# Design history:
 #
-# The matchers below are called by helpers that pre-extract the last
-# non-empty line of the assistant message; the regex itself anchors
-# with ``^`` / ``$`` against that single line.
+#   The original regex matched ANYWHERE (MULTILINE). That broke when
+#   the model quoted the contract back at the user
+#   ("> GOAL ACHIEVED - when you see this line, stop"), ending the
+#   loop spuriously on the very first turn.
+#
+#   The fix-attempt anchored matching to ONLY the last non-empty
+#   line of the message. That worked until /steer (or any prompt
+#   that nudges the model to end every reply with a fixed phrase --
+#   "DONE", "ACK", etc.) collided with /goal: the model emitted
+#   GOAL ACHIEVED as a standalone line then ended with the steer
+#   suffix on a new line. The last-line anchor saw the steer suffix,
+#   the loop never ended, and the model spent turns repeatedly
+#   trying to escape via GOAL BLOCKED.
+#
+#   The current design: MULTILINE search across the whole message,
+#   but ``_LEAD`` EXCLUDES the blockquote prefix (``>``). Lines
+#   starting with ``>`` are quotations by convention; the model
+#   isn't emitting the sentinel from those, the user is reading
+#   it back. Markdown bullets / headers / list dashes ARE still
+#   allowed as lead-in because real model output renders the
+#   sentinel that way.
 
-_LEAD = r"^\s*[>#*\-•]*\s*"
+_LEAD = r"^[ \t]*[#*\-•]*[ \t]*"
 
 _ACHIEVED_RX = re.compile(
     _LEAD + r"GOAL\s+ACHIEVED\b[^\n]*$",
-    re.IGNORECASE,
+    re.IGNORECASE | re.MULTILINE,
 )
 
 _BLOCKED_RX = re.compile(
-    _LEAD + r"GOAL\s+BLOCKED\s*:\s*(.+?)\s*$",
-    re.IGNORECASE,
+    _LEAD + r"GOAL\s+BLOCKED\s*:\s*([^\n]+?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
 )
-
-
-def _last_nonempty_line(text: str) -> str:
-    """Return the rightmost line of ``text`` that contains a
-    non-whitespace character; empty string when there is none."""
-    for line in reversed(text.splitlines()):
-        if line.strip():
-            return line
-    return ""
 
 
 @dataclasses.dataclass
@@ -263,27 +265,27 @@ def scan_sentinels(assistant_text: str) -> tuple[bool, str | None]:
     """Return ``(achieved, blocked_reason)``.
 
     - ``achieved`` is True iff the assistant text contains a
-      "GOAL ACHIEVED" line (case-insensitive, optional markdown
-      lead-in). Achievement wins over blocked when both appear —
-      the model committed to "done" so the loop honours that.
+      "GOAL ACHIEVED" line anywhere (case-insensitive, optional
+      markdown lead-in, EXCLUDING blockquote ``>`` lines).
+      Achievement wins over blocked when both appear -- the model
+      committed to "done" so the loop honours that.
     - ``blocked_reason`` is the reason text after "GOAL BLOCKED:",
       stripped of surrounding whitespace, or None.
 
     Empty / non-string input → ``(False, None)`` rather than an
     exception, so a degenerate streaming turn doesn't crash the
     loop.
+
+    Multiline match so /steer-injected suffixes (e.g. "DONE", "ACK")
+    after the sentinel don't break detection. Blockquote-prefixed
+    lines are excluded by the regex lead so the model quoting the
+    contract back at the user doesn't fire the loop spuriously.
     """
     if not assistant_text or not isinstance(assistant_text, str):
         return False, None
-    # Anchor matching on the LAST non-empty line so the loop doesn't
-    # end when the model quotes the contract back at the user
-    # ("> GOAL ACHIEVED - when you see this line...").
-    last = _last_nonempty_line(assistant_text)
-    if not last:
-        return False, None
-    if _ACHIEVED_RX.search(last):
+    if _ACHIEVED_RX.search(assistant_text):
         return True, None
-    m = _BLOCKED_RX.search(last)
+    m = _BLOCKED_RX.search(assistant_text)
     if m:
         reason = m.group(1).strip()
         return False, reason or None

@@ -52,6 +52,7 @@ class AgentGoalIntegration:
         goal_state: GoalState | None
         _last_turn_interrupted: bool
         _last_assistant_text: str
+        _last_stop_reason: str | None
         _goal_loop_tokens_used: int
 
     def _consult_goal_continuation(self, *, tokens_at_loop_start: int) -> str | None:
@@ -82,6 +83,29 @@ class AgentGoalIntegration:
             ui.warn("goal paused (interrupt detected) — /goal resume to continue")
             return None
 
+        # Circuit-breaker trip on the inner turn pauses the goal
+        # loop. Without this, a wedged provider (404 on a misrouted
+        # model, repeated 5xx, identical-tool-call loop) burns the
+        # full goal_max_turns budget hammering the same broken
+        # endpoint -- in the dogfood that surfaced this fix, the
+        # loop reached turn 174/10000 before the operator killed
+        # athena. The breaker already ended the inner turn cleanly;
+        # the goal hook just has to stop re-injecting.
+        last_stop = getattr(self, "_last_stop_reason", None)
+        # isinstance gate handles MagicMock stubs (which are truthy
+        # and have a callable .startswith returning a MagicMock); the
+        # production attribute is set to ``str | None`` in
+        # ``lifecycle.py``, so anything non-str here is test debris.
+        if isinstance(last_stop, str) and last_stop.startswith("circuit_breaker:"):
+            self.goal_state.status = "paused"
+            self._persist_goal_state()
+            ui.warn(
+                f"goal paused ({last_stop}) — /goal resume once the "
+                "provider stabilizes (check `athena doctor` and "
+                "`/model` to verify routing)."
+            )
+            return None
+
         # Token-cap check. The cap counts tokens consumed since
         # run_turn entered THIS loop (so /goal set + user turn
         # don't pre-consume the budget).
@@ -100,6 +124,18 @@ class AgentGoalIntegration:
 
         from ..goal.loop import maybe_continue_goal_after_turn
 
+        # Snapshot the status BEFORE the goal-loop driver runs.
+        # ``maybe_continue_goal_after_turn`` returns ``stop_reason ==
+        # state.status`` for any non-active state, meaning a goal that
+        # was already terminal (achieved / paused / exhausted) re-fires
+        # the same stop_reason on every subsequent turn until the user
+        # explicitly clears it. Only announce on the active -> terminal
+        # transition so a long Discord conversation post-achievement
+        # doesn't print "Goal achieved" after every reply. ``getattr``
+        # default covers SimpleNamespace test stubs that don't carry
+        # the field.
+        pre_status = getattr(self.goal_state, "status", "active")
+
         decision = maybe_continue_goal_after_turn(
             profile_dir=self._profile_dir(),
             state=self.goal_state,
@@ -114,6 +150,13 @@ class AgentGoalIntegration:
             )
             return decision.synthetic_prompt
 
+        # If the loop was already terminal at the start of this call,
+        # there is no NEW outcome to surface -- swallow silently and
+        # leave the state where it was. The user already saw the
+        # announcement the first time.
+        if pre_status != "active":
+            return None
+
         # Stop. Announce the reason.
         if decision.stop_reason == "achieved":
             # Distinguish "verified achievement" (verifier ran + passed)
@@ -121,17 +164,28 @@ class AgentGoalIntegration:
             # model said done, we believed it). This matters because a
             # silent "Goal achieved" with no verifier looks identical to
             # a properly-checked completion, masking the gap.
+            #
+            # Display includes the bootstrap turn: ``turns_taken``
+            # counts CONTINUATIONS only (the loop hook bumps it for
+            # each synthetic prompt it injects), so achievement on
+            # the very first response shows turns_taken=0. From the
+            # operator's POV the bootstrap IS a turn -- the model
+            # responded once and that response achieved the goal --
+            # so the display reads ``1 turn(s)``, not ``0``. Avoids
+            # the confusing "Goal achieved in 0 turn(s)" that
+            # surfaced in dogfood.
+            displayed_turns = self.goal_state.turns_taken + 1
             verifier_configured = bool(getattr(self.cfg, "goal_verifier_command", None))
             if verifier_configured:
                 ui.console.print(
                     f"[bold green]Goal achieved[/] in "
-                    f"{self.goal_state.turns_taken} turn(s) "
+                    f"{displayed_turns} turn(s) "
                     "[dim](verifier passed)[/]"
                 )
             else:
                 ui.console.print(
                     f"[bold green]Goal achieved[/] in "
-                    f"{self.goal_state.turns_taken} turn(s) "
+                    f"{displayed_turns} turn(s) "
                     "[yellow](self-declared; no verifier configured -- "
                     "set cfg.goal_verifier_command to gate this)[/]"
                 )

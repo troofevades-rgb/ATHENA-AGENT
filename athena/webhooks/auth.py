@@ -47,16 +47,22 @@ def verify_bearer(authorization_header: str, expected_token: str) -> bool:
     The header must be exactly ``Bearer <token>`` (case-insensitive
     scheme, single space). Missing scheme, wrong scheme, or empty
     token all return False.
+
+    Does NOT strip whitespace from the provided token. The previous
+    implementation called ``.strip()`` on the value, which masked
+    operator config bugs -- if the stored ``expected_token`` had
+    accidental trailing whitespace the comparison still succeeded,
+    so the operator never saw their mistake. Now: byte-for-byte
+    equality only.
     """
     if not authorization_header or not expected_token:
         return False
     parts = authorization_header.split(" ", 1)
     if len(parts) != 2:
         return False
-    scheme, value = parts
+    scheme, provided = parts
     if scheme.lower() != "bearer":
         return False
-    provided = value.strip()
     if not provided:
         return False
     return hmac.compare_digest(provided, expected_token)

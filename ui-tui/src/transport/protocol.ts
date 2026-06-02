@@ -151,6 +151,12 @@ export interface StreamDeltaEvent {
 export interface StreamEndEvent {
   type: "stream.end";
   stream_id: string;
+  // Optional polished view of the stream -- <think>...</think>
+  // blocks stripped, any other finalize-time cleanup applied.
+  // When present, the reducer swaps the accumulated buffer for
+  // this string so the transcript shows the clean version.
+  // When absent (legacy producer), the buffer is kept as-is.
+  final_text?: string;
 }
 
 export interface ToolStartEvent {

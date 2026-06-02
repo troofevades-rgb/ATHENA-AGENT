@@ -103,6 +103,7 @@ def _extract_text(html: str) -> str:
         },
         "required": ["url"],
     },
+    parallel_safe=True,
 )
 def WebFetch(url: str, max_chars: int = 50000, raw: bool = False) -> str:
     if not url.startswith(("http://", "https://")):
@@ -267,6 +268,7 @@ def _search_searxng(query: str, max_results: int) -> list[dict[str, str]]:
         },
         "required": ["query"],
     },
+    parallel_safe=True,
 )
 def WebSearch(query: str, max_results: int = 8) -> str:
     backend = (os.environ.get("ATHENA_SEARCH_BACKEND") or "duckduckgo").lower()

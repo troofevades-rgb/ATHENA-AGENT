@@ -78,13 +78,62 @@ def test_video_status_marks_current_selector(monkeypatch):
         lambda: [("stub_video_local", False), ("xai_video", True)],
     )
     _, lines = _run_with_capture(cmd_video, _agent("xai_video"), "")
-    # The * marker should appear next to xai_video in the LIST entry,
-    # not in the heading line that echoes the selector value.
-    list_lines = [l for l in lines if "selector:" not in l.lower()]
+    # The * marker only appears in the available-backends LIST entries.
+    # The status/heading lines above the list (selector, effective
+    # backend, credential warning) also name the backend but must not be
+    # treated as the marked entry — so scope to lines after the header.
+    hdr = next(i for i, l in enumerate(lines) if "available backends" in l.lower())
+    list_lines = lines[hdr + 1 :]
     xai_line = next(l for l in list_lines if "xai_video" in l)
     stub_line = next(l for l in list_lines if "stub_video_local" in l)
     assert "*" in xai_line
     assert "*" not in stub_line
+
+
+def test_video_status_shows_effective_backend_and_credential_warning(monkeypatch):
+    """Status must report the backend a call will ACTUALLY use (the
+    resolver result) and warn loudly when that backend needs a key the
+    user hasn't set — the gap that made an empty-stub fallback look like
+    success."""
+    monkeypatch.setattr(
+        "athena.commands.video._video_backends",
+        lambda: [("stub_video_local", False), ("xai_video", True)],
+    )
+    monkeypatch.setattr(
+        "athena.commands.video._resolved_backend_name",
+        lambda cfg: "xai_video",
+    )
+    monkeypatch.setattr("athena.commands.video._find_credential", lambda name: None)
+
+    _, lines = _run_with_capture(cmd_video, _agent("xai_video"), "")
+    joined = "\n".join(lines)
+    assert "effective backend" in joined.lower()
+    assert "no credential" in joined.lower()
+    # The warning names the exact env vars to set.
+    assert "ATHENA_XAI_API_KEY" in joined
+
+
+def test_video_status_effective_backend_auth_ok(monkeypatch):
+    """When the resolved backend's credential is present, status shows
+    auth ok and emits no failure warning."""
+    monkeypatch.setattr(
+        "athena.commands.video._video_backends",
+        lambda: [("xai_video", True)],
+    )
+    monkeypatch.setattr(
+        "athena.commands.video._resolved_backend_name",
+        lambda cfg: "xai_video",
+    )
+    monkeypatch.setattr(
+        "athena.commands.video._find_credential",
+        lambda name: "ATHENA_XAI_API_KEY",
+    )
+
+    _, lines = _run_with_capture(cmd_video, _agent("xai_video"), "")
+    joined = "\n".join(lines)
+    assert "effective backend" in joined.lower()
+    assert "auth ok" in joined.lower()
+    assert "no credential" not in joined.lower()
 
 
 def test_video_status_warns_when_no_backends(monkeypatch):
@@ -217,13 +266,41 @@ def test_auth_status_falls_back_to_heuristic_for_undeclared_backend(
 
 
 def test_auth_status_missing_credential(monkeypatch, tmp_path):
+    import athena.videogen.backends.xai  # noqa: F401 — registers xai_video
     from athena import env as env_mod
+    from athena.providers import credential_pool as cp
 
     fake_env = tmp_path / ".env"
     monkeypatch.setattr(env_mod, "_path", lambda: fake_env)
     env_mod.reset_cache()
+    # Isolate from the real on-disk credential pool.
+    empty_pool = cp.CredentialPool(tmp_path / "credentials.json")
+    monkeypatch.setattr(cp, "global_pool", lambda: empty_pool)
 
     from athena.commands.video import _auth_status
 
     out = _auth_status("xai_video")
     assert "no credential found" in out.lower()
+
+
+def test_auth_status_finds_pool_credential(monkeypatch, tmp_path):
+    """A key in the secure credential pool (not .env) must be detected.
+    The video backend reads the pool under the shared "xai" name, so
+    /video status must report it rather than "no credential found"."""
+    import athena.videogen.backends.xai  # noqa: F401 — registers xai_video
+    from athena import env as env_mod
+    from athena.providers import credential_pool as cp
+
+    fake_env = tmp_path / ".env"  # empty — force the pool path
+    monkeypatch.setattr(env_mod, "_path", lambda: fake_env)
+    env_mod.reset_cache()
+
+    pool = cp.CredentialPool(tmp_path / "credentials.json")
+    pool.add_credential("xai", cp.Credential(key="xai-secret-key-123"))
+    monkeypatch.setattr(cp, "global_pool", lambda: pool)
+
+    from athena.commands.video import _auth_status
+
+    out = _auth_status("xai_video")
+    assert "auth ok" in out.lower()
+    assert "credential pool" in out.lower()

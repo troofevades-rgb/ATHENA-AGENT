@@ -18,7 +18,7 @@ import json
 import logging
 from typing import Any
 
-from ..config import load_config
+from ..config import load_config  # noqa: F401 -- test-monkeypatch seam
 from .registry import tool
 
 logger = logging.getLogger(__name__)
@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
         },
         "required": ["command"],
     },
+    parallel_safe=True,
 )
 def tirith_check(command: str = "", **_kw: Any) -> str:
     if not command:
@@ -106,6 +107,7 @@ def tirith_check(command: str = "", **_kw: Any) -> str:
         },
         "required": ["url"],
     },
+    parallel_safe=True,
 )
 def url_safety_check(url: str = "", **_kw: Any) -> str:
     if not url:
@@ -199,6 +201,7 @@ def url_safety_check(url: str = "", **_kw: Any) -> str:
         },
         "required": ["package", "version", "ecosystem"],
     },
+    parallel_safe=True,
 )
 def osv_check(
     package: str = "",

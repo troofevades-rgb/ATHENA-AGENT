@@ -634,6 +634,7 @@ from ..tools.registry import tool  # noqa: E402 — late import to avoid cycles
         },
         "required": ["mode"],
     },
+    parallel_safe=True,
 )
 def vision_analyze(**kwargs: Any) -> str:
     return _run(**kwargs)

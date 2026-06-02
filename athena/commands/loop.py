@@ -40,9 +40,9 @@ def _run_iteration(agent, body: str) -> None:
     def _do() -> None:
         try:
             if body.startswith("/"):
-                from ..__main__ import _handle_slash
+                from ..cli.repl import handle_slash
 
-                _handle_slash(agent, body)
+                handle_slash(agent, body)
             else:
                 agent.run_turn(body)
         except Exception as e:

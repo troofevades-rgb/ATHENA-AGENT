@@ -517,6 +517,7 @@ def _run(
         },
         "required": ["path"],
     },
+    parallel_safe=True,
 )
 def audio_analyze(**kwargs: Any) -> str:
     return _run(**kwargs)

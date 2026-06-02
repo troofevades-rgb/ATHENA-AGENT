@@ -44,6 +44,29 @@ def _synth_tool_id() -> str:
     return f"toolu_athena_{next(_synth_counter):08d}"
 
 
+# Model substrings whose API rejects the ``temperature`` field with
+# ``"temperature is deprecated for this model"`` (400). The pattern
+# set captures the extended-thinking 4.x family -- ``claude-opus-4-7``,
+# ``claude-sonnet-4-6``, plus their date-suffixed variants
+# (``claude-opus-4-7-20251201`` etc.). Add new entries here when
+# Anthropic deprecates the parameter on another family. Empty match
+# means temperature passes through.
+_TEMPERATURE_DEPRECATED_SUBSTRINGS: tuple[str, ...] = (
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "claude-opus-4-8",
+    "claude-sonnet-4-7",
+)
+
+
+def _temperature_deprecated(model: str) -> bool:
+    """Return True when ``model`` matches a known temperature-deprecated
+    family. Pure substring check -- cheap on the hot path."""
+    if not model:
+        return False
+    return any(pattern in model for pattern in _TEMPERATURE_DEPRECATED_SUBSTRINGS)
+
+
 import httpx
 
 from . import register_provider
@@ -176,8 +199,15 @@ class AnthropicProvider(Provider):
             "messages": body_messages,
             "max_tokens": max_tokens or 4096,
             "stream": True,
-            "temperature": temperature,
         }
+        # Anthropic deprecated ``temperature`` on the extended-thinking
+        # ``claude-opus-4-7`` / ``claude-sonnet-4-6`` families -- sending
+        # it returns 400 ``"temperature is deprecated for this model"``.
+        # Omit when the model id matches a known-deprecated pattern;
+        # otherwise pass through. Pattern-based so a new family release
+        # extends the list without other code changes.
+        if not _temperature_deprecated(model):
+            payload["temperature"] = temperature
         if system:
             payload["system"] = system
         if tools:
@@ -354,24 +384,46 @@ class AnthropicProvider(Provider):
     def _split_system(
         messages: list[dict[str, Any]],
     ) -> tuple[str, list[dict[str, Any]]]:
-        """Hoist a leading system message out of the list. Returns
-        (system_text, remaining_messages). Anthropic rejects payloads
-        where role=='system' appears in messages.
+        """Hoist EVERY system message out of the list. Returns
+        ``(joined_system_text, remaining_messages)``.
+
+        Anthropic rejects payloads where ``role=='system'`` appears
+        anywhere in the messages array -- only the top-level
+        ``system`` field is allowed. The original implementation
+        only handled the leading message; that broke after the
+        context compressor (athena/agent/context_compressor.py)
+        started injecting synthetic ``role: "system"`` summaries
+        mid-conversation. Also covers the godmode-prefill case
+        where the bundled aggressive template begins with a
+        ``role: "system"`` priming entry.
+
+        Multiple system messages are joined with double newlines in
+        order of appearance -- the agent's main system prompt first,
+        then any compressor summaries / prefill primings after.
+        That order matches what the model would have seen if we
+        rendered them inline.
         """
         if not messages:
             return "", []
-        first = messages[0]
-        if first.get("role") == "system":
-            content = first.get("content") or ""
-            if isinstance(content, list):
-                # join text-block list (rare for our inputs but defensive)
-                content = "".join(
-                    b.get("text", "")
-                    for b in content
-                    if isinstance(b, dict) and b.get("type") == "text"
-                )
-            return str(content), list(messages[1:])
-        return "", list(messages)
+        systems: list[str] = []
+        remaining: list[dict[str, Any]] = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                content = msg.get("content") or ""
+                if isinstance(content, list):
+                    # Join text-block list (rare for our inputs but
+                    # defensive against pre-translated payloads).
+                    content = "".join(
+                        b.get("text", "")
+                        for b in content
+                        if isinstance(b, dict) and b.get("type") == "text"
+                    )
+                text = str(content).strip()
+                if text:
+                    systems.append(text)
+            else:
+                remaining.append(msg)
+        return "\n\n".join(systems), remaining
 
     @staticmethod
     def _translate_messages(

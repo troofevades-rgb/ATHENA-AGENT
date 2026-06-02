@@ -214,6 +214,33 @@ def test_no_ingest_thread_when_backend_is_none() -> None:
     thread_mock.assert_not_called()
 
 
+def test_summarizer_failure_does_not_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``/compact`` calls ``compress(messages, summarizer=...)``.
+    If the summarizer's ``provider.stream_chat`` raises (a 404 on
+    a misrouted model, a transport blip, an auth rejection), the
+    exception used to propagate through ``cmd_compact`` into the
+    REPL's slash-command dispatch, up to ``main()`` -- a fatal
+    crash on what should be a no-op. Same bug class as commit
+    6056381 surfaced for the automatic compressor; this is the
+    manual-trigger sibling.
+
+    Post-fix: ``cmd_compact`` catches and surfaces a friendly
+    ``compaction failed: ...`` message via ``ui.error``, returns
+    "", and the REPL stays alive."""
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated provider failure")
+
+    agent = _agent()
+    with patch("athena.commands.compact.compress", side_effect=boom):
+        out = _run(agent)  # MUST NOT raise
+
+    assert "compaction failed" in out.lower()
+    assert "runtimeerror" in out.lower()
+    # No mutation of messages.
+    assert len(agent.messages) == 5
+
+
 def test_ingest_thread_fires_when_enabled_and_backend_set() -> None:
     """When both conditions are true, a daemon thread starts."""
     agent = _agent(ingest_on_compact=True, user_model_backend="local")

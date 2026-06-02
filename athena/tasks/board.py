@@ -115,6 +115,7 @@ def column_counts(cols: dict[str, list[dict]]) -> dict[str, int]:
             },
         },
     },
+    parallel_safe=True,
 )
 def board_show(goal_id: str | None = None, **_kwargs: Any) -> str:
     """Tool entry. Builds the projection against the cached

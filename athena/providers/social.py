@@ -71,6 +71,12 @@ class SocialProvider(Provider):
         self._oauth = oauth
         self._transport = transport
         self._cfg_override = cfg
+        # Last HTTP/transport failure from :meth:`_get`, as a short
+        # human-readable string (e.g. "HTTP 429: {...}"). Callers read
+        # this to distinguish "the user genuinely has no posts" from
+        # "X rejected our request" — the bug that made empty timelines
+        # look like success. Cleared at the start of every _get.
+        self.last_error: str | None = None
 
     # ------------------------------------------------------------------
     # Capabilities — declares social_search only
@@ -357,6 +363,7 @@ class SocialProvider(Provider):
         UsageCapExceeded payloads) without having to bump
         logging to DEBUG.
         """
+        self.last_error = None
         if self._transport is not None:
             return self._transport(url, access_token)
         try:
@@ -380,14 +387,17 @@ class SocialProvider(Provider):
                 url,
                 err_body or "(no body)",
             )
+            self.last_error = f"HTTP {e.code}: {err_body or '(no body)'}"
             return None
         except Exception as e:  # noqa: BLE001
             logger.warning("social search transport failed: %s", e)
+            self.last_error = f"transport failed: {e}"
             return None
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as e:
             logger.warning("social search response not JSON: %s", e)
+            self.last_error = f"response not JSON: {e}"
             return None
         return parsed if isinstance(parsed, dict) else None
 

@@ -521,3 +521,62 @@ def test_lookup_x_user_no_provider(monkeypatch):
     result = json.loads(lookup_x_user(username="someone"))
     assert result["available"] is False
     assert "no social-search provider" in result["reason"]
+
+
+def test_lookup_x_user_surfaces_timeline_http_error(tmp_path, monkeypatch):
+    """A profile that loads but whose timeline call is rejected by X
+    (402/403/429) must surface the real HTTP reason, not masquerade as a
+    genuinely post-less account. Exercises the production urllib path so
+    SocialProvider.last_error is set the way it is against the live API.
+    """
+    import io
+    import urllib.error
+
+    cfg = _BearerCfg(tmp_path)
+
+    class _FakeResp:
+        def __init__(self, body: bytes) -> None:
+            self._body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return self._body
+
+    def _fake_urlopen(req, timeout=20):
+        url = req.full_url
+        if "by/username" in url:
+            body = json.dumps({"data": {"id": "42", "username": "vv"}}).encode()
+            return _FakeResp(body)
+        if "/tweets" in url:
+            raise urllib.error.HTTPError(
+                url,
+                429,
+                "Too Many Requests",
+                None,
+                io.BytesIO(b'{"title":"Too Many Requests","status":429}'),
+            )
+        return _FakeResp(b"{}")
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    # No transport injected → _get takes the real urllib branch.
+    sp = SocialProvider(cfg=cfg, oauth=_OAuthForbidden())
+    monkeypatch.setattr(
+        "athena.social.user_lookup._resolve_social_provider",
+        lambda: ("social", sp),
+    )
+
+    from athena.social.user_lookup import lookup_x_user
+
+    result = json.loads(lookup_x_user(username="vv"))
+
+    assert result["available"] is True
+    assert result["profile"]["username"] == "vv"
+    assert result["posts"] == []
+    assert result["reason"] is not None
+    assert "429" in result["reason"]

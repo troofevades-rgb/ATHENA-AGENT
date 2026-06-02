@@ -238,6 +238,14 @@ class Agent(AgentLifecycle, AgentRuntime, AgentGoalIntegration):
                 cache_strategy=getattr(self.cfg, "cache_strategy", None),
                 prompt_cache_ttl=getattr(self.cfg, "prompt_cache_ttl", None),
             )
+            # Parser-fallback canary (process-global): surfaces models
+            # whose tool calls are riding on heuristic extraction because
+            # no parser matched. JSON-keyed as "provider/model".
+            from ..providers.parsers import fallback_counts
+
+            fb = {f"{p}/{m}": c for (p, m), c in fallback_counts().items()}
+            if fb:
+                snapshot["parser_fallbacks"] = fb
         except Exception:
             return
         target = self.session_store.profile_dir / ".status.json"

@@ -1,6 +1,15 @@
 """Per-provider credential pool with automatic rotation on 429.
 
-Loaded from ``~/.athena/credentials.json`` on init. Each provider name
+Credentials are PROFILE-SCOPED: each profile reads only
+``<profile_dir>/credentials.json``, so ``--profile experimental`` can
+never spend the ``default`` profile's keys. The ``default`` profile is
+seeded once (copy) from the legacy global ``~/.athena/credentials.json``
+the first time it's accessed; every other profile starts empty by
+design. Use :func:`profile_pool` (or :func:`global_pool`, which targets
+the active profile) — both are cached per profile. Tests construct their
+own pool with a tmp path.
+
+Loaded from the profile's ``credentials.json`` on init. Each provider name
 maps to an ordered list of :class:`Credential` records; :meth:`get`
 returns the next non-cooldown credential round-robin. When a provider
 sees a 429 it calls :meth:`mark_429` which stamps ``last_429_at`` on
@@ -16,14 +25,12 @@ chars only) safe for human display.
 Thread safety: one lock guards every mutation and every read of the
 internal dicts. Round-robin position is per-provider so two threads
 pulling credentials don't both get the same one.
-
-A module-level :data:`GLOBAL_CREDENTIAL_POOL` is the singleton most
-callers reach for. Tests construct their own pool with a tmp path.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -31,6 +38,8 @@ from pathlib import Path
 from typing import Any
 
 from ..safety.secure_files import ensure_secure_dir, secure_write_json
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_COOLDOWN = 60  # seconds
 
@@ -363,32 +372,90 @@ class CredentialPool:
         secure_write_json(self._path, payload)
 
 
-# Module-level singleton. Constructed lazily on first access so tests
-# that monkeypatch Path.home() / CONFIG_DIR can do so without racing
-# the import.
-_GLOBAL_POOL: CredentialPool | None = None
-_GLOBAL_LOCK = threading.Lock()
+# Per-profile pool cache. Pools are constructed lazily on first access
+# (so tests that monkeypatch CONFIG_DIR can do so without racing the
+# import) and cached by profile name — credentials are profile-scoped.
+_PROFILE_POOLS: dict[str, CredentialPool] = {}
+_POOL_LOCK = threading.Lock()
+
+
+def _seed_default_from_global_if_needed(path: Path) -> None:
+    """One-time, idempotent seed of the ``default`` profile's
+    credentials from the legacy global ``~/.athena/credentials.json``.
+
+    Credentials are now profile-scoped (strict isolation: each profile
+    reads only its own file). To avoid stranding existing users' keys
+    when the read path moves under the profile, copy the legacy global
+    file into the default profile the first time it's accessed and the
+    profile file doesn't exist yet. Copy — not move — so we never delete
+    the user's existing file or break external tooling that still reads
+    it. Default profile ONLY; other profiles start empty by design so a
+    ``--profile x`` switch can never reuse another profile's keys.
+
+    Routed through ``secure_write_json`` (not a raw file copy) so the
+    seeded copy gets 0o600 regardless of the legacy file's permissions.
+    """
+    from ..config import CONFIG_DIR
+
+    legacy = CONFIG_DIR / "credentials.json"
+    if path.exists() or not legacy.exists() or legacy.resolve() == path.resolve():
+        return
+    try:
+        raw = json.loads(legacy.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if not isinstance(raw, dict):
+        return
+    try:
+        ensure_secure_dir(path.parent)
+        secure_write_json(path, raw)
+        logger.info("seeded default-profile credentials from %s", legacy)
+    except OSError:
+        logger.warning(
+            "failed to seed default-profile credentials from global file",
+            exc_info=True,
+        )
+
+
+def profile_pool(profile: str | None = None) -> CredentialPool:
+    """Return the :class:`CredentialPool` for ``profile``.
+
+    ``profile=None`` resolves the active profile (CLI/env/active-file/
+    config, via :func:`athena.profiles.resolution.resolve_active_profile`).
+    Each profile reads ONLY ``<profile_dir>/credentials.json`` — strict
+    isolation, so switching profiles can never reuse another profile's
+    keys. The ``default`` profile is seeded once from the legacy global
+    file; other profiles start empty. Pools are cached per profile.
+    """
+    from ..config import profile_dir
+    from ..profiles.resolution import DEFAULT_PROFILE, resolve_active_profile
+
+    name = profile or resolve_active_profile()
+    with _POOL_LOCK:
+        cached = _PROFILE_POOLS.get(name)
+        if cached is not None:
+            return cached
+        path = profile_dir(name) / "credentials.json"
+        if name == DEFAULT_PROFILE:
+            _seed_default_from_global_if_needed(path)
+        pool = CredentialPool(path)
+        _PROFILE_POOLS[name] = pool
+        return pool
 
 
 def global_pool() -> CredentialPool:
-    """Return the lazily-constructed global :class:`CredentialPool`.
+    """Return the credential pool for the ACTIVE profile.
 
-    Reads from ``CONFIG_DIR / "credentials.json"``. Most callers use
-    this; tests construct their own pool with a tmp path.
+    Back-compat shim over :func:`profile_pool` for the many no-argument
+    call sites. Prefer ``profile_pool(cfg.profile)`` where a ``Config``
+    is in hand so the pool can't diverge from the agent's profile.
     """
-    global _GLOBAL_POOL
-    with _GLOBAL_LOCK:
-        if _GLOBAL_POOL is None:
-            from ..config import CONFIG_DIR
-
-            _GLOBAL_POOL = CredentialPool(CONFIG_DIR / "credentials.json")
-        return _GLOBAL_POOL
+    return profile_pool(None)
 
 
 def reset_global_pool() -> None:
-    """Drop the cached global pool. Test affordance — call this after
-    monkeypatching CONFIG_DIR so the next ``global_pool()`` rebuilds
+    """Drop every cached per-profile pool. Test affordance — call this
+    after monkeypatching CONFIG_DIR so the next pool access rebuilds
     against the new path."""
-    global _GLOBAL_POOL
-    with _GLOBAL_LOCK:
-        _GLOBAL_POOL = None
+    with _POOL_LOCK:
+        _PROFILE_POOLS.clear()

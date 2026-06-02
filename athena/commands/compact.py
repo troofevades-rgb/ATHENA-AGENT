@@ -54,7 +54,19 @@ def cmd_compact(agent: Any, arg: str = "") -> str:
                     chunks.append(payload)
         return "".join(chunks)
 
-    result = compress(agent.messages, summarizer=_summarizer, cfg=cfg)
+    # Mirror the runtime._maybe_compress_context try/except: a
+    # summarizer failure (provider 404 from a misrouted model,
+    # transport blip, auth rejection on the summary call) must
+    # NEVER propagate. Without this wrap the HTTPStatusError
+    # bubbled out of cmd_compact, into the REPL's slash-command
+    # dispatch, up to main() -- a fatal crash on what should be
+    # a no-op. Same bug class as commit 6056381 surfaced for the
+    # automatic compressor; this is the manual-trigger sibling.
+    try:
+        result = compress(agent.messages, summarizer=_summarizer, cfg=cfg)
+    except Exception as e:  # noqa: BLE001
+        ui.error(f"compaction failed: {type(e).__name__}: {e}")
+        return ""
     if result.middle_message_count == 0:
         ui.info("nothing to compact (head + tail already span the conversation)")
         return ""

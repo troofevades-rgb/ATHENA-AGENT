@@ -224,6 +224,8 @@ def _err(action: str, name: str, message: str) -> str:
             },
         },
     },
+    parallel_safe=True,
+    gateway_relay=True,
 )
 def skills_list(state: str = "active", pinned: bool | None = None) -> str:
     include_archived = state in ("archived", "all")
@@ -262,6 +264,7 @@ def skills_list(state: str = "active", pinned: bool | None = None) -> str:
         },
         "required": ["name"],
     },
+    parallel_safe=True,
 )
 def skill_view(name: str) -> str:
     text = manager.skill_view(name, _workspace())

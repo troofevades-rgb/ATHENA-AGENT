@@ -61,8 +61,9 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from ..text_utils import strip_think_blocks
 from .events import MessageEvent, MessageType
 
 if TYPE_CHECKING:
@@ -75,6 +76,25 @@ logger = logging.getLogger(__name__)
 # indicator persists ~5s; Discord's ~10s. 4s gives a comfortable
 # refresh window for both without spamming Slack's rate limiter.
 _TYPING_REFRESH_SECONDS = 4.0
+
+# Minimum gap between in-turn progress lines shipped to the chat. The
+# first line of a turn always goes through immediately (so the user
+# sees the agent picked up the work); subsequent tool-round lines are
+# throttled to this cadence so a tool-heavy turn doesn't bury the
+# channel or trip the platform's message rate limit.
+_PROGRESS_MIN_INTERVAL_SECONDS = 8.0
+
+# Upper bound on media files (video/image) auto-delivered into the chat
+# per turn. A guard against a runaway tool loop spamming attachments;
+# anything beyond this is logged and left on the server.
+_MAX_MEDIA_ARTIFACTS_PER_TURN = 8
+
+# Bounds on relaying gateway_relay tool results into the chat: the most
+# results a single turn can post, and the per-result char ceiling before
+# truncation. Keep the char cap below a couple of body-cap chunks so a
+# big result is a short scroll, not a channel flood.
+_MAX_TOOL_RELAYS_PER_TURN = 5
+_TOOL_RELAY_CHAR_CAP = 3500
 
 # Default chat-body cap when an adapter doesn't override.
 # Sized below Telegram's 4096 hard cap with headroom for Markdown
@@ -247,6 +267,69 @@ class GatewayAdapter(ABC):
         busy ack first."""
         self._busy_session_handler = handler
 
+    # ---- access control (0.3.0 hardening) ----
+
+    def _platform_config(self) -> dict[str, Any]:
+        """Return this adapter's slice of ``[gateway.platforms.<name>]``.
+
+        Empty dict when nothing is configured -- callers must treat the
+        result as ``{}`` for back-compat (an undeclared adapter is one
+        that opts into every default).
+        """
+        cfg = getattr(self.daemon, "cfg", None)
+        if cfg is None:
+            return {}
+        # daemon.cfg is the full Config object; GatewayConfig lives at
+        # cfg.gateway and exposes ``platforms: dict[str, Any]``.
+        gateway = getattr(cfg, "gateway", None)
+        if gateway is None:
+            return {}
+        platforms = getattr(gateway, "platforms", None) or {}
+        slice_ = platforms.get(self.name) or {}
+        return slice_ if isinstance(slice_, dict) else {}
+
+    def _allowed_user_ids(self) -> frozenset[str]:
+        """``allowed_user_ids`` from this adapter's platform config.
+
+        Empty / missing -> no user filter (back-compat). When the
+        operator populates the list, every inbound event must carry a
+        ``user_id`` that's in the set or the adapter refuses to route
+        it. The list lives under ``[gateway.platforms.<name>]
+        allowed_user_ids = ["12345", ...]`` -- as strings, since
+        Discord / Telegram / Slack ids are all numeric-string-shaped.
+        """
+        raw = self._platform_config().get("allowed_user_ids") or []
+        if not isinstance(raw, (list, tuple, set, frozenset)):
+            return frozenset()
+        return frozenset(str(x) for x in raw)
+
+    def _allowed_chat_ids(self) -> frozenset[str]:
+        """``allowed_chat_ids`` from this adapter's platform config.
+        Same semantics as :meth:`_allowed_user_ids` but keyed on
+        ``MessageEvent.chat_id`` -- useful for confining a Discord bot
+        to specific channels or a Telegram bot to specific group ids."""
+        raw = self._platform_config().get("allowed_chat_ids") or []
+        if not isinstance(raw, (list, tuple, set, frozenset)):
+            return frozenset()
+        return frozenset(str(x) for x in raw)
+
+    def _is_authorized(self, event: MessageEvent) -> bool:
+        """Refuse-by-allowlist check applied at the top of
+        :meth:`handle_inbound`. Empty allowlists -> always authorized
+        (back-compat with the pre-0.3.0 open posture). When EITHER list
+        is populated, the event must satisfy both filters that the
+        operator set: a user-allowlist with a chat-allowlist requires
+        BOTH to match; only one populated requires only that one."""
+        user_ok = True
+        chat_ok = True
+        users = self._allowed_user_ids()
+        if users:
+            user_ok = str(event.user_id) in users
+        chats = self._allowed_chat_ids()
+        if chats:
+            chat_ok = str(event.chat_id) in chats
+        return user_ok and chat_ok
+
     async def handle_inbound(self, event: MessageEvent) -> None:
         """Process an inbound event, dispatching to the right policy.
 
@@ -254,6 +337,23 @@ class GatewayAdapter(ABC):
         spawned via :meth:`_start_session_processing` and this method
         returns without awaiting it.
         """
+        # 0.3.0 hardening: refuse any message from a user / channel not
+        # in the operator's allowlist BEFORE we touch the router,
+        # spawn a task, or even acknowledge the message. Default-empty
+        # allowlists preserve the pre-0.3.0 open posture so existing
+        # deployments don't break; populating either list at
+        # ``[gateway.platforms.<name>]`` in config.toml turns the
+        # check on. Logged at INFO so an operator can see drift in
+        # ``athena gateway logs`` without enabling debug.
+        if not self._is_authorized(event):
+            logger.info(
+                "[%s] rejected inbound message: user_id=%s chat_id=%s not in allowlist",
+                self.name,
+                event.user_id,
+                event.chat_id,
+            )
+            return
+
         session_id = await self.daemon.router.resolve(event)
 
         # On-entry self-heal: if the adapter has a guard for this
@@ -584,7 +684,11 @@ class GatewayAdapter(ABC):
         consumed in the drain step below.
         """
         import asyncio
+        import time
 
+        from ..agent.media_artifacts import reset_media_sink, set_media_sink
+        from ..agent.progress import reset_progress_sink, set_progress_sink
+        from ..agent.tool_relay import reset_tool_result_sink, set_tool_result_sink
         from ..safety.approval_callback import (
             reset_approval_callback,
             set_approval_callback,
@@ -592,6 +696,16 @@ class GatewayAdapter(ABC):
         from .agent_factory import build_gateway_approval_callback
 
         guard = self._active_sessions.get(session_id)
+        # Start the typing indicator BEFORE pool.use. A cold-cache
+        # session pays the full agent-build cost inside pool.use
+        # (provider show_model HTTP, ATHENA.md read, sqlite open, skills
+        # discovery walk, JSONL replay); without the heartbeat already
+        # running, that whole window is dead air on the very first
+        # message of a conversation. Cancelled in the outer finally.
+        heartbeat_task = asyncio.create_task(
+            self._typing_heartbeat(event.chat_id),
+            name=f"gateway-typing-{session_id[:8]}",
+        )
         try:
             # ``pool.use`` refcount-pins the entry so concurrent
             # eviction won't close the agent (and its owned
@@ -614,10 +728,6 @@ class GatewayAdapter(ABC):
                 return
 
             try:
-                heartbeat_task = asyncio.create_task(
-                    self._typing_heartbeat(event.chat_id),
-                    name=f"gateway-typing-{session_id[:8]}",
-                )
                 approval_callback = build_gateway_approval_callback(
                     self.daemon,
                     session_id=session_id,
@@ -626,6 +736,51 @@ class GatewayAdapter(ABC):
                 )
                 approval_token = set_approval_callback(approval_callback)
 
+                # Progress bridge: the agent loop runs synchronously on
+                # a worker thread and calls emit_progress() at each tool
+                # round. Ship those lines to the chat so a long
+                # multi-tool turn shows life instead of dead air behind
+                # the typing indicator. Fire-and-forget onto the loop;
+                # the worker thread never blocks on the send. Throttled
+                # so a tool-heavy turn doesn't trip platform rate limits
+                # or bury the channel.
+                loop = asyncio.get_running_loop()
+                last_progress = [0.0]
+
+                def _progress_sink(message: str) -> None:
+                    now = time.monotonic()
+                    # Always let the first line through; throttle the rest.
+                    if last_progress[0] and now - last_progress[0] < _PROGRESS_MIN_INTERVAL_SECONDS:
+                        return
+                    last_progress[0] = now
+                    loop.call_soon_threadsafe(
+                        lambda: self._background_tasks.add(
+                            asyncio.create_task(self._safe_send(event.chat_id, f"_{message}_"))
+                        )
+                    )
+
+                progress_token = set_progress_sink(_progress_sink)
+
+                # Media bridge: tools that render a local file (video /
+                # image) call emit_media_artifact(path). Collect the
+                # paths on the worker thread, then send_file() each into
+                # the chat after the turn — otherwise a generated video
+                # only ever leaves the user a server-side path they
+                # can't reach.
+                media_artifacts: list[str] = []
+                media_token = set_media_sink(media_artifacts.append)
+
+                # Tool-result relay: a tool that declared gateway_relay
+                # (e.g. skills_list) emits its result here; we collect
+                # them on the worker thread and deliver them to the chat
+                # after the turn — the output IS what the user asked to
+                # see, and it otherwise only renders to the daemon's
+                # terminal.
+                relayed_results: list[tuple[str, str]] = []
+                relay_token = set_tool_result_sink(
+                    lambda tool_name, text: relayed_results.append((tool_name, text))
+                )
+
                 user_text = _build_user_text(event)
 
                 try:
@@ -633,7 +788,7 @@ class GatewayAdapter(ABC):
                         agent.run_until_done,
                         user_text,
                     )
-                except Exception:
+                except Exception as exc:
                     logger.exception(
                         "[%s] agent run failed for %s",
                         self.name,
@@ -641,23 +796,31 @@ class GatewayAdapter(ABC):
                     )
                     await self._safe_send(
                         event.chat_id,
-                        "_processing failed; see logs_",
+                        f"_processing failed — {_format_run_error(exc)}_\n"
+                        "_(full trace in the daemon log)_",
                     )
                     return
                 finally:
+                    reset_tool_result_sink(relay_token)
+                    reset_media_sink(media_token)
+                    reset_progress_sink(progress_token)
                     reset_approval_callback(approval_token)
-                    heartbeat_task.cancel()
-                    try:
-                        await heartbeat_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
 
-                response = agent.last_assistant_message()
+                # Relayed tool output first (the content the user asked
+                # for), then the model's summary, then any media files.
+                await self._send_tool_results(event.chat_id, relayed_results)
+                response = strip_think_blocks(agent.last_assistant_message()).strip()
                 if response:
                     await self._send_chunked(event.chat_id, response)
+                await self._send_media_artifacts(event.chat_id, media_artifacts)
             finally:
                 await pool_ctx.__aexit__(None, None, None)
         finally:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except (asyncio.CancelledError, Exception):
+                pass
             self._session_tasks.pop(session_id, None)
             pending = self._pending_messages.pop(session_id, None)
             if guard is not None:
@@ -708,6 +871,94 @@ class GatewayAdapter(ABC):
                 chat_id,
             )
 
+    async def _send_tool_results(self, chat_id: str, results: list[tuple[str, str]]) -> None:
+        """Deliver the results of gateway_relay tools into the chat.
+
+        Each result gets a short ``_tool:_`` header and its body, the
+        body truncated to :data:`_TOOL_RELAY_CHAR_CAP` (with a note) and
+        then chunked to the platform's body cap. A per-turn cap bounds
+        how many results a single turn can post so a tool-heavy turn
+        can't flood the channel; the rest are logged and dropped. Empty
+        results are skipped. One result failing never aborts the rest.
+        """
+        if not results:
+            return
+        sent = 0
+        for name, body in results:
+            text = (body or "").strip()
+            if not text:
+                continue
+            if sent >= _MAX_TOOL_RELAYS_PER_TURN:
+                logger.warning(
+                    "[%s] tool-relay cap (%d) reached; %d result(s) not sent",
+                    self.name,
+                    _MAX_TOOL_RELAYS_PER_TURN,
+                    len(results) - sent,
+                )
+                break
+            if len(text) > _TOOL_RELAY_CHAR_CAP:
+                dropped = len(text) - _TOOL_RELAY_CHAR_CAP
+                text = text[:_TOOL_RELAY_CHAR_CAP] + f"\n… (truncated; {dropped} more chars)"
+            try:
+                await self._send_chunked(chat_id, f"_{name}:_\n{text}")
+                sent += 1
+            except Exception:
+                logger.exception(
+                    "[%s] failed to relay result of %s to %s",
+                    self.name,
+                    name,
+                    chat_id,
+                )
+
+    async def _send_media_artifacts(self, chat_id: str, paths: list[str]) -> None:
+        """Deliver media files a turn produced (video/image) into the
+        chat via :meth:`send_file`.
+
+        Deduplicates while preserving order and skips paths that don't
+        point at an existing file (a tool may have reported a failure
+        payload, or the file was cleaned up). A per-turn cap guards
+        against a runaway loop spamming the channel; anything dropped
+        is logged. One file failing to send never aborts the rest.
+        """
+        if not paths:
+            return
+        seen: set[str] = set()
+        sent = 0
+        for raw in paths:
+            if not raw or raw in seen:
+                continue
+            seen.add(raw)
+            path = Path(raw)
+            if not path.is_file():
+                logger.warning(
+                    "[%s] media artifact %s is not a file; skipping",
+                    self.name,
+                    raw,
+                )
+                continue
+            if sent >= _MAX_MEDIA_ARTIFACTS_PER_TURN:
+                logger.warning(
+                    "[%s] media artifact cap (%d) reached; %d more not sent",
+                    self.name,
+                    _MAX_MEDIA_ARTIFACTS_PER_TURN,
+                    len(seen) - sent,
+                )
+                break
+            try:
+                await self.send_file(chat_id, path)
+                sent += 1
+            except Exception:
+                logger.exception(
+                    "[%s] failed to send media artifact %s",
+                    self.name,
+                    raw,
+                )
+                await self._safe_send(
+                    chat_id,
+                    f"_(generated {path.name} but couldn't attach it; "
+                    f"it's saved on the server at {path})_",
+                )
+
     async def _send_chunked(self, chat_id: str, text: str) -> None:
         """Send a long body in platform-respecting chunks.
 
@@ -747,6 +998,31 @@ class GatewayAdapter(ABC):
 
 
 # ---- module-level helpers ----------------------------------------------
+
+
+def _RUN_ERROR_CAP() -> int:
+    return 240
+
+
+def _format_run_error(exc: BaseException) -> str:
+    """Render a chat-safe one-line summary of a turn failure.
+
+    A Discord user has no terminal, so a bare "processing failed" leaves
+    them blind. This surfaces the exception type + message (e.g.
+    ``TimeoutError: ...`` from a wedged local model, or an xAI HTTP
+    code) so they can see WHAT broke. Bounded length; the full trace
+    still goes to the daemon log. Best-effort — never raises.
+    """
+    try:
+        name = type(exc).__name__
+        msg = str(exc).strip().replace("\n", " ")
+        summary = f"{name}: {msg}" if msg else name
+        cap = _RUN_ERROR_CAP()
+        if len(summary) > cap:
+            summary = summary[:cap].rstrip() + "…"
+        return summary
+    except Exception:  # noqa: BLE001 — error formatting must not raise
+        return "unexpected error"
 
 
 def _build_user_text(event: MessageEvent) -> str:

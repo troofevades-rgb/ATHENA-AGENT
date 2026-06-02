@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..providers.credential_pool import global_pool as _global_pool
+from ..providers.credential_pool import profile_pool as _profile_pool
 from ..providers.runtime_resolver import resolve_provider
 
 if TYPE_CHECKING:
@@ -29,6 +29,6 @@ def build_auxiliary_client(parent_agent: Agent) -> Provider:
     provider, _bare_model = resolve_provider(
         parent_agent.cfg.model,
         parent_agent.cfg,
-        _global_pool(),
+        _profile_pool(parent_agent.cfg.profile),
     )
     return provider

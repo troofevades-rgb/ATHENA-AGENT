@@ -12,7 +12,18 @@ concurrency:
 
 jobs:
   ruff:
-    runs-on: ubuntu-latest
+    # Cross-platform lint matrix. ruff itself is platform-independent
+    # but the import-detection / line-ending behaviour differs subtly
+    # between Windows and POSIX (the model picker + crash_log both
+    # shipped Windows-specific path code that the Linux-only matrix
+    # never validated). Running ruff on Windows + macOS too catches
+    # platform-specific syntax / encoding regressions before they
+    # bite an operator at runtime.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v5

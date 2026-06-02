@@ -115,16 +115,65 @@ def test_pre_tool_call_returns_none_does_not_block() -> None:
     p = _plugin()
     args = {"path": "/etc/hosts"}
     assert p.pre_tool_call("Read", args) is None
-    # Span recorded.
-    assert id(args) in p._tool_spans
+    # Span recorded on the thread-local slot.
+    assert p._local.current is not None
+    span, started, name = p._local.current
+    assert name == "Read"
 
 
 def test_post_tool_call_closes_span_and_records_metrics() -> None:
     p = _plugin()
     args = {"path": "/tmp/x"}
     p.pre_tool_call("Read", args)
+    # Pre put the span on the thread-local; post must consume + clear.
+    assert p._local.current is not None
     p.post_tool_call("Read", args, "file contents\n" * 10)
-    assert id(args) not in p._tool_spans
+    assert p._local.current is None
+
+
+# ---- regression: bug 28 (id() correlation never matched) -----------
+
+
+def test_pre_post_correlate_through_dispatcher_dict_copies() -> None:
+    """The plugin dispatcher passes ``dict(tool_args)`` separately
+    to pre and post hooks (see athena/plugins/hooks.py), so each
+    plugin invocation receives a DIFFERENT dict object with the
+    same content but a different ``id()``. Pre-fix the plugin
+    keyed its span dict on ``id(tool_args)`` -- the post lookup
+    NEVER found the entry, every tool call leaked a span, no
+    latency was ever recorded.
+
+    Post-fix uses a thread-local "current" slot so correlation
+    survives the dispatcher's defensive copies."""
+    p = _plugin()
+    # Simulate the dispatcher: two separate dict copies with the
+    # same content, sent to pre and post.
+    pre_args = {"path": "/tmp/probe"}
+    post_args = dict(pre_args)  # same content, different id()
+    assert id(pre_args) != id(post_args)
+
+    p.pre_tool_call("Read", pre_args)
+    # The thread-local slot has the in-flight span.
+    assert p._local.current is not None
+    p.post_tool_call("Read", post_args, "ok")
+    # Span retrieved + cleared despite the args id mismatch.
+    assert p._local.current is None
+
+
+def test_post_tool_call_name_mismatch_drops_span() -> None:
+    """If pre and post arrive with different tool names (parallel
+    dispatch + plugin-veto interleaving could cause this), the
+    plugin must NOT emit a span with the wrong tool name. It
+    drops the span silently."""
+    p = _plugin()
+    p.pre_tool_call("Read", {"path": "/x"})
+    # A different tool's post fires before Read's. This is the
+    # mismatch path; the plugin shouldn't emit a Bash-labeled span
+    # with Read's latency.
+    p.post_tool_call("Bash", {"command": "echo hi"}, "hi")
+    # Slot was cleared (defense against future re-correlation
+    # using stale data).
+    assert p._local.current is None
 
 
 def test_post_tool_call_without_pre_still_records_count() -> None:

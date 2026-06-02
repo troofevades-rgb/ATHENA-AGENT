@@ -337,25 +337,56 @@
   textual TUI is available
 
 ## Slash commands
-Dispatched in two ways (consolidation tracked under TODO in CHANGELOG):
 
-REPL state-pokes dispatched inline in `athena/__main__.py:_handle_slash`:
+Single dispatch path: every `/<name>` lookup goes through
+`commands.get_command(name)` (the `@command(...)` decorator registry).
+Each command lives in its own module under `athena/commands/<name>.py`
+and registers via the decorator on import; `athena/commands/__init__.py`
+side-effect imports every module so the registry is populated at
+process start. `athena/__main__.py:_handle_slash` is the REPL's
+adapter — it parses the line, looks up the handler, and invokes it.
+
+**One exception:** `/exit /quit /q` are checked inline in
+`_handle_slash` BEFORE the registry lookup, because they signal "break
+the outer REPL loop" by returning False to the caller. The registry's
+handler contract returns a string (the next user-turn prompt) or "",
+which can't express "exit". Routing exit through the registry would
+require a sentinel return value or an exception type; the inline check
+is one branch and pays for itself.
+
+Slash commands available in the REPL:
+
 - `/help` — show the slash-command help block
-- `/exit /quit /q` — leave the REPL
+- `/exit /quit /q` — leave the REPL (inline, see above)
 - `/clear` — reset conversation (keeps system prompt)
-- `/model NAME` — switch model
-- `/models` — list available models (Ollama or hosted provider's catalog)
+- `/model [NAME|N]` — switch model. Bare `/model` opens a picker
+  (numbered list grouped by provider; Ollama local + OpenRouter
+  catalog if credentialed; non-tool-calling OpenRouter models marked
+  `[no-tools]`). `/model N` picks by index from the last picker
+  render. `/model NAME` is the legacy direct-switch path.
+- `/models` — list models on the active provider
 - `/tools` — list registered tools (built-in + MCP)
 - `/mcp [logs NAME]` — list connected MCP servers; `logs <name>` dumps the
   named server's recent stderr
 - `/cost` — token usage + elapsed time for this session
-- `/status [live]` — current counters; `live` opens the Rich.Live dashboard
+- `/status` — render the session snapshot (model, profile, elapsed,
+  tokens, tool histogram, p50/p95/p99 turn + per-tool latencies,
+  provider/tool error counters, godmode active state when set)
 - `/cwd [path]` — show or change workspace
 - `/save [file]` — save transcript JSON
 - `/dump` — print the assembled system prompt (debug)
 - `/hooks` — list configured settings.json hooks
-
-Subsystem commands with modules under `athena/commands/`:
+- `/godmode` — jailbreak toolkit. Gated by `ATHENA_ALLOW_GODMODE=1`
+  in `~/.athena/.env` or the process environment. Subcommands:
+  `list`, `apply [strategy]` (system-prompt mutation), `steer
+  [strategy]` (auditable steer-queue variant), `clear` (mode-aware
+  undo), `auto [--score] [--canary <query>] [--max N]` (family-table
+  pick OR canary-tested empirical pick), `race <query> [--tier
+  fast|standard|smart|power|ultra|ollama-local] [--no-godmode]
+  [--no-depth]` (multi-model race; ollama-local is athena-exclusive
+  zero-API-cost variant), `prefill {set|clear|status}`,
+  `parseltongue`, `test`, `save`, `load`. See `athena/commands/godmode.py`
+  for the full surface.
 - `/init` — `athena init`: scaffold ATHENA.md from a workspace survey
 - `/loop INTERVAL CMD` — re-run a prompt or slash command on a timer
 - `/loop-stop` — stop a running `/loop`

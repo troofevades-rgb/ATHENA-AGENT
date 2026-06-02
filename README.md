@@ -72,6 +72,75 @@ athena -m qwen2.5-coder:32b  # pick a different model
 athena -p "fix the failing test in test_parser.py"   # one-shot prompt
 ```
 
+## Quickstart
+
+### 1. Verify the install
+
+```bash
+athena doctor
+```
+
+Prints a checklist:
+
+```
+[config]      [ OK ] Config parses, file present
+[credentials] [ OK ] anthropic, openai, openrouter
+[ollama]      [ OK ] http://127.0.0.1:11434 -- 24 model(s), 687ms
+[providers]   [ OK ] OpenRouter auth valid
+[tui]         [ OK ] node + Ink bundle
+summary: 9 ok, 0 warn, 0 fail
+```
+
+Any `[FAIL]` line tells you exactly what to fix; `[WARN]` is informational. `athena doctor --no-network` skips the remote auth probes for a fast local check. `athena doctor --json` is machine-readable for CI.
+
+### 2. First prompt
+
+```bash
+athena
+```
+
+In the REPL, try:
+
+```
+hello                                 # confirms the model is responding
+list the files in this directory      # triggers a tool call (Bash or Glob)
+/exit                                 # leave the REPL
+```
+
+You should see the model emit a tool call (rendered as `▸ Bash` or `▸ Glob` in the TUI), a tool result block, then a final assistant message describing the listing.
+
+### 3. Hosted models (OpenRouter, Anthropic, OpenAI)
+
+Ollama is the default. To use a hosted provider, drop a key into the credential pool:
+
+```bash
+athena providers add-key openrouter --key sk-or-...
+athena providers add-key anthropic  --key sk-ant-...
+```
+
+Then switch model via the picker:
+
+```
+/model                            # shows local Ollama + every hosted model your keys reach
+/model 42                         # pick by index
+/model openrouter/openai/gpt-4o   # or by name
+/model anthropic/claude-sonnet-4-5
+```
+
+The picker marks OpenRouter models that don't support tool calling (`[no-tools]`) — those will 404 on any prompt because athena ships tool schemas every turn. Pick a tool-capable model (Claude / GPT-4o / Llama 3.3+) for real work.
+
+### 4. Troubleshooting
+
+| Symptom | First check |
+|---|---|
+| Tool calls 400 with "model is not a valid ID" | Run `athena --version`. If it's old, `pip install -e .` to pick up the latest prefix-strip logic |
+| Hosted call returns 401/403 | `athena doctor` will show provider auth status |
+| REPL "didn't launch" but no error | Almost always the Ink TUI started fine — look for the `▸▸` prompt and `▰▰` status bar; wait 1-2s for the banner |
+| Crash mid-session | A JSON record lands at `~/.athena/crashes/crash-<ts>-<uuid>.json` with secrets scrubbed; attach to bug reports |
+| Same warning twice on every startup | Fixed in 0.3.0 — dedup is in-process now. If you still see duplicates, you're on an older install |
+
+For anything else, `athena doctor --json` plus the newest `~/.athena/crashes/*.json` are what to paste into a bug report.
+
 ## Configuration
 
 `~/.athena/config.toml`:

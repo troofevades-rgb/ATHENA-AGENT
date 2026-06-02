@@ -63,6 +63,19 @@ _PREFIX_TO_PROVIDER: dict[str, str] = {
 
 # Providers whose prefix is just a routing hint and should be stripped
 # off before the model name goes on the wire.
+#
+# ``openrouter`` is in the strip set as of 0.3.0: OpenRouter's
+# ``/chat/completions`` rejects the doubled-prefix form
+# (``openrouter/nousresearch/hermes-4-405b`` -> 400 "not a valid model
+# ID"). The /model picker (and credentialed pool entries) prefix every
+# OpenRouter catalog entry with ``openrouter/`` for routing; stripping
+# at the resolver layer yields the bare ``vendor/model`` on the wire.
+# The five OpenRouter meta-router models that LITERALLY start with
+# ``openrouter/`` (``openrouter/auto``, ``openrouter/free``, etc.)
+# require the doubled-prefix form (``openrouter/openrouter/auto``)
+# to route through this stack -- documented limitation, picker
+# handles it automatically since it prefixes once and the catalog
+# entry already starts with ``openrouter/``.
 _STRIP_PREFIX_FOR: frozenset[str] = frozenset(
     {
         "anthropic",
@@ -70,6 +83,7 @@ _STRIP_PREFIX_FOR: frozenset[str] = frozenset(
         "openai",
         "google",
         "nous",
+        "openrouter",
         "xai",
     }
 )
@@ -143,7 +157,8 @@ def _build_provider(
 
     if name == "ollama":
         host = provider_cfg.get("host") or cfg.ollama_host
-        return cls(host=host), bare
+        timeout = float(getattr(cfg, "ollama_timeout_s", 600.0) or 600.0)
+        return cls(host=host, timeout=timeout), bare
 
     if name == "openai_compat":
         host = provider_cfg.get("host")

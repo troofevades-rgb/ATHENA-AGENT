@@ -115,3 +115,61 @@ def test_lazy_expiry_cleans_old_entries() -> None:
     cache.check_and_record("w", "b")
     # 'a' was purged; only 'b' remains.
     assert cache.size == 1
+
+
+# ---- bounded growth (LRU cap) --------------------------------------
+
+
+def test_max_entries_caps_dict_growth() -> None:
+    """A misbehaving sender pushing unique keys cannot grow the
+    cache past ``max_entries``. Oldest entries get evicted first
+    (insertion order in CPython 3.7+ = approximate LRU since every
+    insert is fresh)."""
+    cache = IdempotencyCache(ttl_seconds=60, max_entries=3)
+    cache.check_and_record("w", "a")
+    cache.check_and_record("w", "b")
+    cache.check_and_record("w", "c")
+    assert cache.size == 3
+    # Fourth insert -- must evict the oldest ("a") to stay at 3.
+    cache.check_and_record("w", "d")
+    assert cache.size == 3
+    # 'a' was evicted and can be recorded again as new.
+    assert cache.check_and_record("w", "a") is True
+    # 'd' still in cache and is treated as duplicate.
+    assert cache.check_and_record("w", "d") is False
+
+
+def test_max_entries_must_be_positive() -> None:
+    with pytest.raises(ValueError):
+        IdempotencyCache(ttl_seconds=60, max_entries=0)
+    with pytest.raises(ValueError):
+        IdempotencyCache(ttl_seconds=60, max_entries=-1)
+
+
+# ---- TTL boundary (the <= fix from review finding #3) -------------
+
+
+def test_entry_expiring_exactly_at_now_does_not_dedup_next_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 1-tick TTL boundary bug: previously the purge used strict
+    ``<`` so an entry whose expiry equalled the new check's ``now``
+    would survive purge and then dedupe the legitimate retry. On
+    Windows ``time.monotonic`` resolution is ~15ms so this isn't
+    purely theoretical -- two calls inside the same tick collide.
+
+    Pin with a controlled clock so the boundary is exact."""
+    clock = [1000.0]
+
+    def fake_monotonic() -> float:
+        return clock[0]
+
+    monkeypatch.setattr(time, "monotonic", fake_monotonic)
+    cache = IdempotencyCache(ttl_seconds=10)
+    # Record at t=1000; expires at t=1010.
+    assert cache.check_and_record("w", "k") is True
+    # Advance the clock to EXACTLY the expiry moment.
+    clock[0] = 1010.0
+    # Post-fix: the entry must NOT dedupe a fresh call -- it has
+    # expired (now >= expires_at means the entry's lifetime is over).
+    assert cache.check_and_record("w", "k") is True

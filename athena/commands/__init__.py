@@ -54,6 +54,8 @@ from . import (
     cwd,  # noqa: F401
     dump,  # noqa: F401
     goal,  # noqa: F401
+    godmode,  # noqa: F401 -- /godmode is registered always; runtime
+    #                          refuses to act without ATHENA_ALLOW_GODMODE=1
     help,  # noqa: F401
     hooks,  # noqa: F401
     init,  # noqa: F401

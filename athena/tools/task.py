@@ -287,6 +287,7 @@ def TaskUpdate(
         "tasks show on the kanban board (`athena board`)."
     ),
     parameters={"type": "object", "properties": {}},
+    parallel_safe=True,
 )
 def TaskList() -> str:
     store = _resolve_store()

@@ -69,3 +69,10 @@ tests/vision/fixtures/*.png
 # story as the vision fixtures.
 tests/video/fixtures/*.mp4
 tests/video/fixtures/*.mov
+
+# Dogfood / debug logs captured at the repo root (e.g.
+# ``athena 2>&1 | Tee-Object athena-log.txt``). Operator-generated;
+# never source.
+/athena-log.txt
+/athena-*.log
+coverage.json

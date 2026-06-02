@@ -30,6 +30,7 @@ formatter and log a single warning.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any
 
@@ -86,10 +87,24 @@ class ObservabilityPlugin(Plugin):
         self._meter: Any = None
         self._counters: dict[str, Any] = {}
         self._histograms: dict[str, Any] = {}
-        # session_id → (span, start_monotonic) for the session-level
-        # span and (per-id) the in-flight tool-call spans.
+        # session_id -> (span, start_monotonic) for the session-level span.
         self._session_spans: dict[str, tuple[Any, float]] = {}
-        self._tool_spans: dict[int, tuple[Any, float, str]] = {}
+        # In-flight tool-call span, stored per-thread. Each parallel
+        # tool worker runs at most one tool at a time (the agent's
+        # _handle_tool_call is sequential within a worker), so a
+        # thread-local "current span" is sufficient correlation
+        # without leaking memory.
+        #
+        # Pre-fix this was ``dict[int, tuple]`` keyed on
+        # ``id(tool_args)``. The agent's plugin dispatcher copies the
+        # args dict via ``dict(tool_args)`` separately for the pre
+        # and post hooks (see athena/plugins/hooks.py), so the two
+        # ``id()`` values NEVER matched -- every tool call leaked an
+        # entry in the dict, no tool span ever closed, latencies
+        # were silently dropped, and OTel span buffers grew
+        # unbounded. The leak was deterministic in any session that
+        # made even one tool call.
+        self._local = threading.local()
         self._log_handler: logging.Handler | None = None
         self._installed = False
 
@@ -300,14 +315,21 @@ class ObservabilityPlugin(Plugin):
         except Exception:
             logger.debug("tool span start failed", exc_info=True)
             return None
-        # Identify the (span, args) pair by the args dict's id so the
-        # post hook can correlate even if multiple tools fire
-        # concurrently.
-        self._tool_spans[id(tool_args)] = (
-            span,
-            time.monotonic(),
-            tool_name,
-        )
+        # Stash the (span, started_at, tool_name) on the current
+        # thread-local. Each parallel tool worker runs at most one
+        # tool at a time, so a single per-thread slot is the right
+        # correlation primitive between pre and post. (See the
+        # ``_local`` field's docstring for the bug this replaces.)
+        #
+        # If a prior pre fired but its post never did (e.g., another
+        # plugin vetoed the tool between the pre and post hooks --
+        # the dispatcher returns before post in that case), the
+        # previous span is overwritten here; its OTel span object
+        # never gets .end()'d. That's a bounded leak (one per
+        # vetoed call per worker) rather than the unbounded leak
+        # the previous id()-based correlation produced on every
+        # successful call.
+        self._local.current = (span, time.monotonic(), tool_name)
         return None
 
     def post_tool_call(
@@ -316,10 +338,25 @@ class ObservabilityPlugin(Plugin):
         tool_args: dict[str, Any],
         result: str,
     ) -> None:
-        entry = self._tool_spans.pop(id(tool_args), None)
+        entry = getattr(self._local, "current", None)
         latency_ms: float | None = None
         if entry is not None:
-            span, started, _name = entry
+            span, started, pre_name = entry
+            # Clear the slot before doing any span work so a re-entrancy
+            # / exception path can't double-emit the same span.
+            self._local.current = None
+            # Defensive: if names don't match, the dispatcher state is
+            # inconsistent (a parallel-worker pre/post mismatch). Drop
+            # the span without recording rather than emit a wrong-tool
+            # latency.
+            if pre_name != tool_name:
+                logger.debug(
+                    "tool span name mismatch: pre=%s post=%s; dropping span",
+                    pre_name,
+                    tool_name,
+                )
+                entry = None
+        if entry is not None:
             latency_ms = (time.monotonic() - started) * 1000.0
             try:
                 span.set_attribute(
