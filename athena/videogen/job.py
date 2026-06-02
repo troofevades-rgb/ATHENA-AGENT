@@ -35,7 +35,13 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    # Type-only: a runtime import would pull athena.tools.__init__ (which
+    # imports videogen.tools, which imports this module) → circular.
+    # Safe as an annotation because of `from __future__ import annotations`.
+    from ..tools.status import ToolStatus
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +124,7 @@ class GenerationResult:
     """The orchestrator's return shape — what callers (the two
     tools in T6-05.3) surface to the model."""
 
-    status: str  # done | declined | timeout | error | cancelled
+    status: ToolStatus  # done | declined | timeout | error | cancelled
     path: Path | None = None
     sha256: str | None = None
     duration_s: float | None = None

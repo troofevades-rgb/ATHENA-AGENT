@@ -54,12 +54,33 @@ def _fake_agent(model: str = "qwen", provider_name: str = "ollama"):
 # ---- no arg: show current --------------------------------------------
 
 
-def test_no_arg_prints_current_model() -> None:
+def test_no_arg_renders_picker(monkeypatch) -> None:
+    """``/model`` (no args) now renders the multi-provider picker
+    instead of just printing the current name. The picker still
+    shows the current model (with a ``*`` marker), so the bare
+    name is still visible. No agent mutation.
+
+    Captures ``ui.console.print`` directly because the picker
+    writes through Rich's console, not ``ui.info`` like the legacy
+    path did. The shared ``_run`` helper only sees the info/warn/
+    error channels."""
+    import athena.commands.model as mod
+
+    monkeypatch.setattr(mod, "_ollama_models", lambda _a: ["qwen2.5-coder:14b"])
+    monkeypatch.setattr(mod, "_openrouter_models", lambda: {})
+
+    printed: list[str] = []
+    monkeypatch.setattr(mod.ui.console, "print", lambda msg="", *a, **kw: printed.append(str(msg)))
+
     agent = _fake_agent(model="qwen2.5-coder:14b")
-    out = _run(agent, "")
+    mod.cmd_model(agent, "")
+    out = "\n".join(printed)
+
     assert "qwen2.5-coder:14b" in out
-    assert "current model" in out.lower()
-    # No mutation
+    # Picker header + switch instruction visible.
+    assert "models" in out.lower()
+    assert "/model" in out
+    # No mutation.
     assert agent.model == "qwen2.5-coder:14b"
 
 
@@ -204,3 +225,105 @@ def test_swap_resolve_failure_surfaces_error_and_leaves_state() -> None:
     assert agent.provider is original_provider  # unchanged
     assert "could not switch" in out.lower()
     assert "no athena_anthropic_api_key" in out.lower()
+
+
+# ---- typo guard: reject near-miss provider prefixes ------------------
+
+
+def test_typo_in_provider_prefix_rejected_with_suggestion() -> None:
+    """``/model athropic/claude-opus-4-7`` is a typo of ``anthropic/``.
+    Without this guard, ``_route`` silently falls through to ollama
+    (the local-first default) and the operator sees 404 errors on
+    every subsequent turn -- the exact failure mode that surfaced
+    this fix (dogfood burned 174 goal-loop turns hammering Ollama
+    with the typo'd model name)."""
+    agent = _fake_agent(model="qwen", provider_name="ollama")
+    original_provider = agent.provider
+    out = _run(agent, "athropic/claude-opus-4-7")
+    assert agent.model == "qwen"  # unchanged
+    assert agent.provider is original_provider  # unchanged
+    assert "did you mean" in out.lower()
+    assert "anthropic/claude-opus-4-7" in out
+
+
+def test_typo_near_miss_openai_rejected() -> None:
+    """``opena/gpt-4o`` is a near miss of ``openai/`` and should be
+    caught the same way."""
+    agent = _fake_agent(model="qwen", provider_name="ollama")
+    out = _run(agent, "opena/gpt-4o")
+    assert "did you mean" in out.lower()
+    assert "openai/gpt-4o" in out
+
+
+def test_legitimate_vendor_path_not_rejected() -> None:
+    """Ollama tags often have the ``vendor/model`` shape
+    (``mistralai/mistral-7b``, ``qwen/qwen3-32b``). Those share no
+    meaningful letters with any provider prefix and must pass
+    through the typo guard untouched."""
+    agent = _fake_agent(model="qwen", provider_name="ollama")
+    with (
+        patch("athena.commands.model._route", return_value="ollama"),
+        patch("athena.commands.model._bare_model", return_value="mistralai/mistral-7b"),
+    ):
+        out = _run(agent, "mistralai/mistral-7b")
+    # No "did you mean" message; switch proceeded.
+    assert "did you mean" not in out.lower()
+    assert agent.model == "mistralai/mistral-7b"
+
+
+# ---- leading-slash strip (dogfood paste / typo) ---------------------
+
+
+def test_leading_slash_is_stripped_before_routing() -> None:
+    """``/model /troofevades-q35:athena`` -- the operator pasted /
+    typo'd a leading slash, which Ollama rejects as ``HTTP 400
+    invalid model name``. The picker strips the slash and
+    forwards the clean name. Surfaced after a dogfood session
+    burned several turns with Ollama returning 400 on every
+    prompt before the operator noticed."""
+    agent = _fake_agent(model="qwen2.5-coder:14b", provider_name="ollama")
+    with (
+        patch("athena.commands.model._route", return_value="ollama"),
+        patch(
+            "athena.commands.model._bare_model",
+            return_value="troofevades-q35:athena",
+        ),
+    ):
+        out = _run(agent, "/troofevades-q35:athena")
+    # Routed without the leading slash; agent.model is the clean name.
+    assert agent.model == "troofevades-q35:athena"
+    # No error about invalid model name.
+    assert "invalid" not in out.lower()
+    assert "model set to" in out.lower()
+
+
+def test_only_slash_input_rejected_cleanly() -> None:
+    """A bare ``/`` (or a string that's nothing but slashes) leaves
+    nothing to route after the strip. Surface a clear error rather
+    than silently calling resolve_provider with empty input."""
+    agent = _fake_agent(model="qwen", provider_name="ollama")
+    original_model = agent.model
+    out = _run(agent, "/")
+    # Model is unchanged.
+    assert agent.model == original_model
+    assert "empty" in out.lower() or "model name" in out.lower()
+
+
+def test_known_provider_prefix_passes_through_typo_guard() -> None:
+    """``anthropic/claude-opus`` is the canonical spelling and must
+    NOT trip the typo guard."""
+    from unittest.mock import MagicMock as _MM
+
+    agent = _fake_agent(model="qwen", provider_name="ollama")
+    new_provider = _MM()
+    new_provider.name = "anthropic"
+    with (
+        patch("athena.commands.model._route", return_value="anthropic"),
+        patch(
+            "athena.commands.model.resolve_provider",
+            return_value=(new_provider, "claude-opus"),
+        ),
+    ):
+        out = _run(agent, "anthropic/claude-opus")
+    assert "did you mean" not in out.lower()
+    assert agent.model == "claude-opus"

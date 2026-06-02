@@ -298,10 +298,15 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
     case "stream.end": {
       const e = event as StreamEndEvent;
       if (e.stream_id !== state.streamId) return state;
+      // Producer-provided polished view wins. The Python typewriter
+      // sends the <think>-stripped text in ``final_text`` on
+      // finalize so the transcript shows the clean version even
+      // when streaming chunks contained raw thought tags. Legacy
+      // producers (no final_text) fall back to the accumulated
+      // buffer + the local thought-marker scrub.
       const rawText = state.streaming + (state._streamFilter.tail || "");
-      // Strip thought markers — useful during streaming but noise
-      // in the permanent transcript.
-      const finalText = rawText.replace(/·\s*\(thought\)\s*/g, "").trim();
+      const fallbackText = rawText.replace(/·\s*\(thought\)\s*/g, "").trim();
+      const finalText = (e.final_text ?? fallbackText).trim();
       const hasContent = finalText.length > 0;
       const wasAtBottom = state.scrollOffset === 0;
       let newLines = state.lines;

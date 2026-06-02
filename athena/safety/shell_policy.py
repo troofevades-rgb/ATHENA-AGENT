@@ -39,17 +39,42 @@ class PolicyDecision:
 
 
 # Each pattern is a regex applied to the raw command string before
-# tokenisation. Patterns are ordered roughly by severity.
+# tokenisation. Patterns are ordered roughly by severity. Patterns
+# are case-INsensitive at compile time below so Windows / cmd-style
+# verbs (``DEL``, ``Format``) match the same as their lowercase
+# equivalents -- operators copy-pasting from shell history shouldn't
+# evade the floor by accidental capitalization.
 DEFAULT_DENYLIST: tuple[str, ...] = (
+    # ---- POSIX / Linux ----
     r"\brm\s+-rf\s+/(?!home/|tmp/|var/tmp/)",  # rm -rf of system roots
-    r"\bdd\s+.*\bof=/dev/(sd|nvme|hd)",  # dd to a block device
-    r"\bmkfs\.",  # filesystem creation
-    r":\(\)\s*\{\s*:\|:&\s*\}\s*;:",  # fork bomb
-    r">\s*/dev/(sda|nvme|hda)",  # redirect to block device
-    r"\bchmod\s+.*\b777\b\s+/",  # chmod 777 on system paths
     r"\bsudo\s+rm\s+-rf",  # any sudo rm -rf
-    r"\bcurl\b.*\|\s*(sudo\s+)?(sh|bash|zsh)",  # curl | sh
-    r"\bwget\b.*\|\s*(sudo\s+)?(sh|bash|zsh)",  # wget | sh
+    r"\bmkfs\.",  # filesystem creation (any fs flavour)
+    r":\(\)\s*\{\s*:\|:&\s*\}\s*;:",  # fork bomb
+    r"\bchmod\s+.*\b777\b\s+/",  # chmod 777 on system paths
+    # ---- block-device destruction (covers macOS + Linux) ----
+    # macOS uses /dev/disk* and /dev/rdisk*; FreeBSD adds /dev/ada*.
+    # Without these, ``dd if=/dev/zero of=/dev/disk0`` evaded the
+    # floor on Apple Silicon and Intel Macs alike.
+    r"\bdd\s+.*\bof=/dev/(sd|nvme|hd|disk|rdisk|ada|vd)",
+    r">\s*/dev/(sda|nvme|hda|disk|rdisk)",  # redirect to block device
+    # ---- pipe-to-shell pattern ----
+    r"\bcurl\b.*\|\s*(sudo\s+)?(sh|bash|zsh)",
+    r"\bwget\b.*\|\s*(sudo\s+)?(sh|bash|zsh)",
+    # ---- Windows / cmd / PowerShell ----
+    # ATHENA.md treats Windows as first-class so the denylist must
+    # cover Windows-native destruction verbs. ``del /s /q`` is the
+    # Windows analogue of ``rm -rf``; ``format`` and ``cipher /w``
+    # are direct disk-wipe vectors that no agent should ever issue.
+    # ``rd /s /q`` (alias ``rmdir``) on a system root is equivalent
+    # to del. Patterns are written so a lone ``del foo.txt`` is
+    # untouched -- only the recursive/quiet+root combinations fire.
+    r"\b(del|erase)\s+(/[sq]\s+)+",  # del /s /q or /q /s (any order)
+    r"\b(rd|rmdir)\s+/s\b",  # recursive rmdir
+    r"\bformat\b\s+[a-z]:",  # format C: / format D:
+    r"\bcipher\s+/w:",  # cipher /w: secure-wipes free space
+    r"\bdiskpart\b",  # interactive disk partition tool
+    # PowerShell remove-item with -recurse + -force on system paths
+    r"\bremove-item\b.*\-recurse\b.*\-force\b",
 )
 
 
@@ -66,7 +91,17 @@ class ShellPolicy:
         self._allow_patterns: tuple[re.Pattern[str], ...] = tuple(
             re.compile(rf"^{re.escape(entry)}\b") for entry in allowlist
         )
-        self._deny_patterns: tuple[re.Pattern[str], ...] = tuple(re.compile(p) for p in denylist)
+        # Case-INsensitive on the denylist so Windows-style
+        # capitalization (``DEL /S /Q``, ``Format C:``) doesn't
+        # evade the floor. POSIX patterns are unaffected -- shell
+        # binaries are conventionally lowercase, so a ``RM -RF /``
+        # is non-functional but still indicative of intent and
+        # worth blocking. Allowlist patterns stay case-sensitive
+        # (the operator's allowlist is explicit configuration; we
+        # don't second-guess the case they typed).
+        self._deny_patterns: tuple[re.Pattern[str], ...] = tuple(
+            re.compile(p, re.IGNORECASE) for p in denylist
+        )
 
     # ---- public API ------------------------------------------------
 

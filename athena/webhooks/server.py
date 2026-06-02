@@ -110,6 +110,12 @@ class WebhookServer:
         # Tasks spawned by the handler; cancelled on shutdown so a
         # slow agent run can't keep the process alive past stop.
         self._dispatch_tasks: set[asyncio.Task] = set()
+        # Set to True the moment ``stop()`` begins. ``_handle``
+        # checks this BEFORE spawning a new dispatch task so a
+        # request that lands during the shutdown window doesn't
+        # get added to ``_dispatch_tasks`` after we've already
+        # cleared the set and gathered the cancellations.
+        self._stopping = False
 
     # ---- lifecycle ----
 
@@ -129,6 +135,11 @@ class WebhookServer:
     async def stop(self) -> None:
         if self._runner is None:
             return
+        # Latch the stopping flag BEFORE we snapshot the dispatch set
+        # so a request arriving in the next few microseconds will see
+        # ``_stopping == True`` in _handle and 503 immediately
+        # without adding itself to the set we're about to drain.
+        self._stopping = True
         # Cancel in-flight dispatches first so they don't outlive
         # the listener's HTTP context (we already 202-acked the
         # caller; nothing's waiting for the agent's reply over HTTP).
@@ -156,6 +167,14 @@ class WebhookServer:
         )
 
     async def _handle(self, request: web.Request) -> web.Response:
+        # Reject requests that arrive during the shutdown window so
+        # they don't get added to _dispatch_tasks after we've drained
+        # it. Without this, the set.add can run between stop()'s
+        # clear() and gather(), leaving an orphan task that survives
+        # the listener teardown.
+        if self._stopping:
+            return web.Response(status=503, text="server shutting down")
+
         webhook_id = request.match_info["webhook_id"]
         sub = self.store.get(webhook_id)
         if sub is None:
@@ -165,9 +184,12 @@ class WebhookServer:
 
         body = await request.read()
 
-        # 1. Authenticate.
+        # 1. Authenticate. Auth failures are a security event --
+        # WARNING level so they're picked up by log aggregation /
+        # alert rules. INFO was too quiet for the post-incident
+        # search you'd run after a credential leak.
         if not self._authenticate(sub, request, body):
-            logger.info("[%s] auth failed", webhook_id)
+            logger.warning("[%s] auth failed", webhook_id)
             return web.Response(status=401, text="authentication failed")
 
         # 2. Idempotency check (only when sender supplies the header).
@@ -285,7 +307,18 @@ def _parse_body(body: bytes) -> dict[str, Any]:
     if isinstance(parsed, dict):
         return parsed
     # Top-level non-object JSON (array, string, number) — wrap so the
-    # callback signature stays predictable.
+    # callback signature stays predictable. Surface a warning so the
+    # operator notices: skills written against a schema that expects
+    # a top-level array (some GitHub events do this) will silently
+    # fail their schema check against the wrapper. The warning lets
+    # them see the mismatch in logs without having to instrument the
+    # callback.
+    logger.warning(
+        "webhook payload is a top-level %s; wrapping as "
+        "{'_top_level': ...}. Skills expecting the raw array/scalar "
+        "must read payload['_top_level'].",
+        type(parsed).__name__,
+    )
     return {"_top_level": parsed}
 
 
@@ -307,16 +340,44 @@ def _snapshot_headers(headers) -> dict[str, str]:
     We don't forward Authorization / X-Webhook-Signature — those
     are auth metadata, not application data, and leaking them to the
     agent's prompt is unnecessary.
+
+    Header values are deduplicated correctly: aiohttp's
+    ``CIMultiDict`` is multi-valued (a webhook source legitimately
+    can -- and GitHub sometimes does -- send the same header twice).
+    ``headers.items()`` yields each occurrence separately, which
+    would overwrite the first with the last on ``out[key] = value``.
+    We use ``getall`` and join with ``", "`` (the standard
+    HTTP repeatable-header concatenation) so the skill sees every
+    value the sender supplied.
     """
     out: dict[str, str] = {}
-    for key, value in headers.items():
+    # Pull unique lowercase keys first, then collapse each key's
+    # values via getall(). The seen set guards against doing the
+    # work twice when a key occurs N times.
+    seen: set[str] = set()
+    for key in headers.keys():
         lower = key.lower()
+        if lower in seen:
+            continue
+        seen.add(lower)
         if lower in ("authorization", "x-webhook-signature", "x-hub-signature-256"):
             continue
-        if (
+        if not (
             lower.startswith(_FORWARDED_HEADER_PREFIXES)
             or lower == "content-type"
             or lower == "x-webhook-idempotency-key"
         ):
-            out[key] = value
+            continue
+        # getall is the CIMultiDict accessor that returns every value
+        # for the key. Fall back to a single-value get for plain dict
+        # inputs (unit tests can pass a dict directly).
+        getall = getattr(headers, "getall", None)
+        if getall is not None:
+            values = list(getall(key))
+        else:
+            values = [headers[key]]
+        # ", " join is the RFC-7230 standard for repeating
+        # headers; a downstream skill that wants to split is free to
+        # do so. A single value pre-serializes identically.
+        out[key] = ", ".join(values)
     return out

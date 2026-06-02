@@ -35,16 +35,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from ..provenance import (
-    BACKGROUND_REVIEW,
-    reset_current_write_origin,
-    set_current_write_origin,
-)
-from ..safety.approval_callback import (
-    AUTO_DENY,
-    reset_approval_callback,
-    set_approval_callback,
-)
+from ..provenance import BACKGROUND_REVIEW
 from .auxiliary_client import build_auxiliary_client
 
 if TYPE_CHECKING:
@@ -122,15 +113,28 @@ def fork(
     # plugin is silently ignored inside background_review and
     # curator forks -- a real escape hatch for a plugin that, e.g.,
     # blocks Bash in the REPL.
-    child = Agent(
-        child_cfg,
-        self.workspace,
-        model=self.model,
-        client=client,
-        session_store=self.session_store,
-        parent_session_id=self.session_id,
-        plugin_hooks=self.plugin_hooks,
-    )
+    # Construct the child agent under a UI mute when quiet. Agent
+    # __init__ runs _build_system() which emits startup chatter
+    # ("inherited SYSTEM", "loaded ATHENA.md", "loaded skills
+    # catalog") via ui.info — and construction happens HERE on the
+    # calling thread, BEFORE the stdout-redirect set up inside the
+    # fork's _runner thread. Without the mute those messages leak to
+    # the console, showing as a duplicate boot banner whenever a fork
+    # fires before the TUI gateway is wired (notably the curator's
+    # session-start pass). The mute is thread-local, so it never
+    # suppresses the parent/main thread's concurrent output.
+    from .. import ui
+
+    with ui.muted() if quiet else contextlib.nullcontext():
+        child = Agent(
+            child_cfg,
+            self.workspace,
+            model=self.model,
+            client=client,
+            session_store=self.session_store,
+            parent_session_id=self.session_id,
+            plugin_hooks=self.plugin_hooks,
+        )
     # If we built an auxiliary client, the child owns it (close on shutdown).
     # If we passed the parent's client, the child does NOT own it.
     child._owns_client = auxiliary_client
@@ -167,11 +171,8 @@ def fork(
         stderr_buf = io.StringIO()
 
         def _runner() -> None:
-            from ..safety.approval_guard import (
-                reset_approvals,
-                scope_fresh_approvals,
-            )
             from ..safety.path_security import set_workspace as set_ps_workspace
+            from ..safety.thread_entry import non_foreground_thread
             from ..tools.clarify import in_fork_context
 
             # ContextVars don't propagate across thread boundaries, so the
@@ -183,25 +184,24 @@ def fork(
             # doesn't own anyway).
             in_fork_context.set(True)
 
-            origin_token = set_current_write_origin(write_origin)
-            approval_token = set_approval_callback(AUTO_DENY)
-            grants_token = scope_fresh_approvals()
-            agent_token = _current_agent.set(child)
-            try:
-                cm = contextlib.ExitStack()
-                if quiet:
-                    cm.enter_context(contextlib.redirect_stdout(stdout_buf))
-                    cm.enter_context(contextlib.redirect_stderr(stderr_buf))
-                with cm:
-                    child.run_until_done(user_prompt, max_iterations=max_iterations)
-            except Exception as exc:
-                logger.exception("fork failed")
-                result.error = f"{type(exc).__name__}: {exc}"
-            finally:
-                _current_agent.reset(agent_token)
-                reset_approvals(grants_token)
-                reset_approval_callback(approval_token)
-                reset_current_write_origin(origin_token)
+            # write-origin + AUTO_DENY + fresh approval scope, all the
+            # standard non-foreground thread-entry guards. The fork's own
+            # bits (current-agent, quiet stdout/stderr capture) layer on
+            # top.
+            with non_foreground_thread(origin=write_origin):
+                agent_token = _current_agent.set(child)
+                try:
+                    cm = contextlib.ExitStack()
+                    if quiet:
+                        cm.enter_context(contextlib.redirect_stdout(stdout_buf))
+                        cm.enter_context(contextlib.redirect_stderr(stderr_buf))
+                    with cm:
+                        child.run_until_done(user_prompt, max_iterations=max_iterations)
+                except Exception as exc:
+                    logger.exception("fork failed")
+                    result.error = f"{type(exc).__name__}: {exc}"
+                finally:
+                    _current_agent.reset(agent_token)
 
         t = threading.Thread(
             target=_runner,

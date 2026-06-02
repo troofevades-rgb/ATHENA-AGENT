@@ -136,6 +136,7 @@ def _match_glob_pattern(rel_path: str, pattern: str) -> bool:
         },
         "required": ["pattern"],
     },
+    parallel_safe=True,
 )
 def Glob(pattern: str, max_results: int = 200) -> str:
     root = file_ops._WORKSPACE
@@ -183,6 +184,7 @@ def Glob(pattern: str, max_results: int = 200) -> str:
         },
         "required": ["pattern"],
     },
+    parallel_safe=True,
 )
 def Grep(
     pattern: str,

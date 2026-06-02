@@ -131,6 +131,61 @@ def test_full_turn_stream_deltas_concatenate_correctly(recorder):
     assert final == "".join(chunks)
 
 
+def test_stream_end_carries_stripped_final_text(recorder):
+    """``<think>...</think>`` blocks emitted as streaming chunks
+    pass through unchanged in ``stream.delta`` (preserves the
+    live typing feel) but the ``stream.end`` event ships
+    ``final_text`` with the blocks stripped so the TUI swaps the
+    accumulated buffer for the polished view. Without this, the
+    transcript would permanently show the model's chain-of-thought
+    in the final frame."""
+    ts = ui.TypewriterStream()
+    ts.start()
+    ts.feed("Working on it. ")
+    ts.feed("<think>")
+    ts.feed("internal scratch pad work the user shouldn't see")
+    ts.feed("</think>")
+    ts.feed("Here's the answer: 42.")
+    ts.finalize(markdown=False)
+
+    end = next(e for e in recorder.events if isinstance(e, StreamEndEvent))
+    assert end.final_text is not None
+    assert "<think>" not in end.final_text
+    assert "scratch pad" not in end.final_text
+    assert "Working on it." in end.final_text
+    assert "Here's the answer: 42." in end.final_text
+
+
+def test_stream_end_final_text_handles_unclosed_think(recorder):
+    """An unclosed ``<think>`` (model interrupted mid-thought)
+    gets truncated at the opener. The polished view drops the
+    partial thought rather than leaving a dangling tag the
+    transcript renderer would have to interpret."""
+    ts = ui.TypewriterStream()
+    ts.start()
+    ts.feed("Looking into it. <think>partial thought when interrupted")
+    ts.finalize(markdown=False)
+
+    end = next(e for e in recorder.events if isinstance(e, StreamEndEvent))
+    assert end.final_text is not None
+    assert "<think>" not in end.final_text
+    assert "partial thought" not in end.final_text
+    assert "Looking into it." in end.final_text
+
+
+def test_stream_end_final_text_no_thoughts_passes_through(recorder):
+    """When the model emits no ``<think>`` blocks, ``final_text``
+    is the same as the accumulated stream (modulo whitespace
+    normalization in the stripper)."""
+    ts = ui.TypewriterStream()
+    ts.start()
+    ts.feed("A simple plain response with no thinking.")
+    ts.finalize(markdown=False)
+
+    end = next(e for e in recorder.events if isinstance(e, StreamEndEvent))
+    assert end.final_text == "A simple plain response with no thinking."
+
+
 # ---- Test 2: confirm round-trip (accept + deny) ----------------
 
 

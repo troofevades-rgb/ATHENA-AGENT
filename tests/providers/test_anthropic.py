@@ -214,6 +214,193 @@ def test_429_propagates_to_caller(provider):
             )
 
 
+def test_payload_omits_temperature_for_deprecated_opus_4_7(provider):
+    """``claude-opus-4-7`` rejects ``temperature`` with
+    ``"temperature is deprecated for this model"`` (400). Pin from
+    dogfood: the field must be omitted from the payload, not sent
+    with a default."""
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            content=_sse(
+                {"type": "message_start", "message": {"usage": {}}},
+                {"type": "message_stop"},
+            ),
+        )
+
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+        list(
+            provider.stream_chat(
+                model="claude-opus-4-7",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+    assert "temperature" not in captured["body"]
+
+
+def test_payload_omits_temperature_for_date_suffixed_opus_4_7(provider):
+    """The deprecation also covers the date-suffixed variant
+    (``claude-opus-4-7-20251201``) -- substring match catches both."""
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            content=_sse(
+                {"type": "message_start", "message": {"usage": {}}},
+                {"type": "message_stop"},
+            ),
+        )
+
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+        list(
+            provider.stream_chat(
+                model="claude-opus-4-7-20251201",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+    assert "temperature" not in captured["body"]
+
+
+def test_payload_omits_temperature_for_sonnet_4_6(provider):
+    """Same family rule for ``claude-sonnet-4-6``."""
+    captured: dict = {}
+
+    def _record(request):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            content=_sse(
+                {"type": "message_start", "message": {"usage": {}}},
+                {"type": "message_stop"},
+            ),
+        )
+
+    with respx.mock() as m:
+        m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+        list(
+            provider.stream_chat(
+                model="claude-sonnet-4-6",
+                messages=[{"role": "user", "content": "x"}],
+            )
+        )
+    assert "temperature" not in captured["body"]
+
+
+def test_split_system_hoists_multiple_system_messages(provider):
+    """Pin from dogfood: a long agent run triggered the context
+    compressor, which injects a synthetic ``role: "system"``
+    summary mid-conversation. The result was TWO system messages
+    in the payload -- Anthropic 400'd with ``messages.0: use the
+    top-level 'system' parameter``. ``_split_system`` must hoist
+    every system message, not just the leading one. The body that
+    goes on the wire contains only non-system messages."""
+    messages = [
+        {"role": "system", "content": "main system prompt"},
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "a1"},
+        # Compressor's synthetic summary -- the second system that
+        # broke the original code.
+        {"role": "system", "content": "[Compressed summary of turns 1..10]"},
+        {"role": "user", "content": "u2"},
+    ]
+    system_text, body = provider._split_system(messages)
+
+    # Both system messages were extracted, joined in order.
+    assert "main system prompt" in system_text
+    assert "[Compressed summary of turns 1..10]" in system_text
+    # The body contains NO role=system entries (the load-bearing
+    # invariant for Anthropic).
+    assert all(m.get("role") != "system" for m in body)
+    # Non-system messages survived in order.
+    assert [m["content"] for m in body] == ["u1", "a1", "u2"]
+
+
+def test_split_system_joins_multiple_with_double_newline(provider):
+    """The join uses double-newline as a section separator so the
+    rendered system field doesn't blur boundaries between the
+    primary prompt and a compressor summary."""
+    messages = [
+        {"role": "system", "content": "first"},
+        {"role": "system", "content": "second"},
+        {"role": "user", "content": "u"},
+    ]
+    system_text, _body = provider._split_system(messages)
+    assert system_text == "first\n\nsecond"
+
+
+def test_split_system_skips_empty_system_messages(provider):
+    """A whitespace-only / empty system message contributes nothing
+    -- the join would otherwise produce a leading or trailing blank
+    section."""
+    messages = [
+        {"role": "system", "content": "real"},
+        {"role": "system", "content": "   \n   "},
+        {"role": "system", "content": ""},
+        {"role": "user", "content": "u"},
+    ]
+    system_text, _body = provider._split_system(messages)
+    assert system_text == "real"
+
+
+def test_split_system_no_system_returns_empty(provider):
+    """When no system message is present (sub-agent fork, etc.),
+    the function returns an empty string and the full body."""
+    messages = [
+        {"role": "user", "content": "u"},
+        {"role": "assistant", "content": "a"},
+    ]
+    system_text, body = provider._split_system(messages)
+    assert system_text == ""
+    assert len(body) == 2
+
+
+def test_payload_includes_temperature_for_pre_deprecation_models(provider):
+    """Older models still accept ``temperature``. Quiet path so the
+    deprecation omission means something when it fires.
+
+    Covers ``claude-3-5-sonnet`` (legacy), ``claude-sonnet-4-5``
+    (current 4.5 series, not yet deprecated), and
+    ``claude-haiku-4-5`` (4.5 Haiku)."""
+
+    def _capture_and_call(model: str) -> dict:
+        bucket: dict = {}
+
+        def _record(request):
+            bucket["body"] = json.loads(request.content)
+            return httpx.Response(
+                200,
+                content=_sse(
+                    {"type": "message_start", "message": {"usage": {}}},
+                    {"type": "message_stop"},
+                ),
+            )
+
+        with respx.mock() as m:
+            m.post("https://api.anthropic.test/v1/messages").mock(side_effect=_record)
+            list(
+                provider.stream_chat(
+                    model=model,
+                    messages=[{"role": "user", "content": "x"}],
+                )
+            )
+        return bucket
+
+    for model in (
+        "claude-3-5-sonnet-20241022",
+        "claude-sonnet-4-5-20250929",
+        "claude-haiku-4-5-20251001",
+    ):
+        body = _capture_and_call(model)["body"]
+        assert "temperature" in body, f"{model} should still receive temperature"
+
+
 def test_payload_includes_max_tokens_default(provider):
     captured: dict = {}
 

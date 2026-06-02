@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -508,6 +509,15 @@ class GatewayConfig:
 class Config:
     model: str = "troofevades-q35:athena"
     ollama_host: str = "http://127.0.0.1:11434"
+    # Per-request timeout (seconds) for the Ollama HTTP client. This is
+    # the stall detector: httpx applies it as the max wait for the next
+    # chunk, so a healthy token stream never trips it — only a wedged
+    # daemon or a model stuck in prompt-eval does. The historical 600s
+    # default means a stalled local call hangs ~10 min before failing
+    # (then retries); lower it to surface stalls faster on slower setups
+    # / chat transports. Keep it above your worst-case time-to-first-
+    # token (big-context prompt-eval can take minutes on partial offload).
+    ollama_timeout_s: float = 600.0
     # TUI color palette. One of: ``phosphor`` (classic CRT lime,
     # default), ``dusk`` (amber + deep blue), ``nord`` (cool blue/
     # slate), ``dracula`` (purple + cyan + pink), ``synthwave``
@@ -556,6 +566,28 @@ class Config:
     # athena/prompts/system.py SECTIONS (e.g. "executing_with_care",
     # "session_guidance", "memory_header"). Combines with lean_prompt.
     disabled_prompt_sections: list[str] = field(default_factory=list)
+    # 0.3.0 godmode: operator-supplied text appended to the end of the
+    # built system prompt (after the /goal block). Mirrors the
+    # hermes-agent ``agent.system_prompt`` knob and the G0DM0D3
+    # reference's ``custom_system_prompt`` plumbing. Set by
+    # ``/godmode apply`` to inject a jailbreak strategy; cleared by
+    # ``/godmode clear``. Empty / None means no append. The env var
+    # ``ATHENA_EPHEMERAL_SYSTEM_PROMPT`` wins over this config value
+    # so an operator can override on-the-fly without editing config.toml.
+    agent_system_prompt_append: str | None = None
+    # 0.3.0 godmode: path to a JSON file of ephemeral prefill messages
+    # injected into every API call after the system message and before
+    # conversation history. Mirrors the hermes-agent
+    # ``agent.prefill_messages_file`` knob. Messages are NEVER appended
+    # to ``self.messages``, NEVER persisted to JSONL, and NEVER appear
+    # in ``/save`` transcripts -- they exist only inside the provider's
+    # ``stream_chat`` invocation. The model sees them as prior
+    # conversation context establishing a pattern of compliance.
+    #
+    # Format: a JSON list of ``{"role": "user"|"assistant", "content": str}``
+    # entries. Relative paths resolve against ``~/.athena/``; absolute
+    # paths and ``~`` expansion are honored.
+    agent_prefill_messages_file: str | None = None
     # Bash gate config (Phase 17 ShellPolicy). Nested per Phase 18.1
     # R4; legacy flat names ``bash_allowlist`` / ``bash_extra_denylist``
     # still resolve via ``Config.__getattr__`` with a deprecation
@@ -574,6 +606,41 @@ class Config:
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     # Hard cap on tool-call rounds per user turn. Stops runaway loops.
     max_turn_steps: int = 25
+    # 0.3.0 circuit breakers -- bound the OTHER ways a turn can burn
+    # tokens / money without the step cap firing:
+    #
+    #   * ``max_consecutive_provider_errors`` -- if the provider
+    #     returns an error (provider_error chunk, transport failure,
+    #     400/429/5xx after retries) N times in a row, halt the
+    #     turn. The audit ticket called this out: hosted-model 400s
+    #     burn input tokens on every attempt; without this guard,
+    #     a misconfigured key or a model deprecation can drain a
+    #     budget before the operator notices.
+    #   * ``max_identical_tool_calls`` -- if the model invokes the
+    #     same ``(tool_name, args)`` pair N times in a row, halt.
+    #     Catches the stuck-loop pattern where the model can't
+    #     interpret a tool's result and keeps calling it. Distinct
+    #     calls (different args OR different tool) reset the
+    #     counter, so a legitimate iterative pass (e.g. Read on
+    #     three files with different paths) is unaffected.
+    #
+    # Set either to 0 to disable that breaker individually.
+    # ``_fire_stop`` records ``circuit_breaker:provider_errors`` or
+    # ``circuit_breaker:identical_tool_calls`` as the stop reason
+    # so /status and the on-disk snapshot surface the trip.
+    max_consecutive_provider_errors: int = 3
+    max_identical_tool_calls: int = 3
+    # Phase 18.2 stage 3: max worker threads for parallel tool
+    # dispatch. ``1`` (default) keeps the pre-Phase-18.2 serial
+    # behaviour -- every tool call in a round runs one after the
+    # other on the foreground thread. Set ``>1`` to opt into parallel
+    # dispatch of contiguous parallel-safe batches (see
+    # :attr:`athena.tools.registry.Tool.parallel_safe`); the actual
+    # pool size for any given batch is
+    # ``min(len(batch), parallel_tool_workers)`` so single-call
+    # batches never spin up a pool. Non-parallel-safe and
+    # confirmation-required tools always stay serial regardless.
+    parallel_tool_workers: int = 1
     # Plugin enable map + per-plugin config slices. Promoted from
     # dict[str, Any] to PluginsConfig in Phase 18.1 R4 stage 4b. The
     # dataclass implements __getitem__ / get / __contains__ so existing
@@ -1151,49 +1218,81 @@ class Config:
         super().__setattr__(name, value)
 
 
-# Map legacy flat-field name -> (nested_dataclass_field, attribute_on_nested).
-# Add new entries here as subsystems migrate. The Config.__getattr__ /
-# __setattr__ shims walk this table to translate legacy access at runtime.
-_LEGACY_FIELD_MAP: dict[str, tuple[str, str]] = {
-    "skills_autoload": ("skills", "autoload"),
-    "skills_autoload_interval": ("skills", "autoload_interval"),
-    "bash_allowlist": ("bash", "allowlist"),
-    "bash_extra_denylist": ("bash", "extra_denylist"),
-    "computer_use_enabled": ("computer", "use_enabled"),
-    "computer_permission_mode": ("computer", "permission_mode"),
-    "computer_app_allowlist": ("computer", "app_allowlist"),
-    "computer_app_denylist": ("computer", "app_denylist"),
-    "computer_kill_hotkey": ("computer", "kill_hotkey"),
-    "computer_max_actions_per_task": ("computer", "max_actions_per_task"),
-    "computer_max_actions_per_sec": ("computer", "max_actions_per_sec"),
-    "computer_backend": ("computer", "backend"),
-    "computer_dry_run": ("computer", "dry_run"),
-    "computer_audit_path": ("computer", "audit_path"),
-    "computer_screenshots_dir": ("computer", "screenshots_dir"),
-    "computer_deny_during_goal_loop": ("computer", "deny_during_goal_loop"),
-    # R4 stage 5 -- OCR
-    "ocr_enabled": ("ocr", "enabled"),
-    "ocr_backend_prefer": ("ocr", "backend_prefer"),
-    "ocr_languages": ("ocr", "languages"),
-    "ocr_min_confidence": ("ocr", "min_confidence"),
-    "ocr_tesseract_cmd": ("ocr", "tesseract_cmd"),
-    # R4 stage 5 -- Video generation broker
-    "video_generation_enabled": ("video_generation", "enabled"),
-    "video_backend_prefer": ("video_generation", "backend_prefer"),
-    "video_confirm_over_seconds": ("video_generation", "confirm_over_seconds"),
-    "video_confirm_over_cost": ("video_generation", "confirm_over_cost"),
-    "video_output_dir": ("video_generation", "output_dir"),
-    "video_poll_interval_s": ("video_generation", "poll_interval_s"),
-    "video_backend": ("video_generation", "backend"),
-    # R4 stage 5 -- Video analysis
-    "video_enabled": ("video_analysis", "enabled"),
-    "video_ffmpeg_path": ("video_analysis", "ffmpeg_path"),
-    "video_ffprobe_path": ("video_analysis", "ffprobe_path"),
-    "video_frames_dir": ("video_analysis", "frames_dir"),
-    "video_max_frames": ("video_analysis", "max_frames"),
-    "video_default_extract": ("video_analysis", "default_extract"),
-    "video_sampled_interval_s": ("video_analysis", "sampled_interval_s"),
-}
+# Deprecation surface moved to athena/config_deprecations.py 2026-06-01
+# as part of the consolidation pass. The legacy-field map, dedup state,
+# emit helper, and public reader functions all live there now. The
+# names are re-exported here so callers importing from athena.config
+# (the existing public surface) keep working without churn.
+from .config_deprecations import (
+    _DEPRECATION_WARNED,
+    _LEGACY_FIELD_MAP,
+    _emit_deprecation,
+    reported_deprecations,
+    reset_deprecation_dedup,
+)
+
+# Sections that legitimately accept arbitrary sub-keys (plugin names,
+# provider names, routing maps) — never flag their contents.
+_FREE_FORM_SECTIONS: frozenset[str] = frozenset({"plugins", "providers"})
+
+
+def _find_key_line(path: Path, section: str, key: str) -> int | None:
+    """Best-effort: line number where ``key =`` appears under
+    ``[section]`` in the raw TOML (tomllib doesn't expose positions)."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    header = re.compile(r"^\s*\[([^\]]+)\]\s*$")
+    key_re = re.compile(rf"^\s*{re.escape(key)}\s*=")
+    in_section = False
+    for i, line in enumerate(lines, 1):
+        m = header.match(line)
+        if m:
+            in_section = m.group(1).split(".")[0].strip() == section
+            continue
+        if in_section and key_re.match(line):
+            return i
+    return None
+
+
+def _validate_section_placement(data: dict[str, Any], cfg: Config, path: Path) -> None:
+    """Guard the TOML "twice-hit" footgun.
+
+    A bare key written AFTER a ``[section]`` header is folded into that
+    section by TOML — so::
+
+        [skills]
+        autoload = true
+        model = "..."   # <- this is skills.model, NOT top-level model
+
+    silently drops the value the user meant to set at top level. Detect
+    a known TOP-LEVEL Config field appearing inside a known fixed-schema
+    section (where it isn't a valid field of that section) and raise a
+    clear, located error instead of ignoring it. Free-form sections
+    (``[plugins]`` / ``[providers]``) accept arbitrary sub-keys and are
+    skipped.
+    """
+    top_level = {f.name for f in fields(cfg)}
+    for section, table in data.items():
+        if not isinstance(table, dict) or section in _FREE_FORM_SECTIONS:
+            continue
+        sec_default = getattr(cfg, section, None)
+        if not is_dataclass(sec_default):
+            continue  # unknown / free-form table — not ours to police
+        sec_fields = {f.name for f in fields(sec_default)}
+        misplaced = [k for k in table if k in top_level and k not in sec_fields]
+        if misplaced:
+            key = misplaced[0]
+            line = _find_key_line(path, section, key)
+            loc = f"{path}:{line}" if line else str(path)
+            raise ValueError(
+                f"{loc}: '{key}' is a top-level setting but appears under "
+                f"[{section}] — TOML folds any key written after a [section] "
+                f"header into that section, so the value is lost. Move "
+                f"'{key}' ABOVE the first [section] header (or delete it from "
+                f"[{section}] if it was meant to be a {section} setting)."
+            )
 
 
 def load_config() -> Config:
@@ -1203,13 +1302,17 @@ def load_config() -> Config:
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, "rb") as f:
             data = tomllib.load(f)
+        # Catch the section-header footgun on the user's raw structure
+        # before any back-compat folding mutates it.
+        _validate_section_placement(data, cfg, CONFIG_PATH)
         # Back-compat: accept old key name and map it forward
         if "auto_approve_bash" in data and "auto_approve_tools" not in data:
             data["auto_approve_tools"] = data.pop("auto_approve_bash")
-            print(
+            _emit_deprecation(
+                CONFIG_PATH,
+                "auto_approve_bash",
                 f"warning: {CONFIG_PATH}: 'auto_approve_bash' is deprecated; "
                 "rename to 'auto_approve_tools'.",
-                file=sys.stderr,
             )
         # Phase 18.1 R4: legacy flat keys (skills_autoload, bash_allowlist,
         # ...) are accepted with a one-line stderr note and folded into
@@ -1224,10 +1327,11 @@ def load_config() -> Config:
                 data.pop(legacy_key)
                 continue
             data.setdefault(nested_name, {})[sub_name] = data.pop(legacy_key)
-            print(
+            _emit_deprecation(
+                CONFIG_PATH,
+                legacy_key,
                 f"warning: {CONFIG_PATH}: '{legacy_key}' is deprecated; "
                 f"move to [{nested_name}] table with key '{sub_name}'.",
-                file=sys.stderr,
             )
         # Phase 18.1 R4 stage 4b: PluginsConfig needs custom TOML
         # translation. The block has two layers -- a fixed ``enabled``

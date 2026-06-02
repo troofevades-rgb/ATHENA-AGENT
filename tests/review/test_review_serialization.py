@@ -122,6 +122,61 @@ def test_wait_returns_after_timeout_if_review_hangs(tmp_path: Path) -> None:
     forever.set()
 
 
+def test_wait_skipped_for_non_local_provider(tmp_path: Path) -> None:
+    """Hosted (non-local) providers handle concurrent requests fine, so
+    the foreground turn must NOT block on an in-flight review for them —
+    that wait only buys anything on Ollama's single-inference GPU."""
+    from athena.providers.base import Capabilities
+
+    agent = _make_agent_stub(tmp_path)
+    agent.model = "claude-opus-4-8"
+    agent.provider = SimpleNamespace(
+        capabilities=lambda model=None: Capabilities(is_local=False),
+    )
+
+    forever = threading.Event()  # never set — review "still running"
+    review = threading.Thread(target=forever.wait, daemon=True)
+    review.start()
+    agent._active_review_thread = review
+
+    start = time.monotonic()
+    agent._wait_for_background_review(timeout=5.0)
+    elapsed = time.monotonic() - start
+    # Returned immediately despite the live review and a generous timeout.
+    assert elapsed < 0.1, f"non-local wait took {elapsed:.3f}s; expected near-zero"
+    assert review.is_alive()
+    forever.set()
+
+
+def test_wait_still_blocks_for_local_provider(tmp_path: Path) -> None:
+    """Local providers keep the protective wait — the whole reason it
+    exists is Ollama's single-inference contention."""
+    from athena.providers.base import Capabilities
+
+    agent = _make_agent_stub(tmp_path)
+    agent.model = "qwen2.5-coder:14b"
+    agent.provider = SimpleNamespace(
+        capabilities=lambda model=None: Capabilities(is_local=True),
+    )
+
+    finish = threading.Event()
+    review = threading.Thread(target=lambda: finish.wait(timeout=5.0), daemon=True)
+    review.start()
+    agent._active_review_thread = review
+
+    def _release() -> None:
+        time.sleep(0.2)
+        finish.set()
+
+    threading.Thread(target=_release, daemon=True).start()
+
+    start = time.monotonic()
+    agent._wait_for_background_review(timeout=5.0)
+    elapsed = time.monotonic() - start
+    # Blocked ~0.2s (waited for the local review), not near-zero.
+    assert 0.15 < elapsed < 1.0, f"local wait took {elapsed:.3f}s; expected ~0.2s"
+
+
 # ---------------------------------------------------------------------------
 # Integration with orchestrator — ensure the spawned thread gets
 # recorded on the parent agent.
@@ -173,3 +228,38 @@ def test_maybe_fire_review_records_thread_on_parent(tmp_path: Path) -> None:
     spawned.join(timeout=2.0)
     assert not spawned.is_alive()
     nudge.reset_all()
+
+
+# ---------------------------------------------------------------------------
+# Gateway opt-out — gateway-bound agents must not spawn review forks.
+# ---------------------------------------------------------------------------
+
+
+def test_maybe_fire_review_suppressed_for_gateway_agent() -> None:
+    """A gateway-bound agent (_suppress_background_review=True) must NOT
+    fire the review fork — it would compete with the user-facing reply
+    for the local Ollama slot."""
+    from athena.agent.core import Agent
+
+    obj = SimpleNamespace()
+    obj._maybe_fire_review = Agent._maybe_fire_review.__get__(obj)
+    obj._suppress_background_review = True
+
+    with patch("athena.review.orchestrator.maybe_fire_review") as fire:
+        obj._maybe_fire_review()
+    fire.assert_not_called()
+
+
+def test_maybe_fire_review_fires_without_suppression() -> None:
+    """Without the gateway flag, the review path still reaches the
+    orchestrator (the default foreground behaviour is unchanged)."""
+    from athena.agent.core import Agent
+
+    obj = SimpleNamespace()
+    obj._maybe_fire_review = Agent._maybe_fire_review.__get__(obj)
+    obj._suppress_background_review = False
+    obj._active_review_thread = None
+
+    with patch("athena.review.orchestrator.maybe_fire_review", return_value=None) as fire:
+        obj._maybe_fire_review()
+    fire.assert_called_once_with(obj)

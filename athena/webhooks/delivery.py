@@ -186,25 +186,20 @@ async def _run_agent(
     mutation was being attributed to ``foreground`` — the curator
     then refused to prune them.
     """
-    from ..provenance import SYSTEM, reset_current_write_origin, set_current_write_origin
-    from ..safety.approval_callback import (
-        AUTO_DENY,
-        reset_approval_callback,
-        set_approval_callback,
-    )
+    from ..provenance import SYSTEM
+    from ..safety.thread_entry import non_foreground_thread
 
     if agent_factory is None:
         agent_factory = _default_agent_factory
     agent = await asyncio.to_thread(agent_factory)
 
     def _run_with_guards() -> None:
-        approval_token = set_approval_callback(AUTO_DENY)
-        origin_token = set_current_write_origin(SYSTEM)
-        try:
+        # write-origin=SYSTEM + AUTO_DENY + fresh approval scope. A
+        # webhook daemon has no stdin, so any confirmation prompt would
+        # block the executor forever; SYSTEM keeps the curator from
+        # treating webhook mutations as foreground.
+        with non_foreground_thread(origin=SYSTEM):
             agent.run_until_done(prompt, max_iterations=_AGENT_MAX_ITERATIONS)
-        finally:
-            reset_current_write_origin(origin_token)
-            reset_approval_callback(approval_token)
 
     try:
         await asyncio.to_thread(_run_with_guards)

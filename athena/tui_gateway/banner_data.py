@@ -44,6 +44,14 @@ _MAX_TOOLS_PER_SET = 4
 _OWL_WIDTH_MAX = 96  # 96 lets ~1280-wide terminals show full detail
 _OWL_WIDTH_MIN = 24
 
+# Owl mark style. The quadrant-photo path (render_owl_pixels over
+# _owl_image.jpg) reduces to noise at banner cell counts — it "looks
+# like nothing." The braille line-art mark (athena/_owl_art.txt) reads
+# as a clean, deliberate owl and matches the Claude-Code / Codex
+# text-forward aesthetic. Flip to False to restore the photo owl (the
+# jpg is still bundled; this is the only switch needed).
+_USE_BRAILLE_OWL = True
+
 
 def _compute_photo_size(
     *,
@@ -116,11 +124,15 @@ def build_banner(
     )
 
     owl_art = _load_owl_art()
-    photo_w, photo_h = _compute_photo_size(
-        term_cols=term_cols,
-        term_rows=term_rows,
-    )
-    owl_pixels = render_owl_pixels(photo_w, photo_h)
+    if _USE_BRAILLE_OWL:
+        # Braille mark is the owl; skip the photo render entirely.
+        owl_pixels = None
+    else:
+        photo_w, photo_h = _compute_photo_size(
+            term_cols=term_cols,
+            term_rows=term_rows,
+        )
+        owl_pixels = render_owl_pixels(photo_w, photo_h)
     tools = _collect_tools()
 
     return BannerEvent(

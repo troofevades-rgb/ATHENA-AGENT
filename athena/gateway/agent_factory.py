@@ -64,6 +64,11 @@ def _build_agent_sync(daemon: GatewayDaemon, session_id: str) -> Agent:
         session_store=daemon.session_store,
         resume_session_id=session_id,
     )
+    # Gateway turns suppress the background-review fork: its child agent
+    # competes with the user-facing reply for the local Ollama inference
+    # slot (a chat turn can crawl or stall), and a chat user never sees
+    # the review's suggestions anyway. Read by AgentRuntime._maybe_fire_review.
+    agent._suppress_background_review = True
     try:
         loaded = agent.load_history_from_session(session_id)
         if loaded:

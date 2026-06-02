@@ -8,6 +8,7 @@ store / cron schedule / gateway routes. Users run ``personal`` and
       profiles/
         default/
           config.toml
+          credentials.json     <-- profile-scoped API keys
           skills/
           memory/
           sessions/
@@ -15,11 +16,19 @@ store / cron schedule / gateway routes. Users run ``personal`` and
           goal.txt
           ...
         work/
+          credentials.json     <-- its OWN keys (empty until set)
           ...
-      credentials.json        <-- global (user-scope, not profile)
+      credentials.json        <-- legacy global; seeds `default` once,
+                                  then vestigial (safe to delete)
       mcp_tokens/             <-- global (per-server)
       plugins/                <-- global
       active_profile          <-- set by `athena profile switch`
+
+Credentials are profile-scoped (strict isolation): each profile reads
+ONLY its own ``credentials.json`` so ``--profile work`` can never spend
+``default``'s keys. The legacy global file seeds ``default`` on first
+access (copy, one-time); other profiles start empty. See
+``providers/credential_pool.py:profile_pool``.
 
 Active profile resolution: CLI ``--profile`` flag beats
 ``ATHENA_PROFILE`` env var beats the ``active_profile`` file beats

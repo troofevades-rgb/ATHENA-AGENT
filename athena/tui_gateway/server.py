@@ -129,6 +129,74 @@ _OUTBOUND_COALESCE_THRESHOLD = int(_OUTBOUND_MAXSIZE * 0.8)
 _RING_MAXSIZE = 500
 
 
+def _restore_terminal() -> None:
+    """Emit the ANSI sequences that undo Ink's terminal setup.
+
+    Ink installs (1) alt-screen mode, (2) raw input, (3) hidden
+    cursor. When the TUI subprocess exits cleanly Ink's own
+    cleanup restores all three. When the subprocess is killed
+    (Ctrl+C path where Python's ``proc.kill()`` fires before Ink's
+    SIGTERM handler runs, or any forced-shutdown path), the
+    terminal stays in alt-screen + raw mode -- PowerShell renders
+    its prompt into the invisible alt-screen, and the user is
+    forced to close the terminal window entirely.
+
+    Delivery strategy (most-direct path wins, others tried as
+    fallback so a half-broken stdio state still gets restored):
+      1. ``os.write(2, ...)`` -- raw write to fd 2, bypasses every
+         Python-level TextIO / Rich console / gateway-bridge
+         layer that may have intercepted ``sys.stderr`` during
+         the session.
+      2. ``sys.__stderr__.write`` -- the pre-redirection stderr
+         object preserved by Python at interpreter startup. Even
+         if user code reassigned ``sys.stderr``, ``__stderr__``
+         points at the original.
+      3. ``sys.stderr.write`` -- whatever's currently bound.
+
+    All three are tried; failures are silenced. The cleanup is
+    observability, not correctness; we must never raise out of
+    shutdown.
+
+    The sequences emitted:
+      * ``ESC[?1049l`` -- exit alt-screen, restore main screen
+      * ``ESC[?25h``   -- show cursor
+      * ``ESC[?7h``    -- re-enable line wrap (Ink may have
+                          disabled it for pixel-perfect layout)
+      * ``ESC[0m``     -- reset SGR (colours / attributes)
+      * ``\\r\\n``      -- nudge the cursor to a fresh line so
+                          PowerShell's prompt doesn't overdraw
+                          whatever Ink left at the cursor pos
+
+    Order matters: leaving alt-screen FIRST means the cursor /
+    SGR reset lands on the visible (main) screen rather than the
+    discarded alt buffer.
+    """
+    payload = b"\x1b[?1049l\x1b[?25h\x1b[?7h\x1b[0m\r\n"
+    # Path 1: raw fd write. This is the most reliable on Windows
+    # ConPTY because it bypasses Rich.Console / Live state and any
+    # athena-internal stderr replacement.
+    try:
+        os.write(2, payload)
+    except OSError:
+        pass
+    # Path 2: pre-redirection stderr if present and different from
+    # current sys.stderr.
+    saved = getattr(sys, "__stderr__", None)
+    if saved is not None and saved is not sys.stderr:
+        try:
+            saved.write(payload.decode("ascii"))
+            saved.flush()
+        except Exception:  # noqa: BLE001
+            pass
+    # Path 3: current sys.stderr (which may be a redirection but
+    # in worst-case-everything-broken still might land somewhere).
+    try:
+        sys.stderr.write(payload.decode("ascii"))
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _locate_bundle() -> Path:
     """Find the Ink bundle. Dev: ui-tui/dist/main.js. Wheel:
     athena/_tui_bundle/main.js. Raises FileNotFoundError so the
@@ -513,6 +581,19 @@ class TuiGateway:
         self._conn_reader: io.BufferedReader | None = None
         self._accept_timeout_s = accept_timeout_s
         self._tty_passthrough = tty_passthrough
+        # Windows-only: a fresh console-input handle (``\\.\CONIN$``)
+        # handed to the child as stdin so Ink's setRawMode works.
+        # See the long comment in start(). None on POSIX / when the
+        # open fails. Closed in close().
+        self._conin: Any = None
+        # Set by the accept-loop when the spawned child exits and no
+        # reconnect can arrive (embedded REPL has no supervisor to
+        # respawn it). Lets the REPL print a diagnostic instead of
+        # reporting a clean Ctrl-C-style exit.
+        self._child_crashed = False
+        # Path of the per-session Ink stderr capture, stashed so the
+        # REPL can tail it when the child dies unexpectedly.
+        self._tui_stderr_path: Path | None = None
         # Flips to True when the socket dies mid-session (TUI
         # crashed, network hiccup, etc). Once dead, send_event
         # raises so callers know not to keep trying.
@@ -574,19 +655,93 @@ class TuiGateway:
 
         env = os.environ.copy()
         env[env_name] = env_value
+        # Always capture Ink's stderr to a file so a silent post-
+        # handshake death (Ink crash, raw-mode setup failure, missing
+        # Node module, etc.) leaves a forensic trail. Previously stderr
+        # inherited from sys.stderr in production, which mixed Ink
+        # errors with athena's own status output and made it
+        # impossible to tell whether the TUI had crashed or just
+        # rendered nothing. The file is rotated per-session by
+        # mtime + an OS-rotation policy is unnecessary -- the
+        # latest is always at the same path so operators can `tail`
+        # it during a hang.
+        tui_stderr_path = Path.home() / ".athena" / "tui-stderr.log"
+        self._tui_stderr_path = tui_stderr_path
+        try:
+            tui_stderr_path.parent.mkdir(parents=True, exist_ok=True)
+            self._tui_stderr_file: Any = open(tui_stderr_path, "a", encoding="utf-8", buffering=1)
+            self._tui_stderr_file.write(
+                f"\n--- TUI launched at {time.time()} pid={os.getpid()} bundle={self._bundle} ---\n"
+            )
+        except OSError:
+            # Logging is observability; never block launch. Fall
+            # back to inheriting stderr the old way.
+            self._tui_stderr_file = None
         if self._tty_passthrough:
-            # Production: inherit real terminal stdio. Ink reads
-            # the keyboard from stdin and renders to stdout.
-            popen_stdin: Any = sys.stdin
+            # Production: inherit real terminal stdio for stdin/stdout
+            # so Ink reads keyboard input and renders to the terminal.
+            # stderr goes to the capture file (above) so a silent
+            # Ink crash leaves a tail-able trail rather than
+            # disappearing into the terminal scrollback.
+            #
+            # Giving Ink a real TTY on stdin is subtle on Windows.
+            #
+            # We redirect stderr (to the capture file) and stdout
+            # (to sys.stdout). On Windows, specifying ANY of the
+            # three std streams makes subprocess set
+            # ``STARTF_USESTDHANDLES`` -- and once that flag is set,
+            # CPython resolves a ``stdin=None`` by calling
+            # ``GetStdHandle(STD_INPUT_HANDLE)`` and then
+            # ``DuplicateHandle``-ing it into the child. Node does
+            # NOT treat that duplicated console handle as a TTY:
+            # ``process.stdin.isTTY`` is false, so Ink's
+            # ``setRawMode`` throws "Raw mode is not supported on the
+            # current process.stdin" and the UI crashes before it
+            # ever renders (then the gateway sits waiting for a
+            # reconnect that never comes -- a silent hang). Passing
+            # ``sys.stdin`` instead hits the same DuplicateHandle
+            # path with the same result; ``stdin=None`` was a prior
+            # attempted fix that did not actually work for this
+            # reason.
+            #
+            # The fix: open the console input device directly via
+            # ``\\.\CONIN$``. CreateFile on CONIN$ returns a fresh,
+            # inheritable console handle that the child sees as a
+            # real TTY regardless of how the parent's STD_INPUT_HANDLE
+            # was set up. r+ access (GENERIC_READ|GENERIC_WRITE) is
+            # what SetConsoleMode (raw mode) needs. POSIX has no such
+            # device and never had the problem, so it keeps
+            # ``stdin=None`` (true fd inheritance).
+            popen_stdin: Any = None
+            if sys.platform == "win32":
+                try:
+                    self._conin = open(r"\\.\CONIN$", "r+b", buffering=0)
+                    popen_stdin = self._conin
+                except OSError:
+                    # No console (shouldn't happen past the REPL's
+                    # isatty guard) or access denied -- fall back to
+                    # None. Worst case Ink still can't raw-mode, but
+                    # the child-death detection below turns that into
+                    # a clean error instead of a hang.
+                    logger.warning(
+                        "could not open CONIN$ for TUI stdin; raw mode may be unavailable",
+                        exc_info=True,
+                    )
+                    self._conin = None
+                    popen_stdin = None
             popen_stdout: Any = sys.stdout
-            popen_stderr: Any = sys.stderr
+            popen_stderr: Any = (
+                self._tui_stderr_file if self._tui_stderr_file is not None else sys.stderr
+            )
         else:
             # Headless: parent has no real TTY (pytest, daemon).
             # DEVNULL stdin so Ink's input handlers see immediate
             # EOF; capture stdout/stderr so test output is clean.
             popen_stdin = subprocess.DEVNULL
             popen_stdout = subprocess.DEVNULL
-            popen_stderr = subprocess.DEVNULL
+            popen_stderr = (
+                self._tui_stderr_file if self._tui_stderr_file is not None else subprocess.DEVNULL
+            )
         self._proc = subprocess.Popen(  # noqa: S603
             [self._node, str(self._bundle)],
             stdin=popen_stdin,
@@ -727,8 +882,17 @@ class TuiGateway:
         # stuck — short bounded join then move on.
         if self._reader_thread is not None and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=1.0)
+        # Release our copy of the CONIN$ handle (the child got its own
+        # duplicate at spawn; this is just the parent-side reference).
+        if self._conin is not None:
+            try:
+                self._conin.close()
+            except OSError:
+                pass
+            self._conin = None
         proc = self._proc
         if proc is None:
+            _restore_terminal()
             return
         try:
             proc.wait(timeout=timeout_s)
@@ -740,6 +904,16 @@ class TuiGateway:
             except subprocess.TimeoutExpired:
                 logger.warning("TUI did not respond to SIGTERM; killing")
                 proc.kill()
+        # Restore the terminal state regardless of whether the TUI
+        # exited cleanly or was force-killed. Ink installs alt-screen
+        # + raw mode when it boots; if it doesn't get to run its
+        # own cleanup (Ctrl+C path where Ink's exit() unmounts React
+        # but Node is forcibly terminated before its SIGTERM/EOF
+        # cleanup runs), the user is left with a "frozen" terminal --
+        # PowerShell's prompt renders into an alt-screen the user
+        # can't see, requiring them to close the window entirely.
+        # Surfaced repeatedly on Windows ConPTY.
+        _restore_terminal()
 
     # ---- handshake + heartbeat ---------------------------------
 
@@ -882,6 +1056,26 @@ class TuiGateway:
                 except OSError:
                     pass
             logger.info("tui conn died; awaiting reconnect")
+
+            # If the child WE spawned has exited, no reconnect can
+            # ever arrive: the embedded REPL has no supervisor to
+            # respawn the Ink process. Blocking in accept() below
+            # would hang recv_command forever (the user sees the
+            # boot banner then "it just sits there"). Detect the
+            # dead child, flag it, and unblock the REPL with None so
+            # it can exit cleanly and tail the stderr capture. The
+            # reconnect path stays alive for the genuine case where
+            # the socket blipped but the child is still running.
+            proc = self._proc
+            if proc is not None and proc.poll() is not None:
+                logger.error(
+                    "TUI subprocess exited (code %s); no reconnect possible. See %s",
+                    proc.returncode,
+                    self._tui_stderr_path,
+                )
+                self._child_crashed = True
+                self._cmd_queue.put(None)
+                return
 
             # Accept a new conn. Loop with short timeout so
             # close() can preempt.
@@ -1222,30 +1416,46 @@ class TuiGateway:
                     self._dispatch_ask_question_reply(cmd)
                     continue
                 if isinstance(cmd, InterruptCommand):
-                    # Side-channel like ConfirmReply: when an
-                    # interrupt arrives, the REPL is blocked inside
-                    # ``agent.run_turn`` and can't drain _cmd_queue.
-                    # Two-step interrupt:
-                    #   1. Raise KeyboardInterrupt on the main thread
-                    #      via ``_thread.interrupt_main()`` — queued,
-                    #      delivered at the next bytecode boundary.
-                    #   2. Fire cancel hooks (close provider httpx
+                    # Three-step interrupt:
+                    #   1. ALWAYS enqueue the InterruptCommand so an
+                    #      idle ``recv_command`` blocked in
+                    #      queue.get() wakes up. Without this,
+                    #      ``_thread.interrupt_main()`` alone is
+                    #      unreliable on Windows: the KeyboardInterrupt
+                    #      is queued for delivery at the next bytecode
+                    #      boundary, but a main thread parked in the
+                    #      C-level condition-var wait inside queue.get
+                    #      never reaches that boundary. Users saw this
+                    #      as "Ctrl+C does nothing at the prompt -- I
+                    #      have to kill the terminal." Putting the
+                    #      command on the queue first guarantees the
+                    #      idle case unblocks immediately.
+                    #   2. Raise KeyboardInterrupt on the main thread
+                    #      via ``_thread.interrupt_main()`` so the
+                    #      MID-TURN case (main is inside agent.run_turn
+                    #      not recv_command) unwinds via except
+                    #      KeyboardInterrupt. The REPL loop's
+                    #      ``isinstance(cmd, InterruptCommand)``
+                    #      handler in __main__.py decides what to do
+                    #      with the queued cmd: at idle it exits, in
+                    #      a turn it's a no-op (run_turn already
+                    #      caught the KeyboardInterrupt).
+                    #   3. Fire cancel hooks (close provider httpx
                     #      clients, etc.) so the main thread ACTUALLY
-                    #      reaches a bytecode boundary. Without (2),
+                    #      reaches a bytecode boundary. Without (3),
                     #      a blocked ``socket.recv`` inside an LLM
                     #      stream can sit in C code for many minutes
                     #      while the queued KeyboardInterrupt waits.
-                    #      Users saw this as "ESC does nothing — I
-                    #      have to kill the terminal."
                     import _thread
 
+                    self._cmd_queue.put(cmd)
                     try:
                         _thread.interrupt_main()
                     except RuntimeError:
-                        # Some embedded contexts don't allow this;
-                        # fall back to queuing so the REPL can at
-                        # least observe the request after it drains.
-                        self._cmd_queue.put(cmd)
+                        # Some embedded contexts don't allow this.
+                        # The queue.put above already handles the
+                        # idle wake-up so we're not stuck either way.
+                        pass
                     try:
                         from .. import interrupt_hooks
 

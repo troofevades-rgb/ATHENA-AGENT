@@ -43,6 +43,7 @@ from .. import tools, ui
 from ..safety.approval_callback import get_approval_callback
 from .context import _current_agent
 from .param_policy import PolicyInput
+from .progress import emit_progress
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..config import Config
@@ -53,6 +54,54 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .param_policy import ParamPolicy
 
 logger = logging.getLogger(__name__)
+
+
+def _tool_call_signature(
+    tool_calls: list[dict[str, Any]] | None,
+) -> tuple[tuple[str, str], ...]:
+    """Canonical signature for the identical-tool-call circuit
+    breaker. Returns a tuple of ``(name, args_json)`` per call, in
+    the order the model emitted them. ``args_json`` uses
+    sort_keys=True so two semantically-equal arg dicts produce the
+    same string regardless of key order.
+
+    Order-sensitive: ``[Read(a), Read(b)]`` is NOT the same as
+    ``[Read(b), Read(a)]``. The model emitting the SAME ordered
+    list two turns in a row is the loop pattern; emitting them in
+    different order is more like a parallel batch.
+    """
+    items: list[tuple[str, str]] = []
+    for call in tool_calls or []:
+        fn = call.get("function") or {}
+        name = str(fn.get("name") or "")
+        args = fn.get("arguments")
+        if isinstance(args, dict):
+            try:
+                args_str = json.dumps(args, sort_keys=True)
+            except (TypeError, ValueError):
+                # Defensive: non-JSON-serializable args fall back to
+                # a deterministic-enough string repr.
+                args_str = repr(sorted(args.items()))
+        else:
+            args_str = str(args)
+        items.append((name, args_str))
+    return tuple(items)
+
+
+def _emit_tool_round_progress(tool_calls: list[dict[str, Any]]) -> None:
+    """Emit a one-line summary of the tools about to run this round to
+    the bound progress sink. No-op when no sink is bound (terminal /
+    forks). Deduplicates names while preserving order so a round of
+    three ``Read`` calls reads ``running Read (x3)`` rather than a
+    repetitive list."""
+    counts: dict[str, int] = {}
+    for call in tool_calls:
+        name = (call.get("function") or {}).get("name") or "tool"
+        counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return
+    parts = [(f"{name} (x{n})" if n > 1 else name) for name, n in counts.items()]
+    emit_progress("🔧 running: " + ", ".join(parts))
 
 
 class AgentRuntime:
@@ -85,7 +134,37 @@ class AgentRuntime:
         _param_policy: ParamPolicy
         _last_assistant_text: str
         _last_turn_interrupted: bool
+        _last_stop_reason: str | None
         cancel_pending: bool
+
+    def _log_event(
+        self,
+        *,
+        kind: str,
+        level: str = "error",
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        """Write one structured event to ``~/.athena/logs/session-<id>.jsonl``.
+
+        Best-effort: a missing session_id, an import failure, or an
+        underlying write error all silently no-op. The event log is
+        observability, not correctness; it must never break the
+        agent's hot path. Operators consume the file later for
+        incident triage via ``athena doctor`` (recent-error count)
+        or direct ``jq`` queries.
+        """
+        if self.session_id is None:
+            return
+        try:
+            from ..event_log import get_event_log
+
+            get_event_log(self.session_id).log(
+                kind=kind,  # type: ignore[arg-type]
+                level=level,  # type: ignore[arg-type]
+                data=data,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("event_log write failed", exc_info=True)
 
     def run_turn(self, user_input: str) -> None:
         """Run one user turn to completion (model may call tools several times).
@@ -140,7 +219,17 @@ class AgentRuntime:
                 current_input = user_input
                 tokens_at_loop_start = self.stats.prompt_tokens + self.stats.eval_tokens
                 while True:
-                    self._run_turn_inner(current_input)
+                    # 0.3.0 observability: time each inner turn so
+                    # /status surfaces p50/p95/p99 turn latency.
+                    # perf_counter avoids wall-clock skew if the
+                    # system clock jumps mid-turn.
+                    import time as _time
+
+                    _turn_start = _time.perf_counter()
+                    try:
+                        self._run_turn_inner(current_input)
+                    finally:
+                        self.stats.record_turn_duration(_time.perf_counter() - _turn_start)
                     next_input = self._consult_goal_continuation(
                         tokens_at_loop_start=tokens_at_loop_start,
                     )
@@ -162,11 +251,15 @@ class AgentRuntime:
         # consults after this method returns. Reset on entry.
         self._last_assistant_text = ""
         self._last_turn_interrupted = False
+        # Reset the last stop reason so a stale circuit-breaker trip
+        # from a prior turn doesn't pause the goal loop on a clean
+        # turn that ended via the interrupt path (which returns
+        # without calling _fire_stop).
+        self._last_stop_reason = None
         # Per-plugin veto on the user prompt. The first plugin to return
         # (False, reason) cancels the turn. The bundled ShellHookPlugin
         # bridges the settings.json UserPromptSubmit hook into this
-        # check, so existing user configs keep working without going
-        # through the legacy athena.hooks path.
+        # check, so existing user configs keep working.
         allow, msg = self.plugin_hooks.check_user_message(user_input)
         if not allow:
             ui.error(f"prompt cancelled by plugin: {msg}")
@@ -186,6 +279,25 @@ class AgentRuntime:
 
         # Loop until the model produces a final assistant message with no tool calls.
         max_steps = max(1, int(self.cfg.max_turn_steps))
+
+        # 0.3.0 circuit breakers (cfg.max_consecutive_provider_errors,
+        # cfg.max_identical_tool_calls). Tracked across the in-turn
+        # loop; reset on success / different shape. Setting either
+        # cfg knob to 0 disables that specific breaker. The trip
+        # path fires ``_fire_stop("circuit_breaker:<reason>")`` so
+        # ``/status`` + on-disk snapshots show why the turn ended.
+        consecutive_provider_errors = 0
+        max_consecutive_errors = max(
+            0, int(getattr(self.cfg, "max_consecutive_provider_errors", 0) or 0)
+        )
+        last_tool_signature: tuple[tuple[str, str], ...] | None = None
+        identical_tool_count = 0
+        max_identical = max(0, int(getattr(self.cfg, "max_identical_tool_calls", 0) or 0))
+        # Count tool calls across the whole turn so the narrate-without-act
+        # guard (below) can tell "described a next step but never acted"
+        # from a normal closing summary after real work.
+        turn_tool_calls = 0
+
         for step in range(max_steps):
             # T2-04: check token watermark before each provider call.
             # The compressor is a no-op when below threshold; when
@@ -204,8 +316,41 @@ class AgentRuntime:
                 )
                 self._fire_stop("cancelled")
                 return
+            errors_before = self.stats.provider_errors
             assistant_text, tool_calls, raw_done = self._stream_one(tool_call_round=step)
             interrupted = bool(raw_done and raw_done.get("_interrupted"))
+
+            # Provider-error circuit breaker: ``_stream_one`` catches
+            # streaming exceptions, calls ``record_provider_error``,
+            # and returns ``("", [], None)``. We detect the trip via
+            # the stats delta rather than a per-call return signal so
+            # the count survives multi-error paths that may add other
+            # observations in the future.
+            #
+            # Pre-0.3.0 behaviour: a provider error fell through to
+            # the "no tool_calls -> completed" branch below and the
+            # turn ended after the single failure. That gave the
+            # operator no retry on transient 5xx / rate-limit blips.
+            # New behaviour: on error, ``continue`` the loop to
+            # re-attempt (still bounded by ``max_turn_steps``). The
+            # breaker fires after N consecutive failures.
+            if self.stats.provider_errors > errors_before:
+                consecutive_provider_errors += 1
+                if max_consecutive_errors and consecutive_provider_errors >= max_consecutive_errors:
+                    ui.error(
+                        f"circuit breaker tripped: "
+                        f"{consecutive_provider_errors} provider errors in a "
+                        f"row (cfg.max_consecutive_provider_errors="
+                        f"{max_consecutive_errors}). Halting the turn before "
+                        "more tokens burn on a stuck endpoint."
+                    )
+                    self._fire_stop("circuit_breaker:provider_errors")
+                    return
+                # Skip the rest of this iteration -- no usage to
+                # record, no tool_calls to dispatch. Loop around for
+                # another attempt.
+                continue
+            consecutive_provider_errors = 0
 
             # Track usage if the provider reported it (skip phantom raw on
             # interrupt). Accept both Ollama-flavoured field names
@@ -224,8 +369,20 @@ class AgentRuntime:
                 self.stats.cache_read_tokens += raw_done.get("cache_read_input_tokens") or 0
                 self.stats.cache_creation_tokens += raw_done.get("cache_creation_input_tokens") or 0
 
-            # Record the assistant message (with tool_calls if any) into history
-            assistant_msg: dict[str, Any] = {"role": "assistant", "content": assistant_text}
+            # Strip <think>...</think> blocks from the persisted /
+            # propagated text. The on-screen render strips them
+            # via the typewriter; the history + tool-result side
+            # was leaking them through to (1) the next turn's prompt
+            # cache (model sees its own thoughts come back),
+            # (2) the Agent-tool return value (parent sees fork's
+            # thinking trace and re-summarizes it, producing visible
+            # duplication), and (3) the JSONL transcript. Strip
+            # once here, at the point where assistant_text becomes
+            # part of the durable session state.
+            from ..text_utils import detect_narrated_intent, strip_think_blocks
+
+            clean_text = strip_think_blocks(assistant_text or "")
+            assistant_msg: dict[str, Any] = {"role": "assistant", "content": clean_text}
             if tool_calls:
                 assistant_msg["tool_calls"] = tool_calls
             self.messages.append(assistant_msg)
@@ -258,21 +415,78 @@ class AgentRuntime:
                 # only (intermediate tool-calling rounds aren't surfaced).
                 if assistant_text:
                     self.plugin_hooks.on_assistant_message(assistant_text)
+                # Narrate-without-act guard: the turn made ZERO tool calls
+                # and the model signed off on a future-tense intent ("I'll
+                # run the tests") instead of doing it. One-line nudge, not
+                # a re-prompt — the operator decides whether to push it.
+                if turn_tool_calls == 0 and detect_narrated_intent(clean_text):
+                    ui.warn(
+                        "model described a next step but took no action this "
+                        "turn (narrated intent without a tool call)"
+                    )
                 self._fire_stop("completed")
                 self._maybe_fire_review()
                 # T5-07: surface the final assistant text for the
-                # continuation hook in run_turn.
-                self._last_assistant_text = assistant_text or ""
+                # continuation hook in run_turn. STRIPPED of <think>
+                # blocks for the same reason persisted history is
+                # stripped above: (1) the goal sentinel scanner would
+                # otherwise match GOAL ACHIEVED appearing inside the
+                # model's own reasoning trace (false positive end-loop),
+                # (2) the headless RunResult.assistant_text field
+                # carries this into machine-readable envelopes that
+                # downstream parsers shouldn't have to filter.
+                self._last_assistant_text = strip_think_blocks(assistant_text or "")
                 return
 
+            # Identical-tool-call circuit breaker: if the same set of
+            # tool calls fires N rounds in a row, the model is in a
+            # stuck-loop pattern. Distinct calls (different tool or
+            # different args) reset the counter, so a legitimate
+            # iterative pass (Read on file A, then B, then C) is
+            # unaffected. The signature is order-sensitive --
+            # ``[Read(a), Read(b)]`` is NOT the same as
+            # ``[Read(b), Read(a)]``.
+            sig = _tool_call_signature(tool_calls)
+            if last_tool_signature is not None and sig == last_tool_signature:
+                identical_tool_count += 1
+                if max_identical and identical_tool_count >= max_identical:
+                    ui.error(
+                        f"circuit breaker tripped: same tool call(s) "
+                        f"{identical_tool_count} times in a row "
+                        f"(cfg.max_identical_tool_calls={max_identical}). "
+                        "The model is stuck -- halting the turn."
+                    )
+                    self._fire_stop("circuit_breaker:identical_tool_calls")
+                    return
+            else:
+                # New shape: start a fresh streak at 1 (this round
+                # counts as one occurrence of the new signature).
+                identical_tool_count = 1
+                last_tool_signature = sig
+
             # Execute each tool call and append a tool message for it.
-            # If the user interrupts mid-loop, mark unexecuted calls DENIED so
-            # the assistant message's tool_calls are all paired with replies.
+            # Phase 18.2 stage 2: walk the calls in batches of contiguous
+            # parallel-safe siblings instead of one at a time. Stage 2
+            # dispatches every batch serially -- the batch shape is a
+            # no-op structural change here; stage 3 will dispatch
+            # multi-call batches concurrently via ThreadPoolExecutor.
+            # Order of the synthesized tool messages stays identical to
+            # the model's call order so the provider's tool_use <->
+            # tool_result pairing keeps working.
+            # If the user interrupts mid-loop, mark unexecuted calls
+            # DENIED so the assistant message's tool_calls are all
+            # paired with replies.
             ui.tool_round_header()
             asst_idx = len(self.messages) - 1
+            batches = self._partition_tool_calls(tool_calls)
+            # Surface what's running to any bound progress sink (the
+            # gateway ships these to chat) so a long multi-tool turn
+            # doesn't look hung. No-op on the terminal, which already
+            # streams tool rounds live.
+            _emit_tool_round_progress(tool_calls)
             try:
-                for call in tool_calls:
-                    self._handle_tool_call(call)
+                for batch in batches:
+                    self._dispatch_batch(batch)
             except KeyboardInterrupt:
                 self._last_turn_interrupted = True
                 ui.warn("interrupted during tool execution")
@@ -291,6 +505,10 @@ class AgentRuntime:
                 )
                 return
 
+            # Dispatch completed without interrupt — count this round's
+            # calls toward the turn total (consumed by the guard above).
+            turn_tool_calls += len(tool_calls)
+
         ui.warn(f"reached step limit ({max_steps}); stopping for safety.")
         self._fire_stop("step_limit")
 
@@ -303,10 +521,25 @@ class AgentRuntime:
         The review keeps running on its daemon thread; on local Ollama
         it'll briefly serialize with the foreground call, which is far
         better than making the user wait indefinitely.
+
+        Only local providers pay this wait. The whole reason it exists
+        is Ollama's single-inference-at-a-time behaviour: a review
+        fork's calls would serialize with the foreground turn and make
+        both feel slow. Hosted providers (which gateway deployments
+        typically use) handle concurrent requests fine — the credential
+        pool already rotates on 429 — so blocking the user's turn up to
+        ``timeout`` there is pure added latency for no benefit.
         """
         t = self._active_review_thread
         if t is None or not t.is_alive():
             return
+        try:
+            if not self.provider.capabilities(self.model).is_local:
+                return
+        except Exception:  # noqa: BLE001 — capability probe is best-effort
+            # If we can't tell, keep the historical (safe) behaviour
+            # and wait — better a small latency than a thrashed local GPU.
+            pass
         import time as _time
 
         t0 = _time.monotonic()
@@ -326,6 +559,14 @@ class AgentRuntime:
         run on a daemon thread and never block this method."""
         from ..provenance import is_background
 
+        # Gateway turns opt out entirely: the review fork's child agent
+        # makes its own provider calls, which on a local Ollama serialize
+        # against the user-facing reply and make a chat turn crawl (or
+        # stall). The review's memory/skill suggestions are never seen by
+        # a chat user anyway, so on the gateway it's pure contention.
+        # Set by the gateway agent factory.
+        if getattr(self, "_suppress_background_review", False):
+            return
         # Don't recursively spawn reviews from inside background forks.
         if is_background():
             return
@@ -387,12 +628,31 @@ class AgentRuntime:
         return stop
 
     def _fire_stop(self, reason: str) -> None:
+        # Record the stop reason for the goal-continuation hook so a
+        # circuit-breaker trip pauses the goal loop instead of being
+        # papered over by another synthetic turn.
+        self._last_stop_reason = reason
         stats = {
             "turns": self.stats.turns,
             "tool_calls": self.stats.tool_calls,
             "prompt_tokens": self.stats.prompt_tokens,
             "eval_tokens": self.stats.eval_tokens,
         }
+        # Audit P1 structured logging: log circuit-breaker stops to
+        # the event timeline so operators can see WHY a turn ended
+        # without scrolling stderr. Normal stop reasons ("completed",
+        # "step_limit", "cancelled") aren't logged -- they're noise
+        # and the snapshot already records the last reason.
+        if reason.startswith("circuit_breaker:"):
+            self._log_event(
+                kind="circuit_breaker",
+                level="error",
+                data={
+                    "reason": reason,
+                    "turn": self.stats.turns,
+                    "tool_calls": self.stats.tool_calls,
+                },
+            )
         # Per-turn end-of-turn hook. The bundled ShellHookPlugin
         # bridges the settings.json Stop event into this dispatch.
         try:
@@ -438,7 +698,7 @@ class AgentRuntime:
         # to a Rich.Markdown view at the end without polluting the
         # terminal with both the plain stream and the rendered copy.
         typewriter = ui.TypewriterStream(prefix="▌ ", prefix_style="bold #00ff00")
-        msgs_to_send = self._messages_with_cache_markers()
+        msgs_to_send = self._messages_for_api()
         tool_schemas = tools.ollama_schema(
             enabled_toolsets=self.cfg.enabled_toolsets,
             disabled=self.cfg.disabled_tools,
@@ -504,6 +764,25 @@ class AgentRuntime:
                 status.stop()
             typewriter.finalize(markdown=False)
             ui.error(f"provider error: {e}")
+            # 0.3.0 observability: count provider failures so /status
+            # surfaces "the model endpoint is flaky" without operators
+            # having to grep logs.
+            self.stats.record_provider_error()
+            # Audit P1 structured logging: write a JSONL event so
+            # operators can grep ``~/.athena/logs/session-<id>.jsonl``
+            # for a timeline of provider failures rather than scrolling
+            # stderr. Secrets in the exception message are scrubbed.
+            self._log_event(
+                kind="provider_error",
+                level="error",
+                data={
+                    "provider": getattr(self.provider, "name", None),
+                    "model": self.model,
+                    "exception_type": type(e).__name__,
+                    "message": str(e),
+                    "turn": self.stats.turns,
+                },
+            )
             return "".join(text_parts), [], None
         finally:
             # Tool-only or empty responses never trip the in-loop stop().
@@ -565,7 +844,208 @@ class AgentRuntime:
             return recovered, residual
         return None
 
-    def _handle_tool_call(self, call: dict[str, Any]) -> None:
+    def _partition_tool_calls(self, tool_calls: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+        """Group contiguous parallel-safe calls into batches.
+
+        Each returned batch is a list of one or more tool calls that
+        appeared consecutively in ``tool_calls`` and are all flagged
+        :attr:`~athena.tools.registry.Tool.parallel_safe`. A
+        non-parallel-safe call sits in a batch of its own. The batch
+        order preserves the model's emit order so the synthesized
+        tool messages, when appended in batch-then-within-batch
+        order, match the provider's tool_use sequence exactly.
+
+        Contiguous-only grouping is intentional: a model that emits
+        ``[Read(a), Read(b), Edit(c), Read(d)]`` likely intends the
+        Edit to consume what the two Reads found and the trailing
+        Read to inspect the Edit's effect. Reordering across the
+        Edit would change semantics, so the partitioning never
+        crosses a non-parallel-safe call.
+
+        Stage 2 dispatches every batch serially; stage 3 swaps the
+        per-batch loop for a ThreadPoolExecutor when ``len(batch) >
+        1``. Unknown tool names (not in the registry) are treated as
+        non-parallel-safe so a typoed call doesn't accidentally race
+        with its siblings.
+        """
+        batches: list[list[dict[str, Any]]] = []
+        current: list[dict[str, Any]] = []
+        current_is_safe = False
+
+        for call in tool_calls:
+            name = (call.get("function") or {}).get("name") or ""
+            t = tools.get_tool(name)
+            is_safe = bool(t and t.parallel_safe)
+            if current and is_safe and current_is_safe:
+                current.append(call)
+                continue
+            if current:
+                batches.append(current)
+            current = [call]
+            current_is_safe = is_safe
+        if current:
+            batches.append(current)
+        return batches
+
+    def _dispatch_batch(self, batch: list[dict[str, Any]]) -> None:
+        """Run every call in ``batch`` and append the synthesised tool
+        messages in original call order.
+
+        Stage 3 behaviour:
+
+        * Single-call batch -- always serial, regardless of
+          ``cfg.parallel_tool_workers``. No thread-pool spin-up cost
+          when there's nothing to fan out.
+        * Multi-call batch + ``parallel_tool_workers <= 1`` -- serial,
+          same loop as stages 1 / 2.
+        * Multi-call batch + ``parallel_tool_workers > 1`` -- workers
+          dispatch concurrently via a ThreadPoolExecutor sized to
+          ``min(len(batch), parallel_tool_workers)``. Each worker runs
+          under its own ``contextvars.copy_context()`` snapshot so the
+          parent's workspace / plan-mode / current-agent / vector-store
+          ContextVars propagate. Tool messages are buffered by index
+          and recorded on the main thread in batch order; the
+          provider's tool_use <-> tool_result pairing depends on this.
+
+        A ``KeyboardInterrupt`` from any worker bubbles up so the
+        enclosing ``_run_turn_inner`` catches it and marks unexecuted
+        calls DENIED -- order-preserving cleanup still works because
+        ``messages.append`` only happens on the main thread.
+        """
+        # Single-call or serial-mode fast path.
+        workers = max(1, int(getattr(self.cfg, "parallel_tool_workers", 1) or 1))
+        if len(batch) <= 1 or workers <= 1:
+            for call in batch:
+                self._handle_tool_call(call)
+            return
+
+        # Parallel-dispatch path. Workers stash their (call, name,
+        # result) into ``slots`` by index; the main thread then walks
+        # ``slots`` and calls the real ``_record_tool_result`` in
+        # order. Early-return branches inside ``_handle_tool_call``
+        # (plan-blocked, plugin-vetoed, confirmation-denied) all go
+        # through ``record`` too, so even those land in the right slot.
+        import contextvars
+        from concurrent.futures import ThreadPoolExecutor
+
+        slots: list[tuple[dict[str, Any], str, str] | None] = [None] * len(batch)
+
+        def _make_sink(idx: int):
+            def _sink(call: dict[str, Any], name: str, result: str) -> None:
+                slots[idx] = (call, name, result)
+
+            return _sink
+
+        # Capture the foreground thread's context snapshot once per
+        # worker. ``contextvars.copy_context()`` returns a fresh
+        # snapshot each call -- mutations inside one worker's
+        # ``ctx.run(...)`` don't leak to siblings.
+        ctx_snapshots = [contextvars.copy_context() for _ in batch]
+        max_workers = min(len(batch), workers)
+        interrupted = False
+        with ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="athena-tool",
+        ) as pool:
+            futures = [
+                pool.submit(
+                    ctx.run,
+                    self._handle_tool_call,
+                    call,
+                    record_sink=_make_sink(idx),
+                )
+                for idx, (ctx, call) in enumerate(zip(ctx_snapshots, batch))
+            ]
+            # Stage 5: if Ctrl+C fires mid-batch, ``.result()`` on
+            # the offending future re-raises ``KeyboardInterrupt``
+            # on the main thread. We catch it here -- NOT in the
+            # caller -- so we can:
+            #   * cancel every still-pending future (those that
+            #     hadn't started running),
+            #   * give in-flight workers a brief grace window to
+            #     finish their tool body cleanly so their slot
+            #     populates,
+            #   * record whatever completed in declared order
+            #     (preserving the model's tool_use <-> tool_result
+            #     pairing for the work that actually ran),
+            #   * mark any uncompleted call DENIED in its declared
+            #     slot,
+            #   * re-raise so the outer ``_run_turn_inner`` recovery
+            #     handles cross-batch cleanup (subsequent batches'
+            #     calls get DENIED and the ``[previous tool execution
+            #     was interrupted]`` user marker is appended).
+            try:
+                for f in futures:
+                    f.result()
+            except KeyboardInterrupt:
+                interrupted = True
+                for f in futures:
+                    f.cancel()
+                # Best-effort: wait briefly for already-running
+                # workers to write their slot. Python can't kill
+                # a running thread; the tool body finishes either
+                # way, so giving it a short window lets us record
+                # the result instead of dropping it.
+                # NOTE: catch ``BaseException`` here -- the worker
+                # that originally raised KeyboardInterrupt will
+                # re-raise it on every subsequent ``.result()``,
+                # and a bare ``except Exception`` would let it
+                # propagate past the recording loop, silently
+                # dropping all the completed slots' results.
+                for f in futures:
+                    try:
+                        f.result(timeout=0.1)
+                    except BaseException:
+                        # Includes TimeoutError, KeyboardInterrupt
+                        # (re-raised from the offending worker),
+                        # and any worker exception. We've already
+                        # decided to interrupt -- everything else
+                        # is noise.
+                        pass
+
+        # Record completed slots in order; DENY the rest. Stage 3
+        # already preserved order for the happy path; stage 5
+        # extends the same ordering guarantee to the interrupted
+        # path so the provider's pairing keeps working.
+        denied_msg = "DENIED: tool execution interrupted by user (Ctrl+C)"
+        for idx, entry in enumerate(slots):
+            if entry is not None:
+                self._record_tool_result(*entry)
+            elif interrupted:
+                call = batch[idx]
+                name = (call.get("function") or {}).get("name", "?")
+                self._record_tool_result(call, name, denied_msg)
+            else:
+                # No interrupt + no slot entry should be impossible
+                # (every successful ``_handle_tool_call`` calls its
+                # sink). Skip defensively -- the next round's
+                # tool_use<->tool_result mismatch will surface the
+                # bug noisily.
+                continue
+
+        if interrupted:
+            self._last_turn_interrupted = True
+            raise KeyboardInterrupt
+
+    def _handle_tool_call(
+        self,
+        call: dict[str, Any],
+        *,
+        record_sink: Any = None,
+    ) -> None:
+        """Run one tool call to completion and record its result.
+
+        ``record_sink`` is the callable invoked to materialise the
+        tool message (signature ``(call, name, result_str) -> None``).
+        Defaults to :meth:`_record_tool_result`, which appends to
+        ``self.messages`` and the session JSONL synchronously. The
+        parallel-dispatch path in :meth:`_run_turn_inner` passes a
+        sink that just stashes ``(call, name, result_str)`` into an
+        ordered slot so the main thread can record the batch in
+        original call order after every worker completes -- preserving
+        the provider's tool_use <-> tool_result pairing.
+        """
+        record = record_sink if record_sink is not None else self._record_tool_result
         fn = call.get("function", {}) or {}
         name = fn.get("name", "")
         args_raw = fn.get("arguments", {})
@@ -595,8 +1075,21 @@ class AgentRuntime:
         else:
             args = args_raw or {}
 
-        ui.tool_call_summary(name, args)
-        self.stats.record_tool_call(name)
+        # Stages 3 + 4: locks around the per-call non-atomic
+        # mutations. ``getattr`` with a nullcontext fallback covers
+        # SimpleNamespace stubs that bypass Agent.__init__.
+        # ``_ui_lock`` keeps the multi-line tool_call_summary /
+        # tool_result panels from interleaving under parallel
+        # dispatch; ``_stats_lock`` keeps the Stats counter +
+        # breakdown-dict mutations atomic. Both serial-path-uncontended.
+        import contextlib
+
+        ui_lock = getattr(self, "_ui_lock", None) or contextlib.nullcontext()
+        stats_lock = getattr(self, "_stats_lock", None) or contextlib.nullcontext()
+        with ui_lock:
+            ui.tool_call_summary(name, args)
+        with stats_lock:
+            self.stats.record_tool_call(name)
 
         # Plan-mode gate: only read-only tools are allowed
         from ..tools import plan as plan_mod
@@ -607,7 +1100,7 @@ class AgentRuntime:
                 "Use Read/Glob/Grep/WebFetch/WebSearch to investigate, then "
                 "call ExitPlanMode with the proposed plan."
             )
-            self._record_tool_result(call, name, denied)
+            record(call, name, denied)
             ui.warn(denied)
             return
 
@@ -631,7 +1124,7 @@ class AgentRuntime:
                 ui.console.print(f"[yellow]command:[/] [white]{preview}[/]")
                 if get_approval_callback()(name, args) != "allow":
                     result = "DENIED by user"
-                    self._record_tool_result(call, name, result)
+                    record(call, name, result)
                     return
 
         # Plugin veto: first plugin to return False from pre_tool_call
@@ -640,7 +1133,7 @@ class AgentRuntime:
         plugin_allow, blocker = self.plugin_hooks.pre_tool_call(name, args)
         if not plugin_allow:
             blocked = f"BLOCKED by plugin {blocker!r}"
-            self._record_tool_result(call, name, blocked)
+            record(call, name, blocked)
             ui.warn(blocked)
             return
 
@@ -648,8 +1141,44 @@ class AgentRuntime:
         if name in ("Write", "write_file"):
             self._preview_write(args)
 
-        result = tools.dispatch(name, args)
-        ui.tool_result(name, result)
+        # 0.3.0 observability: time the dispatch so /status surfaces
+        # per-tool p50/p95/p99 and tool_errors (dispatch-raised count).
+        # The histogram is what reveals "tool X went from 50ms p95 to
+        # 5s p95 after rebuild Y" -- the kind of regression that
+        # eval suites miss.
+        import time as _time
+
+        _tool_start = _time.perf_counter()
+        try:
+            result = tools.dispatch(name, args)
+        except Exception as _tool_exc:
+            self.stats.record_tool_error()
+            self._log_event(
+                kind="tool_error",
+                level="error",
+                data={
+                    "tool": name,
+                    "exception_type": type(_tool_exc).__name__,
+                    "message": str(_tool_exc),
+                    "turn": self.stats.turns,
+                },
+            )
+            raise
+        finally:
+            self.stats.record_tool_duration(name, _time.perf_counter() - _tool_start)
+        with ui_lock:
+            ui.tool_result(name, result)
+
+        # Relay the result to a gateway chat if this tool opted in
+        # (gateway_relay=True) -- e.g. skills_list, whose output is itself
+        # what the user asked to see. Emitted on the RAW result, before
+        # the large-output blob-handle swap below, so the chat gets the
+        # real content rather than a storage reference. No-op when no
+        # gateway sink is bound (terminal / forks).
+        if t is not None and getattr(t, "gateway_relay", False):
+            from .tool_relay import emit_tool_result
+
+            emit_tool_result(name, result if isinstance(result, str) else str(result))
 
         # Plugin observation; cannot affect control flow. ShellHookPlugin
         # bridges settings.json PostToolUse hooks here.
@@ -660,7 +1189,7 @@ class AgentRuntime:
         # observers see the raw text); only the message stored in
         # conversation history is replaced with the handle.
         result = self._maybe_store_tool_result(name, result)
-        self._record_tool_result(call, name, result)
+        record(call, name, result)
 
     def _maybe_store_tool_result(self, tool_name: str, result: str) -> str:
         """T2-06: if the tool result exceeds the configured threshold,
@@ -698,7 +1227,22 @@ class AgentRuntime:
         ui.show_diff(path, old, new)
 
     def _record_tool_result(self, call: dict[str, Any], name: str, result: str) -> None:
-        msg: dict[str, Any] = {"role": "tool", "name": name, "content": result}
+        # 0.3.0 hardening tier 0 #4: wrap the tool result with the
+        # per-session nonce markers so injected content inside a Read /
+        # WebFetch / MCP response can't break out of the wrapper by
+        # emitting literal ``</tool_result>`` or similar -- the closing
+        # marker uses a random nonce minted in Agent.__init__ that the
+        # attacker can't pre-guess. The system-prompt instructs the
+        # model to treat content between the markers as DATA, not
+        # instructions; see ``athena.prompts.system.build_system_prompt``.
+        # Stub agents in unit tests (and forks that bypass
+        # AgentLifecycle.__init__) won't have ``_tool_result_nonce`` --
+        # ``getattr`` keeps the wrapping off in that case, preserving
+        # back-compat for everything that constructs an AgentRuntime via
+        # ``__new__``. Production Agents always get the nonce.
+        nonce = getattr(self, "_tool_result_nonce", None)
+        wrapped = f"[TOOL_RESULT.{nonce}]\n{result}\n[/TOOL_RESULT.{nonce}]" if nonce else result
+        msg: dict[str, Any] = {"role": "tool", "name": name, "content": wrapped}
         # Some Ollama models send a tool_call_id; preserve when present
         if "id" in call:
             msg["tool_call_id"] = call["id"]
@@ -803,7 +1347,19 @@ class AgentRuntime:
                         chunks.append(payload)
             return "".join(chunks)
 
-        result = compress(self.messages, summarizer=_summarizer, cfg=cfg)
+        # Compression is observability, not correctness. A summarizer
+        # failure (provider 404 from a misrouted model, transport blip,
+        # auth rejection on the summary call) must NEVER propagate --
+        # historically that crashed the whole agent process at the
+        # call site three frames up (run_turn). Catch broadly, warn,
+        # leave self.messages untouched; the next provider call will
+        # 404 just like this one did and the circuit breaker will
+        # halt the turn cleanly instead of via a fatal traceback.
+        try:
+            result = compress(self.messages, summarizer=_summarizer, cfg=cfg)
+        except Exception as e:  # noqa: BLE001
+            ui.warn(f"context compression skipped: {type(e).__name__}: {e}")
+            return
         if result.middle_message_count == 0:
             return
         ui.info(
@@ -818,6 +1374,39 @@ class AgentRuntime:
         # re-replaying the original middle.
         if len(result.new_messages) > 1:
             self._persist_message(result.new_messages[1])
+
+    def _messages_for_api(self) -> list[dict[str, Any]]:
+        """Build the message list the provider's ``stream_chat`` sees.
+
+        Same ordering as :meth:`_messages_with_cache_markers` (system,
+        history) with the godmode prefill messages spliced in between
+        when ``cfg.agent_prefill_messages_file`` is set. Prefill is
+        ephemeral -- it lives only inside the API call:
+
+          * Never appended to ``self.messages``.
+          * Never persisted to JSONL (the persistence path runs on
+            ``self.messages`` appends, which prefill skips entirely).
+          * Never visible in ``/save`` transcripts (same reason).
+          * Re-read from disk only when
+            :meth:`reload_prefill_messages` invalidates the cache.
+
+        Mirrors hermes-agent's prefill_messages_file integration:
+        the model sees prior conversation context establishing a
+        pattern of compliance, but the persisted session record
+        shows only real user / assistant turns. Operators tailing
+        the JSONL never see the priming.
+        """
+        msgs = self._messages_with_cache_markers()
+        load = getattr(self, "_load_prefill_messages", None)
+        prefill = load() if callable(load) else []
+        if not prefill:
+            return msgs
+        # Splice: system stays at index 0, prefill comes next, then
+        # the rest of the history. When there's no system message
+        # (unusual but possible in test stubs), prefill leads.
+        if msgs and msgs[0].get("role") == "system":
+            return [msgs[0], *prefill, *msgs[1:]]
+        return [*prefill, *msgs]
 
     def _messages_with_cache_markers(self) -> list[dict[str, Any]]:
         """Return ``self.messages`` with cache_control markers if the

@@ -238,3 +238,105 @@ def test_default_denylist_compiles() -> None:
     """Smoke test that every default pattern is a valid regex."""
     pol = ShellPolicy()
     assert len(pol._deny_patterns) == len(DEFAULT_DENYLIST)
+
+
+# ---- cross-platform denylist (review #1, #9) -----------------------------
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # macOS raw-disk targets that the pre-fix pattern missed.
+        "dd if=/dev/zero of=/dev/disk0 bs=1m",
+        "dd if=/dev/random of=/dev/disk2",
+        "dd if=/dev/zero of=/dev/rdisk0",
+        # FreeBSD virtual / ATA disks.
+        "dd if=/dev/zero of=/dev/vda",
+        "dd if=/dev/zero of=/dev/ada1",
+        # Linux raw-redirect to block device with disk* alias.
+        "cat /dev/urandom > /dev/disk1",
+    ],
+)
+def test_dd_block_device_extended_targets(cmd: str) -> None:
+    """The previous denylist only covered ``/dev/(sd|nvme|hd)``,
+    leaving macOS ``/dev/disk*`` / ``/dev/rdisk*`` and FreeBSD
+    ``/dev/(v|a)d*`` wide open. Apple-Silicon and Intel-Mac dogfood
+    surfaced this."""
+    pol = ShellPolicy()
+    d = pol.evaluate_denylist_only(cmd)
+    assert d.allowed is False, f"expected denied: {cmd}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # Windows ``del`` recursive + quiet -- the cmd.exe analogue
+        # of ``rm -rf``. Both order permutations must be denied.
+        "del /s /q C:\\Windows",
+        "del /q /s C:\\Users",
+        "erase /s /q D:\\important",
+        # Recursive rmdir.
+        "rd /s C:\\System32",
+        "rmdir /s C:\\Users\\Public",
+        # format C: / D: / etc.
+        "format c:",
+        "format D: /FS:NTFS",
+        # cipher /w: secure-wipes free space (slow but destructive).
+        "cipher /w:C:\\",
+        # diskpart is interactive and arbitrarily destructive.
+        "diskpart",
+        # PowerShell Remove-Item -Recurse -Force.
+        "Remove-Item C:\\Windows -Recurse -Force",
+        "remove-item ~ -recurse -force",
+    ],
+)
+def test_windows_destruction_verbs_denied(cmd: str) -> None:
+    """ATHENA.md says Windows is a first-class platform; the
+    denylist must reflect that. The pre-fix denylist was
+    POSIX-only, leaving operators on Windows with NO safety floor
+    against ``del /s /q``, ``format c:``, etc."""
+    pol = ShellPolicy()
+    d = pol.evaluate_denylist_only(cmd)
+    assert d.allowed is False, f"expected denied: {cmd}"
+
+
+def test_denylist_is_case_insensitive() -> None:
+    """Operator copy-pasting from Windows shell history can have
+    mixed-case verbs. The denylist matches regardless of case so
+    ``DEL /S /Q`` is blocked the same as ``del /s /q``."""
+    pol = ShellPolicy()
+    for cmd in (
+        "DEL /S /Q C:\\Windows",
+        "Format C:",
+        "RM -RF /etc",  # non-functional but indicative
+    ):
+        d = pol.evaluate_denylist_only(cmd)
+        assert d.allowed is False, f"expected denied (case-insensitive): {cmd}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # ``del`` without /s isn't recursive; legitimate single-file
+        # deletion stays allowed by the denylist (the allowlist is
+        # a separate concern).
+        "del foo.txt",
+        # ``rd`` without /s removes an empty directory.
+        "rd build",
+        # Bare ``Remove-Item`` without -Recurse -Force is the
+        # everyday PowerShell delete.
+        "Remove-Item temp.log",
+        # ``dd`` to a normal file, not a block device.
+        "dd if=input.bin of=output.bin bs=4k",
+    ],
+)
+def test_legitimate_windows_commands_not_blocked(cmd: str) -> None:
+    """Sanity guard: the new Windows patterns must not over-block
+    the everyday commands. A bare ``del foo.txt`` is not the same
+    as ``del /s /q C:\\Windows``."""
+    pol = ShellPolicy()
+    d = pol.evaluate_denylist_only(cmd)
+    # The denylist must NOT block these. (They may still be
+    # blocked by an allowlist if one's configured; that's
+    # separate.)
+    assert d.allowed is True, f"unexpectedly denied: {cmd}"

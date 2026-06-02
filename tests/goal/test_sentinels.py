@@ -37,10 +37,16 @@ def test_sentinel_achieved_markdown_heading():
     assert achieved is True
 
 
-def test_sentinel_achieved_blockquote():
-    """> blockquote lead-in is tolerated."""
+def test_sentinel_achieved_blockquote_does_NOT_match():
+    """``>`` blockquote lead-in is explicitly EXCLUDED so a model
+    quoting the contract back at the user
+    (``> GOAL ACHIEVED - when you see this line, stop``) doesn't
+    end the loop spuriously. Real model achievements emit the
+    sentinel without a quote prefix."""
     achieved, _ = scan_sentinels("> GOAL ACHIEVED")
-    assert achieved is True
+    assert achieved is False
+    achieved, _ = scan_sentinels("> GOAL ACHIEVED - when you see this line, stop")
+    assert achieved is False
 
 
 def test_sentinel_achieved_bullet():
@@ -102,9 +108,21 @@ def test_sentinel_blocked_lowercase():
     assert reason == "lowercase too"
 
 
-def test_sentinel_blocked_markdown_lead():
-    _, reason = scan_sentinels("> GOAL BLOCKED: with blockquote")
-    assert reason == "with blockquote"
+def test_sentinel_blocked_blockquote_does_NOT_match():
+    """Same exclusion as ACHIEVED -- a blockquoted ``> GOAL BLOCKED:``
+    is the model quoting the contract, not actually claiming
+    blocked."""
+    achieved, reason = scan_sentinels("> GOAL BLOCKED: with blockquote")
+    assert achieved is False
+    assert reason is None
+
+
+def test_sentinel_blocked_markdown_bullet_lead():
+    """A list-marker prefix (``*``, ``-``, ``#``) IS still tolerated
+    -- those are real markdown renderings of the sentinel, unlike
+    ``>`` which signals quotation."""
+    _, reason = scan_sentinels("* GOAL BLOCKED: with bullet")
+    assert reason == "with bullet"
 
 
 def test_sentinel_blocked_empty_reason_normalises_to_none():
@@ -144,3 +162,46 @@ def test_sentinel_non_string():
     """A non-string slipping in (None from a degenerate stream)
     doesn't crash."""
     assert scan_sentinels(None) == (False, None)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# /steer + /goal interaction (dogfood, the bug that drove this regex rewrite)
+# ---------------------------------------------------------------------------
+
+
+def test_sentinel_achieved_with_steer_suffix_on_separate_line():
+    """The exact case from the 2026-05-31 dogfood: an active /steer
+    nudged the model to end every reply with the word "DONE". When
+    the model completed the goal it emitted ``GOAL ACHIEVED`` then
+    a blank line then ``DONE``. The previous last-non-empty-line
+    anchor saw ``DONE`` and missed the sentinel, so the loop kept
+    firing for half a dozen turns until the operator killed it
+    manually. The new multiline regex matches the sentinel
+    regardless of what follows it."""
+    text = "Files listed.\n\nGOAL ACHIEVED\n\nDONE"
+    achieved, _ = scan_sentinels(text)
+    assert achieved is True
+
+
+def test_sentinel_achieved_with_multiple_trailing_lines():
+    """More general form of the steer case: any non-quote content
+    after the sentinel is fine. The model emitted GOAL ACHIEVED in
+    the middle of a longer wrap-up message."""
+    text = (
+        "Here's the summary:\n"
+        "- file a\n"
+        "- file b\n"
+        "GOAL ACHIEVED\n"
+        "Let me know if you want me to do anything else."
+    )
+    achieved, _ = scan_sentinels(text)
+    assert achieved is True
+
+
+def test_sentinel_blocked_followed_by_steer_suffix():
+    """Same interaction for BLOCKED: the model can claim blocked
+    even when /steer is appending a suffix."""
+    text = "Tried multiple paths.\n\nGOAL BLOCKED: missing API key\n\nDONE"
+    achieved, reason = scan_sentinels(text)
+    assert achieved is False
+    assert reason == "missing API key"

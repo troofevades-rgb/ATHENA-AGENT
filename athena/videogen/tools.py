@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from ..tools.registry import tool
+from ..tools.status import status_payload
 from .job import GenerationRequest, resolve_backend, run_generation
 
 logger = logging.getLogger(__name__)
@@ -73,33 +74,29 @@ def _load_cfg():
 
 
 def _disabled_payload() -> str:
-    return json.dumps(
-        {
-            "status": "not_enabled",
-            "reason": (
-                "video_generation_enabled is False — set it in athena "
-                "config + ensure a provider declares the video_generation "
-                "capability"
-            ),
-        }
+    return status_payload(
+        "not_enabled",
+        reason=(
+            "video_generation_enabled is False — set it in athena "
+            "config + ensure a provider declares the video_generation "
+            "capability"
+        ),
     )
 
 
 def _no_backend_payload() -> str:
-    return json.dumps(
-        {
-            "status": "not_configured",
-            "reason": (
-                "no video-generation backend resolved — no provider "
-                "declares video_generation OR the declared provider "
-                "couldn't be instantiated (missing credentials?)"
-            ),
-        }
+    return status_payload(
+        "not_configured",
+        reason=(
+            "no video-generation backend resolved — no provider "
+            "declares video_generation OR the declared provider "
+            "couldn't be instantiated (missing credentials?)"
+        ),
     )
 
 
 def _rejected(reason: str) -> str:
-    return json.dumps({"status": "rejected", "reason": reason})
+    return status_payload("rejected", reason=reason)
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +171,21 @@ def video_generate(
         seed=int(seed) if seed is not None else None,
     )
     result = run_generation(request, backend=backend, cfg=cfg)
+    _emit_artifact(result)
     return json.dumps(result.to_dict())
+
+
+def _emit_artifact(result) -> None:
+    """Hand a successfully-rendered file to the media-artifact sink so
+    the gateway can deliver it into the chat. No-op on the terminal
+    (nothing bound) and on non-``done`` results."""
+    try:
+        if getattr(result, "status", None) == "done" and getattr(result, "path", None):
+            from ..agent.media_artifacts import emit_media_artifact
+
+            emit_media_artifact(str(result.path))
+    except Exception:  # noqa: BLE001 — delivery is best-effort
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -246,4 +257,5 @@ def animate_image(
         aspect=_DEFAULT_ASPECT,
     )
     result = run_generation(request, backend=backend, cfg=cfg)
+    _emit_artifact(result)
     return json.dumps(result.to_dict())

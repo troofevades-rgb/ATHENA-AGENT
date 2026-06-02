@@ -81,13 +81,43 @@ def test_gemini_bare_prefix(filled_pool: CredentialPool):
     p.close()
 
 
-def test_openrouter_prefix_preserves_inner_path(filled_pool: CredentialPool):
-    """OpenRouter wants 'vendor/model' on the wire — don't strip below
-    the leading 'openrouter/' segment."""
+def test_openrouter_prefix_stripped_for_vendor_model_form(filled_pool: CredentialPool):
+    """The leading ``openrouter/`` is a routing hint; OpenRouter's
+    ``/chat/completions`` rejects it on the wire ("not a valid model
+    ID" 400). For ``vendor/model`` catalog entries, strip the one
+    routing prefix so the bare vendor/model lands at the API."""
     cfg = Config()
     p, bare = resolve_provider("openrouter/anthropic/claude-3-5-sonnet", cfg, filled_pool)
     assert isinstance(p, OpenRouterProvider)
-    assert bare == "openrouter/anthropic/claude-3-5-sonnet"
+    assert bare == "anthropic/claude-3-5-sonnet"
+    p.close()
+
+
+def test_openrouter_meta_router_models_kept_via_doubled_prefix(
+    filled_pool: CredentialPool,
+):
+    """The five OpenRouter meta-router models (``openrouter/auto``,
+    ``openrouter/free``, ``openrouter/owl-alpha``, etc.) LITERALLY
+    start with ``openrouter/`` in their model id. To route them
+    through this stack, the picker prefixes once and the catalog
+    entry already starts with ``openrouter/``, yielding the doubled
+    form. After stripping one routing prefix, the API sees the
+    correct ``openrouter/auto`` form."""
+    cfg = Config()
+    p, bare = resolve_provider("openrouter/openrouter/auto", cfg, filled_pool)
+    assert isinstance(p, OpenRouterProvider)
+    assert bare == "openrouter/auto"
+    p.close()
+
+
+def test_openrouter_vendor_model_user_case(filled_pool: CredentialPool):
+    """Specific case from a real failed call: nousresearch/hermes-4-405b
+    sent as ``openrouter/nousresearch/hermes-4-405b`` (the picker's
+    routing form) must reach the API as ``nousresearch/hermes-4-405b``."""
+    cfg = Config()
+    p, bare = resolve_provider("openrouter/nousresearch/hermes-4-405b", cfg, filled_pool)
+    assert isinstance(p, OpenRouterProvider)
+    assert bare == "nousresearch/hermes-4-405b"
     p.close()
 
 

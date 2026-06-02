@@ -115,6 +115,67 @@ def render_status(snapshot: dict[str, Any]) -> str:
             retries = counts.get("retries", 0)
             aborts = counts.get("aborts", 0)
             lines.append(f"  {prov}: {retries} retries, {aborts} aborts")
+
+    # 0.3.0 observability: latency + error counters. Each block is
+    # conditional on having data so a fresh session's /status stays
+    # clean. Values are in milliseconds with one decimal -- p50/p95/
+    # p99 read at a glance for "is the model getting slower" or
+    # "which tool is dragging".
+    turn_lat = snapshot.get("turn_latency_ms")
+    if turn_lat:
+        lines.append("")
+        lines.append(
+            f"turn latency (n={turn_lat['count']}): "
+            f"p50 {turn_lat['p50_ms']:.0f}ms  "
+            f"p95 {turn_lat['p95_ms']:.0f}ms  "
+            f"p99 {turn_lat['p99_ms']:.0f}ms"
+        )
+    tool_lat = snapshot.get("tool_latencies_ms") or {}
+    if tool_lat:
+        lines.append("")
+        lines.append("tool latency (p50 / p95):")
+        # Sort by p95 desc so the slowest tool surfaces first --
+        # that's the one most likely to be worth investigating.
+        for tool, s in sorted(
+            tool_lat.items(),
+            key=lambda kv: -float(kv[1].get("p95_ms", 0)),
+        ):
+            lines.append(
+                f"  {tool:<20} {s['p50_ms']:>6.0f}ms / {s['p95_ms']:>6.0f}ms  (n={s['count']})"
+            )
+    prov_err = int(snapshot.get("provider_errors") or 0)
+    tool_err = int(snapshot.get("tool_errors") or 0)
+    if prov_err or tool_err:
+        lines.append("")
+        lines.append(f"errors:  provider={prov_err}  tool={tool_err}")
+
+    # Parser-fallback canary: a non-empty block means some (provider,
+    # model) had no registered tool-call parser and is relying on
+    # last-resort heuristic extraction — investigate if tool calls
+    # misfire for that model.
+    parser_fallbacks = snapshot.get("parser_fallbacks") or {}
+    if parser_fallbacks:
+        lines.append("")
+        lines.append("parser fallbacks (no native parser — heuristic extraction):")
+        for key, count in sorted(parser_fallbacks.items(), key=lambda kv: -int(kv[1])):
+            lines.append(f"  {key:<28} {count:>4}")
+
+    # 0.3.0 Phase 2: godmode session state. Gated on snapshot key
+    # presence so a fresh / clean session's /status stays clean.
+    godmode = snapshot.get("godmode")
+    prefill_file = snapshot.get("godmode_prefill_file")
+    if godmode or prefill_file:
+        lines.append("")
+        lines.append("godmode:")
+        if godmode:
+            strategy = godmode.get("strategy", "?")
+            mode = godmode.get("mode", "?")
+            applied = godmode.get("applied_at", "?")
+            lines.append(f"  active:   {strategy}  (mode={mode})")
+            lines.append(f"  since:    {applied}")
+        if prefill_file:
+            lines.append(f"  prefill:  {prefill_file}")
+
     return "\n".join(lines)
 
 

@@ -180,27 +180,22 @@ def run_task(
         status_holder: dict[str, Any] = {"done": False, "exc": None}
 
         def _runner() -> None:
-            # AUTO_DENY MUST be installed inside this thread, not on
-            # the eval main thread: threading.Thread does not propagate
-            # ContextVars to its target. Without this, a task whose
-            # agent calls a confirmation-required tool would block on
-            # the default interactive callback (stdin), then trip the
-            # worker.join timeout and be misreported as "timeout"
-            # instead of "approval deadlock."
-            from athena.safety.approval_callback import (
-                AUTO_DENY,
-                reset_approval_callback,
-                set_approval_callback,
-            )
+            # The thread-entry guards MUST be installed inside this
+            # thread, not on the eval main thread: threading.Thread does
+            # not propagate ContextVars to its target. Without AUTO_DENY,
+            # a task whose agent calls a confirmation-required tool would
+            # block on the default interactive callback (stdin), then
+            # trip the worker.join timeout and be misreported as
+            # "timeout" instead of "approval deadlock."
+            from athena.provenance import SYSTEM
+            from athena.safety.thread_entry import non_foreground_thread
 
-            approval_token = set_approval_callback(AUTO_DENY)
             try:
-                agent.run_until_done(task.prompt)
+                with non_foreground_thread(origin=SYSTEM):
+                    agent.run_until_done(task.prompt)
                 status_holder["done"] = True
             except BaseException as e:  # noqa: BLE001
                 status_holder["exc"] = e
-            finally:
-                reset_approval_callback(approval_token)
 
         worker = threading.Thread(
             target=_runner,

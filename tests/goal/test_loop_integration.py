@@ -45,6 +45,7 @@ def _agent(
     interrupted: bool = False,
     cfg: SimpleNamespace | None = None,
     stats: SimpleNamespace | None = None,
+    last_stop_reason: str | None = None,
 ) -> SimpleNamespace:
     """Compose a stub agent matching what _consult_goal_continuation reads."""
     a = SimpleNamespace(
@@ -53,6 +54,7 @@ def _agent(
         goal_state=goal_state,
         _last_assistant_text=assistant_text,
         _last_turn_interrupted=interrupted,
+        _last_stop_reason=last_stop_reason,
         _goal_loop_tokens_used=0,
     )
     a._profile_dir = lambda: tmp_path  # type: ignore[assignment]
@@ -252,3 +254,194 @@ def test_loop_tokens_used_updated(tmp_path: Path):
     )
     a._consult_goal_continuation(tokens_at_loop_start=100)
     assert a._goal_loop_tokens_used == 400  # 500 - 100
+
+
+# ---------------------------------------------------------------------------
+# No re-announce on already-terminal goal state
+# ---------------------------------------------------------------------------
+
+
+def test_announcement_does_not_repeat_when_state_already_achieved(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """Once the goal hits ``status="achieved"``, subsequent turns
+    must NOT re-print the "Goal achieved" announcement. The user's
+    Discord transcript showed every reply ending with another loud
+    ``Goal achieved in 1 turn(s)`` line; the fix is to suppress
+    announcements when the goal-loop driver re-reports the SAME
+    terminal status it was in at the start of the call.
+    """
+    # State already in the achieved terminal state from a prior turn.
+    st = GoalState(text="x", status="achieved", turns_taken=1)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        # A plain reply that does NOT contain the sentinel -- so the
+        # only path to ``stop_reason=achieved`` is the "state already
+        # terminal" branch in maybe_continue_goal_after_turn.
+        assistant_text="just answering the user's follow-up question",
+    )
+    capsys.readouterr()  # clear any earlier captured output
+    result = a._consult_goal_continuation(tokens_at_loop_start=0)
+    assert result is None
+    # Status unchanged.
+    assert st.status == "achieved"
+    # No re-announcement on stdout or stderr.
+    captured = capsys.readouterr()
+    combined = (captured.out + captured.err).lower()
+    assert "goal achieved" not in combined, (
+        f"announcement re-fired on an already-achieved goal; "
+        f"output: {captured.out + captured.err!r}"
+    )
+
+
+def test_announcement_does_fire_on_transition_into_achieved(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """Conversely, the FIRST time the goal hits achieved (status was
+    ``active``), the announcement MUST still fire -- the silence above
+    only applies after the user has seen it once."""
+    st = GoalState(text="x", status="active", turns_taken=0)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="here it is\n\nGOAL ACHIEVED",
+    )
+    capsys.readouterr()
+    result = a._consult_goal_continuation(tokens_at_loop_start=0)
+    assert result is None
+    assert st.status == "achieved"
+    captured = capsys.readouterr()
+    combined = (captured.out + captured.err).lower()
+    assert "goal achieved" in combined, (
+        "first-time achievement announcement was suppressed; "
+        f"output: {captured.out + captured.err!r}"
+    )
+
+
+def test_announcement_turn_count_includes_bootstrap(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """Dogfood: "Goal achieved in 0 turn(s)" was confusing because
+    the model clearly DID produce one response (the bootstrap turn
+    after /goal MSG). turns_taken counts CONTINUATIONS only -- the
+    loop hook bumps it for each synthetic prompt it injects, not
+    for the bootstrap. The display adds 1 so the count matches
+    the operator's mental model ("how many model responses
+    produced this result")."""
+    # Bootstrap response achieved the goal on its first reply --
+    # internal turns_taken=0, displayed as "1 turn(s)".
+    st = GoalState(text="x", status="active", turns_taken=0)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="Done.\n\nGOAL ACHIEVED",
+    )
+    capsys.readouterr()
+    a._consult_goal_continuation(tokens_at_loop_start=0)
+    combined = (capsys.readouterr().out).lower()
+    # turns_taken=0 + 1 = "1 turn(s)"
+    assert "1 turn(s)" in combined or "in 1 turn" in combined, (
+        f"expected '1 turn(s)' display when achieved on bootstrap; got: {combined!r}"
+    )
+
+    # After 1 continuation that achieved -- internal turns_taken=1,
+    # displayed as "2 turn(s)".
+    st2 = GoalState(text="y", status="active", turns_taken=1)
+    a2 = _agent(
+        tmp_path=tmp_path,
+        goal_state=st2,
+        assistant_text="finished\n\nGOAL ACHIEVED",
+    )
+    capsys.readouterr()
+    a2._consult_goal_continuation(tokens_at_loop_start=0)
+    combined2 = (capsys.readouterr().out).lower()
+    assert "2 turn(s)" in combined2 or "in 2 turn" in combined2, (
+        f"expected '2 turn(s)' display for one-continuation case; got: {combined2!r}"
+    )
+
+
+def test_announcement_does_not_repeat_when_state_already_paused(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    """Same suppression for blocked/paused -- once paused, the user
+    already saw the reason; re-firing on every subsequent message
+    would be just as noisy."""
+    st = GoalState(text="x", status="paused", turns_taken=1)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="ordinary reply, no sentinel",
+    )
+    capsys.readouterr()
+    a._consult_goal_continuation(tokens_at_loop_start=0)
+    captured = capsys.readouterr()
+    combined = (captured.out + captured.err).lower()
+    assert "goal blocked" not in combined
+
+
+# ---------------------------------------------------------------------------
+# Circuit-breaker integration (dogfood-driven, runtime.py:_fire_stop)
+# ---------------------------------------------------------------------------
+
+
+def test_circuit_breaker_stop_pauses_goal_loop(tmp_path: Path):
+    """A circuit-breaker trip on the inner turn must pause the goal
+    loop. Pre-fix behavior: the breaker halted the inner turn but
+    the goal-continuation hook didn't read the stop reason and
+    just kept injecting synthetic turns, burning the whole
+    goal_max_turns budget hammering the same broken provider.
+
+    The dogfood that surfaced this: a typo'd ``athropic/`` model
+    name silently routed to Ollama, 404'd every turn, breaker
+    tripped every turn, goal loop reached turn 174/10000 before
+    the operator killed athena."""
+    st = GoalState(text="x", max_turns=10)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="working on it",
+        last_stop_reason="circuit_breaker:provider_errors",
+    )
+    assert a._consult_goal_continuation(tokens_at_loop_start=0) is None
+    assert st.status == "paused"
+    persisted = load_state(tmp_path)
+    assert persisted is not None
+    assert persisted.status == "paused"
+
+
+def test_circuit_breaker_identical_tools_also_pauses_goal_loop(tmp_path: Path):
+    """The other breaker (identical-tool-calls) must pause the
+    loop just like provider_errors does -- both indicate the
+    inner turn is stuck and re-injecting synthetic turns burns
+    budget on the same broken pattern."""
+    st = GoalState(text="x", max_turns=10)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="working",
+        last_stop_reason="circuit_breaker:identical_tool_calls",
+    )
+    assert a._consult_goal_continuation(tokens_at_loop_start=0) is None
+    assert st.status == "paused"
+
+
+def test_completed_stop_does_not_pause_goal_loop(tmp_path: Path):
+    """Sanity guard: only ``circuit_breaker:*`` stop reasons should
+    pause. A normal ``completed`` stop must continue to inject
+    the next synthetic turn (otherwise no goal would ever make
+    progress past the first reply)."""
+    st = GoalState(text="x", max_turns=10)
+    a = _agent(
+        tmp_path=tmp_path,
+        goal_state=st,
+        assistant_text="working",
+        last_stop_reason="completed",
+    )
+    next_input = a._consult_goal_continuation(tokens_at_loop_start=0)
+    assert next_input is not None
+    assert st.status == "active"

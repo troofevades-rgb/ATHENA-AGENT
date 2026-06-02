@@ -1,13 +1,14 @@
 """``athena providers {list,test,add-key,remove-key}``.
 
-Talks to the same credential pool the agent uses (``~/.athena/
-credentials.json`` by default). ``list`` is a redacted summary;
-``test`` issues a tiny completion request against each configured
-hosted provider (and a cheap reachability check against ollama);
-``add-key`` / ``remove-key`` mutate the pool.
+Talks to the same credential pool the agent uses. Credentials are
+profile-scoped (``<profile_dir>/credentials.json``): with no
+``--profile`` the active profile is used, so ``add-key`` lands the key
+where the agent running that profile will read it. ``list`` is a
+redacted summary; ``test`` issues a tiny completion request against each
+configured hosted provider (and a cheap reachability check against
+ollama); ``add-key`` / ``remove-key`` mutate the pool.
 
-Operates on the global pool by default; tests pass their own pool via
-``--pool-path`` for isolation.
+Tests pass their own pool file via ``--pool-path`` for isolation.
 """
 
 from __future__ import annotations
@@ -16,18 +17,24 @@ import argparse
 import sys
 from pathlib import Path
 
-from ..config import CONFIG_DIR, load_config
+from ..config import load_config
 from ..providers import list_providers
-from ..providers.credential_pool import Credential, CredentialPool
+from ..providers.credential_pool import Credential, CredentialPool, profile_pool
 
 
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="athena providers")
     ap.add_argument(
+        "--profile",
+        default=None,
+        help="Target this profile's credentials (default: the active profile).",
+    )
+    ap.add_argument(
         "--pool-path",
         type=Path,
         default=None,
-        help="Override the credential-pool file (default: <CONFIG_DIR>/credentials.json).",
+        help="Override the credential-pool file directly (mainly for tests); "
+        "takes precedence over --profile.",
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -137,8 +144,18 @@ def _cmd_capabilities(args) -> int:
 
 
 def _open_pool(args) -> CredentialPool:
-    path = args.pool_path or (CONFIG_DIR / "credentials.json")
-    return CredentialPool(path)
+    # Explicit file override wins (test isolation). Otherwise resolve
+    # the profile and hand back its scoped pool — so `athena providers
+    # add-key` writes where the agent running that profile reads.
+    if args.pool_path:
+        return CredentialPool(args.pool_path)
+    from ..profiles.resolution import resolve_active_profile
+
+    profile = resolve_active_profile(
+        getattr(args, "profile", None),
+        config_default=load_config().profile,
+    )
+    return profile_pool(profile)
 
 
 # ---- list ---------------------------------------------------------------

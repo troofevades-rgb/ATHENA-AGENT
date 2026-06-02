@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -66,33 +67,11 @@ def _rewrite_singledash_longs(argv: list[str], parser: argparse.ArgumentParser) 
     return out
 
 
-def _handle_slash(agent: Agent, line: str) -> bool:
-    """Returns True if the loop should continue, False to exit."""
-    parts = line[1:].strip().split(maxsplit=1)
-    if not parts:
-        return True
-    cmd = parts[0].lower()
-    arg = parts[1] if len(parts) > 1 else ""
-
-    # REPL-exit is hardcoded here (it controls the outer loop);
-    # every other slash command lives in athena/commands/*.py via
-    # the @command(...) decorator.
-    if cmd in ("exit", "quit", "q"):
-        return False
-
-    fn = commands.get_command(cmd)
-    if fn is None:
-        ui.error(f"unknown command: /{cmd}. /help for list.")
-        return True
-    result = fn(agent, arg)
-    # If the command returned a prompt string, run it as a user turn.
-    if isinstance(result, str) and result:
-        try:
-            agent.run_turn(result)
-        except KeyboardInterrupt:
-            ui.warn("turn interrupted")
-    return True
-
+# _handle_slash and _run_interactive_repl moved to athena/cli/repl.py
+# (consolidation pass 2026-06-01). Both names remain importable from
+# here as backwards-compat re-exports for one release; new code
+# should import from athena.cli.repl directly.
+from .cli.repl import _handle_slash, _run_interactive_repl  # noqa: E402, F401
 
 _SUBCOMMANDS = {
     "import-from-hermes": "athena.cli.import_hermes",
@@ -118,6 +97,7 @@ _SUBCOMMANDS = {
     "checkpoint": "athena.cli.checkpoint",
     "audit": "athena.cli.audit",
     "verify": "athena.cli.verify",
+    "doctor": "athena.cli.doctor",
     "cache": "athena.cli.cache",
     "recall": "athena.cli.recall",
     "image-demo": "athena.cli.image_demo",
@@ -174,6 +154,23 @@ def _json_invalid_envelope(
 
 
 def main() -> int:
+    from .boot_trace import cp as _cp
+
+    _cp("main_entry", argv=sys.argv[1:])
+    # Install the crash-log excepthook FIRST so any uncaught exception
+    # during startup (migration, config parse, provider construction,
+    # MCP load, gateway spawn) lands in ~/.athena/crashes/ rather than
+    # being lost when the operator closes the terminal. Idempotent.
+    try:
+        from .crash_log import install_excepthook
+
+        install_excepthook()
+    except Exception:  # noqa: BLE001
+        # The hook is best-effort -- if it can't install, the operator
+        # gets the default traceback. Never block startup.
+        pass
+    _cp("excepthook_installed")
+
     # One-time migration of legacy single-profile layout (everything at
     # ~/.athena/<x>) into ~/.athena/profiles/default/<x>. Naturally
     # idempotent — once profiles/ exists, this short-circuits.
@@ -315,20 +312,26 @@ def main() -> int:
     if not workspace.is_dir():
         ui.error(f"workspace not a directory: {workspace}")
         return 2
+    _cp("pre_agent_init", workspace=str(workspace), model=args.model or cfg.model)
 
     agent = Agent(cfg, workspace, model=args.model)
+    _cp("post_agent_init", session_id=getattr(agent, "session_id", None))
 
     # Load MCP servers — register their tools into the same registry as the
     # built-ins so the model sees one unified tool list.
     def _mcp_log(level: str, msg: str) -> None:
         {"info": ui.info, "warn": ui.warn, "error": ui.error}.get(level, ui.info)(msg)
 
+    _cp("pre_mcp_load")
     try:
         load_mcp_servers(mcp_config_paths(workspace), on_message=_mcp_log)
     except Exception as e:
         ui.error(f"MCP load failed: {e}")
+        _cp("mcp_load_exception", exc=f"{type(e).__name__}: {e}")
+    _cp("post_mcp_load")
 
     # Sanity: verify Ollama is reachable
+    _cp("pre_ollama_check")
     try:
         models = agent.provider.list_models()
         if not _model_pulled(agent.model, models) and models:
@@ -337,7 +340,9 @@ def main() -> int:
     except Exception as e:
         ui.error(f"cannot reach Ollama at {cfg.ollama_host}: {e}")
         ui.warn("start it with `ollama serve` or set OLLAMA_HOST.")
+        _cp("ollama_unreachable", exc=f"{type(e).__name__}: {e}")
         return 2
+    _cp("post_ollama_check")
 
     # T7-01: resolve task — inline -p / --prompt OR --task FILE.
     # The two are mutually exclusive; --task wins when both
@@ -372,6 +377,7 @@ def main() -> int:
         return 2
 
     if task is not None:
+        _cp("pre_headless")
         # Headless path — wraps the existing one-shot via T7-01's
         # run_headless. JSON mode routes UI chatter to stderr so
         # stdout stays a single clean envelope. Default (non-JSON)
@@ -415,169 +421,27 @@ def main() -> int:
                 f"run {result.run_id} ended {result.status}"
                 + (f": {result.error}" if result.error else "")
             )
+        _cp("post_headless", status=str(result.status), exit_code=result.exit_code())
         return result.exit_code()
 
-    return _run_interactive_repl(agent, cfg, workspace)
+    # Belt + suspenders: register terminal-restore at atexit BEFORE
+    # the REPL spawns the TUI so any crash path (uncaught exception
+    # mid-turn, signal-driven termination, etc.) still resets the
+    # alt-screen / cursor / SGR state before PowerShell takes over.
+    # Without this, a hard-killed TUI leaves the terminal in
+    # alt-screen mode and the user sees a "frozen" window. Idempotent:
+    # the helper writes mode-setting (not state-toggling) ANSI codes
+    # so a duplicate call from gateway.close() and from atexit is
+    # safe.
+    import atexit
 
+    from .tui_gateway.server import _restore_terminal
 
-def _run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
-    """Spawn the Ink TUI, drive the REPL through its gateway.
-
-    All agent output (info / warn / error / tool calls / tool
-    results) flows through ``ui.set_gateway()``'s event bridge to
-    the Ink subprocess. Slash commands run inline in Python; their
-    print output is bridged the same way.
-
-    Falls back to the legacy Rich REPL only when the Ink bundle is
-    missing — surfacing a clear message so the user can build it.
-    """
-    import time as _time
-
-    from .tui_gateway import (
-        MessageAppendEvent,
-        StatusUpdateEvent,
-        TuiGateway,
-    )
-    from .tui_gateway.banner_data import build_banner
-    from .tui_gateway.events import (
-        ConfirmReplyCommand,
-        ResizeCommand,
-        UserInputCommand,
-    )
-
-    session_start = _time.time()
-
-    def _push_status() -> None:
-        """Snapshot current counters and ship to the TUI."""
-        try:
-            stats = getattr(agent, "stats", None)
-            up = getattr(stats, "prompt_tokens", 0) if stats else 0
-            down = getattr(stats, "eval_tokens", 0) if stats else 0
-            tool_counts = getattr(stats, "tool_call_counts", None) if stats else None
-            tool_summary: str | None = None
-            if tool_counts:
-                top = sorted(tool_counts.items(), key=lambda kv: -kv[1])[:3]
-                tool_summary = " / ".join(f"{name} {n}" for name, n in top if n > 0)
-            # Plan mode is global agent state; read it fresh each
-            # push so a tool-driven Enter/ExitPlanMode immediately
-            # shows up in the TUI.
-            try:
-                from .tools import plan as _plan
-
-                in_plan = _plan.is_plan_mode()
-            except Exception:  # noqa: BLE001
-                in_plan = False
-            gateway.send_event(
-                StatusUpdateEvent(
-                    model=agent.model,
-                    profile=cfg.profile,
-                    elapsed_seconds=_time.time() - session_start,
-                    tokens_up=up,
-                    tokens_down=down,
-                    tool_summary=tool_summary,
-                    plan_mode=in_plan,
-                )
-            )
-        except Exception:  # noqa: BLE001 — never crash on UX writes
-            pass
-
-    # Plan-mode transitions ship an immediate status push to the
-    # TUI so the user sees the read-only indicator the moment the
-    # model calls EnterPlanMode mid-turn (instead of waiting for
-    # the next natural _push_status between turns).
-    try:
-        from .tools import plan as _plan_mod
-
-        _plan_mod.register_plan_mode_listener(lambda _: _push_status())
-    except Exception:  # noqa: BLE001 — registration is best-effort
-        pass
-
-    try:
-        gateway = TuiGateway()
-        gateway.start()
-    except FileNotFoundError as e:
-        sys.stderr.write(f"athena: {e}\n")
-        sys.stderr.write("  Build the bundle with: cd ui-tui && bun run build\n")
-        return 2
-    except RuntimeError as e:
-        sys.stderr.write(f"athena: TUI did not start — {e}\n")
-        return 2
-
-    ui.set_gateway(gateway)
-    try:
-        gateway.send_event(build_banner(model=agent.model, cwd=workspace, cfg=cfg))
-        _push_status()
-        while True:
-            cmd = gateway.recv_command()
-            if cmd is None:
-                # TUI exited (Ctrl-C, /exit, socket closed).
-                break
-            if isinstance(cmd, ConfirmReplyCommand):
-                # Route to the waiting ui.confirm() call. Doesn't
-                # advance the REPL — the agent thread that called
-                # confirm() will unblock and continue its turn.
-                ui._deliver_confirm_reply(cmd.request_id, cmd.accepted)
-                continue
-            if isinstance(cmd, ResizeCommand):
-                # TUI reported a new terminal size. Re-render the
-                # banner so the owl photo matches the new width
-                # (the rest of the banner is sized client-side on
-                # every render via termCols, but the owl pixels
-                # are baked Python-side when the banner is built).
-                try:
-                    gateway.send_event(
-                        build_banner(
-                            model=agent.model,
-                            cwd=workspace,
-                            cfg=cfg,
-                            term_cols=cmd.cols,
-                            term_rows=cmd.rows,
-                        )
-                    )
-                except Exception:  # noqa: BLE001 — never crash on UX writes
-                    pass
-                continue
-            if not isinstance(cmd, UserInputCommand):
-                # Other command types (interrupt) land here;
-                # ignore for now.
-                continue
-            line = cmd.text.strip()
-            if not line:
-                continue
-            # Local echo so the user sees their line in the
-            # transcript before the agent responds. Slash
-            # commands don't echo since their handlers emit
-            # their own user-visible output.
-            if not line.startswith("/"):
-                gateway.send_event(MessageAppendEvent(role="user", content=line))
-            if line.startswith("/"):
-                # Slash commands print user-facing output via
-                # ``console.print``. The bridge only routes
-                # those to the transcript inside this context;
-                # agent-internal ``console.print`` during a
-                # turn stays silent.
-                with ui.user_facing_render():
-                    if not _handle_slash(agent, line):
-                        break
-                _push_status()
-                continue
-            try:
-                agent.run_turn(line)
-            except KeyboardInterrupt:
-                ui.warn("turn interrupted")
-            _push_status()
-    except KeyboardInterrupt:
-        # An ESC that arrives while we're between turns (idle in
-        # recv_command) lands here. Treat it as a no-op — the user
-        # is already at the prompt. Ctrl+C is what truly exits.
-        ui.warn("interrupted")
-    finally:
-        ui.set_gateway(None)
-        gateway.close()
-        shutdown_all()
-        agent.close()
-
-    return 0
+    atexit.register(_restore_terminal)
+    _cp("pre_repl")
+    _rc = _run_interactive_repl(agent, cfg, workspace)
+    _cp("post_repl", rc=_rc)
+    return _rc
 
 
 if __name__ == "__main__":

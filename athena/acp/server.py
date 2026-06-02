@@ -75,6 +75,13 @@ class ACPServer:
         # Tasks spawned by dispatch; cancelled at shutdown.
         self._tasks: set[asyncio.Task] = set()
         self._running = False
+        # Latched True the moment shutdown begins. A request arriving
+        # in the next few microseconds would otherwise spawn a task
+        # that lands in ``_tasks`` AFTER ``_shutdown_tasks`` already
+        # snapshot+cleared the set, orphaning it past the listener
+        # teardown. Same race pattern as the webhook server fix
+        # in commit 822d3a6.
+        self._stopping = False
 
     # ---- registration ----
 
@@ -168,6 +175,21 @@ class ACPServer:
         method = msg.get("method")
         if not isinstance(method, str):
             logger.warning("ignoring message with no method")
+            return
+        # Reject requests that arrive during the shutdown window so
+        # they don't get added to ``_tasks`` after the snapshot+clear
+        # in ``_shutdown_tasks``. Mirrors the webhook server's
+        # _stopping guard (commit 822d3a6).
+        if self._stopping:
+            msg_id = msg.get("id")
+            if msg_id is not None:
+                # Respond with a structured error so the IDE sees a
+                # clean rejection instead of an indefinite hang.
+                await self._send_error(
+                    msg_id,
+                    ERR_INTERNAL,
+                    "server shutting down; request rejected",
+                )
             return
         task = asyncio.create_task(self._dispatch(msg))
         self._tasks.add(task)
@@ -317,6 +339,11 @@ class ACPServer:
         Then resolve every pending client-request future so callers
         blocked in :meth:`send_request` unwind rather than hang.
         """
+        # Latch BEFORE the snapshot so a request arriving in the next
+        # few microseconds sees ``_stopping == True`` in ``_handle_line``
+        # and 503s immediately without adding itself to the set we're
+        # about to drain.
+        self._stopping = True
         tasks = list(self._tasks)
         self._tasks.clear()
         if tasks:

@@ -360,3 +360,71 @@ async def test_dispatch_is_non_blocking() -> None:
     event.set()
     reader.feed_eof()
     await asyncio.wait_for(serve_task, timeout=5.0)
+
+
+# ---- shutdown race (bug 29) ------------------------------------------
+
+
+async def test_request_during_shutdown_returns_internal_error() -> None:
+    """A request arriving after ``_stopping`` is latched (i.e., during
+    the shutdown window) must be rejected with a structured error
+    rather than spawning a task that lands in ``_tasks`` AFTER the
+    snapshot+clear in ``_shutdown_tasks`` (which would orphan it past
+    the listener teardown). Same race pattern as the webhook server
+    fix in commit 822d3a6."""
+    server, reader, writer = _build_server()
+
+    @server.method("ping")
+    async def _ping(_params: dict) -> dict:
+        return {"pong": True}
+
+    # Latch the stopping flag without actually tearing down -- we want
+    # to verify the handler's guard fires, not the full shutdown path.
+    server._stopping = True
+
+    # Feed a request after stopping is latched.
+    await server._handle_line(
+        (json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\n").encode("utf-8")
+    )
+    [msg] = writer.lines
+    assert msg["jsonrpc"] == "2.0"
+    assert msg["id"] == 1
+    assert msg["error"]["code"] == ERR_INTERNAL
+    assert "shutting down" in msg["error"]["message"]
+    # No task was spawned.
+    assert len(server._tasks) == 0
+
+
+async def test_notification_during_shutdown_silently_dropped() -> None:
+    """Notifications (no ``id``) can't be replied to, so they're
+    silently dropped during shutdown rather than producing a
+    response with id=null."""
+    server, _reader, writer = _build_server()
+
+    @server.method("notify")
+    async def _notify(_params: dict) -> dict:
+        return {}
+
+    server._stopping = True
+    await server._handle_line(
+        (
+            json.dumps({"jsonrpc": "2.0", "method": "notify"})  # no id
+            + "\n"
+        ).encode("utf-8")
+    )
+    # No response, no task.
+    assert writer.lines == []
+    assert len(server._tasks) == 0
+
+
+async def test_shutdown_tasks_latches_stopping_before_clear() -> None:
+    """``_shutdown_tasks`` must latch ``_stopping`` BEFORE snapshotting
+    + clearing ``_tasks``. Otherwise a request landing between the
+    snapshot and the next handler call could still spawn a task."""
+    server, _reader, _writer = _build_server()
+
+    # Confirm the flag transitions to True as part of the shutdown
+    # sequence rather than being set elsewhere.
+    assert server._stopping is False
+    await server._shutdown_tasks()
+    assert server._stopping is True

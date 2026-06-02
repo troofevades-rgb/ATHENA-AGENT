@@ -244,13 +244,16 @@
     },
     "StreamEndEvent": {
       "type": "object",
-      "description": "Mark a streaming assistant response complete.",
+      "description": "Mark a streaming assistant response complete. Optional final_text carries the polished view (think blocks stripped, etc.) that the TUI swaps in for the accumulated stream buffer.",
       "properties": {
         "type": {
           "const": "stream.end"
         },
         "stream_id": {
           "type": "string"
+        },
+        "final_text": {
+          "type": ["string", "null"]
         }
       },
       "required": [

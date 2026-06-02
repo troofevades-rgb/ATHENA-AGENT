@@ -15022,9 +15022,12 @@ var SLASH_COMMANDS = [
   { name: "/goal", description: "set/pause/resume/inspect/clear active goal" },
   { name: "/subgoal", description: "append (arg: MSG) or 'done' the next subgoal" },
   { name: "/board", description: "render the kanban (or 'clear' to wipe)" },
+  { name: "/computer", description: "show computer-use status (backend, mode, allow/deny)" },
+  { name: "/skill", description: "import a SKILL.md / dir / archive, or 'reload'" },
   { name: "/video", description: "video backends: list/set/clear" },
   { name: "/theme", description: "TUI palette: list, 'set NAME', or 'save'" },
   { name: "/hooks", description: "list configured hooks" },
+  { name: "/godmode", description: "jailbreak toolkit (gated: ATHENA_ALLOW_GODMODE=1)" },
   { name: "/exit", description: "quit" }
 ];
 function matchSlashCommands(query, limit = 7) {
@@ -15741,15 +15744,6 @@ var import_react25 = __toESM(require_react(), 1);
 
 // src/components/Layout.tsx
 var jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
-function Divider({
-  palette,
-  width = 38
-}) {
-  return /* @__PURE__ */ jsx_runtime9.jsx(Text, {
-    color: palette.primary_faint,
-    children: "─".repeat(Math.max(1, width))
-  });
-}
 function Row({
   label,
   value,
@@ -15777,164 +15771,79 @@ function Row({
 
 // src/components/InfoPanel.tsx
 var jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
-var LABEL_WIDTH_IDENTITY = 7;
-var LABEL_WIDTH_TOOLSET = 8;
+var LABEL_WIDTH = 6;
 function InfoPanel({
   model,
   cwd: cwd2,
   themeName,
-  themeDescription,
-  tools,
   commandsHint,
   palette,
   width,
   height
 }) {
-  const RENDER_SAFETY_MARGIN = 8;
-  const innerW = Math.max(20, (width ?? 60) - 6 - RENDER_SAFETY_MARGIN);
-  const cwdDisplay = elideMiddle(cwd2, innerW - LABEL_WIDTH_IDENTITY);
-  const overflow = tools.find((t) => t.name === "…");
-  const visibleTools = tools.filter((t) => t.name !== "…");
+  const innerW = Math.max(20, (width ?? 60) - 2);
+  const cwdDisplay = elideMiddle(cwd2, innerW - LABEL_WIDTH);
   return /* @__PURE__ */ jsx_runtime10.jsxs(Box_default, {
-    borderStyle: "round",
-    borderColor: palette.primary_faint,
     flexDirection: "column",
-    paddingX: 2,
-    paddingY: 1,
+    justifyContent: "center",
+    paddingX: 1,
     ...width ? { width } : { flexGrow: 1 },
     ...height ? { height } : {},
     children: [
       /* @__PURE__ */ jsx_runtime10.jsxs(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_runtime10.jsxs(Text, {
+          /* @__PURE__ */ jsx_runtime10.jsx(Text, {
+            color: palette.accent,
+            children: "✦ "
+          }),
+          /* @__PURE__ */ jsx_runtime10.jsx(Text, {
             bold: true,
             color: palette.accent,
-            children: [
-              "athena",
-              " "
-            ]
+            children: "athena"
           }),
           /* @__PURE__ */ jsx_runtime10.jsx(Text, {
             italic: true,
             color: palette.primary_dim,
-            children: "· local agentic coder"
+            children: "  ·  local agentic coder"
           })
         ]
-      }),
-      /* @__PURE__ */ jsx_runtime10.jsx(Divider, {
-        palette,
-        width: innerW
-      }),
-      /* @__PURE__ */ jsx_runtime10.jsx(Row, {
-        palette,
-        label: "model",
-        value: model,
-        labelWidth: LABEL_WIDTH_IDENTITY,
-        valueColor: palette.accent
-      }),
-      /* @__PURE__ */ jsx_runtime10.jsx(Row, {
-        palette,
-        label: "cwd",
-        value: cwdDisplay,
-        labelWidth: LABEL_WIDTH_IDENTITY,
-        valueColor: palette.primary_dim
-      }),
-      /* @__PURE__ */ jsx_runtime10.jsx(Row, {
-        palette,
-        label: "theme",
-        value: themeName,
-        labelWidth: LABEL_WIDTH_IDENTITY,
-        valueColor: palette.primary
-      }),
-      themeDescription && themeDescription.length > 0 && /* @__PURE__ */ jsx_runtime10.jsx(Box_default, {
-        children: /* @__PURE__ */ jsx_runtime10.jsxs(Text, {
-          italic: true,
-          color: palette.primary_dim,
-          children: [
-            " ".repeat(LABEL_WIDTH_IDENTITY),
-            elideTail(themeDescription, Math.max(8, innerW - LABEL_WIDTH_IDENTITY))
-          ]
-        })
-      }),
-      /* @__PURE__ */ jsx_runtime10.jsx(Divider, {
-        palette,
-        width: innerW
-      }),
-      /* @__PURE__ */ jsx_runtime10.jsx(SectionHeader, {
-        palette,
-        label: "tools"
-      }),
-      visibleTools.map((toolset) => {
-        const hidden = toolset.hidden_count ?? 0;
-        let value = toolset.tools.join(" · ");
-        if (hidden > 0)
-          value += `  +${hidden}`;
-        const budget = innerW - LABEL_WIDTH_TOOLSET - 2;
-        return /* @__PURE__ */ jsx_runtime10.jsx(Row, {
-          palette,
-          label: toolset.name,
-          value: elideTail(value, budget),
-          labelWidth: LABEL_WIDTH_TOOLSET,
-          labelColor: palette.primary_dim,
-          valueColor: palette.primary_dim
-        }, toolset.name);
-      }),
-      overflow && /* @__PURE__ */ jsx_runtime10.jsxs(Box_default, {
-        marginTop: 0,
-        children: [
-          /* @__PURE__ */ jsx_runtime10.jsxs(Text, {
-            color: palette.accent_dim,
-            children: [
-              "+",
-              overflow.hidden_count,
-              " hidden"
-            ]
-          }),
-          /* @__PURE__ */ jsx_runtime10.jsx(Text, {
-            color: palette.primary_faint,
-            children: elideTail(overflow.tools.join(" · "), innerW - String(`+${overflow.hidden_count} hidden  `).length)
-          })
-        ]
-      }),
-      /* @__PURE__ */ jsx_runtime10.jsx(Divider, {
-        palette,
-        width: innerW
       }),
       /* @__PURE__ */ jsx_runtime10.jsxs(Box_default, {
+        marginTop: 1,
+        flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsx_runtime10.jsx(SectionHeader, {
+          /* @__PURE__ */ jsx_runtime10.jsx(Row, {
             palette,
-            label: "commands"
+            label: "model",
+            value: model,
+            labelWidth: LABEL_WIDTH,
+            labelColor: palette.primary_faint,
+            valueColor: palette.primary
           }),
-          /* @__PURE__ */ jsx_runtime10.jsxs(Text, {
-            color: palette.primary_dim,
-            children: [
-              "  ",
-              elideTail(commandsHint, innerW - 12)
-            ]
+          /* @__PURE__ */ jsx_runtime10.jsx(Row, {
+            palette,
+            label: "cwd",
+            value: cwdDisplay,
+            labelWidth: LABEL_WIDTH,
+            labelColor: palette.primary_faint,
+            valueColor: palette.primary_dim
+          }),
+          /* @__PURE__ */ jsx_runtime10.jsx(Row, {
+            palette,
+            label: "theme",
+            value: themeName,
+            labelWidth: LABEL_WIDTH,
+            labelColor: palette.primary_faint,
+            valueColor: palette.primary_dim
           })
         ]
-      })
-    ]
-  });
-}
-function SectionHeader({
-  palette,
-  label
-}) {
-  return /* @__PURE__ */ jsx_runtime10.jsxs(Text, {
-    children: [
-      /* @__PURE__ */ jsx_runtime10.jsx(Text, {
-        color: palette.accent,
-        children: "▎"
       }),
-      /* @__PURE__ */ jsx_runtime10.jsxs(Text, {
-        bold: true,
-        color: palette.accent,
-        children: [
-          " ",
-          label
-        ]
+      /* @__PURE__ */ jsx_runtime10.jsx(Box_default, {
+        marginTop: 1,
+        children: /* @__PURE__ */ jsx_runtime10.jsx(Text, {
+          color: palette.primary_faint,
+          children: elideTail(commandsHint, innerW)
+        })
       })
     ]
   });
@@ -15980,6 +15889,16 @@ function tone(ch) {
   if ("#@%*:;-.,".includes(ch))
     return "body";
   return "field";
+}
+function isBrailleArt(art) {
+  for (const line of art) {
+    for (const ch of line) {
+      const c = ch.codePointAt(0) ?? 0;
+      if (c >= 10240 && c <= 10495)
+        return true;
+    }
+  }
+  return false;
 }
 function downscaleArt(rows, maxW, maxH) {
   if (rows.length === 0 || maxW <= 0 || maxH <= 0)
@@ -16074,11 +15993,26 @@ function AsciiOwl({
   maxHeight,
   height
 }) {
+  const braille = isBrailleArt(art);
   const innerW = Math.max(1, width - 4);
   const innerH = Math.max(1, maxHeight - 2);
-  const rendered = import_react24.useMemo(() => downscaleArt(art, innerW, innerH), [art, innerW, innerH]);
+  const rendered = import_react24.useMemo(() => braille ? art : downscaleArt(art, innerW, innerH), [art, innerW, innerH, braille]);
   if (rendered.length === 0)
     return null;
+  if (braille) {
+    const lines2 = rendered.map((row, i) => /* @__PURE__ */ jsx_runtime11.jsx(Box_default, {
+      children: /* @__PURE__ */ jsx_runtime11.jsx(Text, {
+        color: palette.primary,
+        children: row
+      })
+    }, i));
+    return /* @__PURE__ */ jsx_runtime11.jsx(Box_default, {
+      flexDirection: "column",
+      justifyContent: "center",
+      ...height ? { height } : {},
+      children: lines2
+    });
+  }
   const lines = rendered.map((row, rowIdx) => {
     const spans = [];
     let runStart = 0;
@@ -16140,255 +16074,48 @@ function Owl({
   });
 }
 
-// src/components/Wordmark.tsx
-var jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
-var _LETTER_A = [
-  " ┏━━━┓ ",
-  " ┃░░░┃ ",
-  " ┃░░░┃ ",
-  " ┣━━━┫ ",
-  " ┃░░░┃ ",
-  " ╹░░░╹ "
-];
-var _LETTER_T = [
-  "━━━━━━━",
-  "░░░╻░░░",
-  "░░░┃░░░",
-  "░░░┃░░░",
-  "░░░┃░░░",
-  "░░░╹░░░"
-];
-var _LETTER_H = [
-  " ╻░░░╻ ",
-  " ┃░░░┃ ",
-  " ┃░░░┃ ",
-  " ┣━━━┫ ",
-  " ┃░░░┃ ",
-  " ╹░░░╹ "
-];
-var _LETTER_E = [
-  " ┏━━━┓ ",
-  " ┃░░░╹ ",
-  " ┣━━━╸ ",
-  " ┃░░░░ ",
-  " ┃░░░╻ ",
-  " ┗━━━┛ "
-];
-var _LETTER_N = [
-  " ╻░░░╻ ",
-  " ┃╲░░┃ ",
-  " ┃░╲░┃ ",
-  " ┃░░╲┃ ",
-  " ┃░░░┃ ",
-  " ╹░░░╹ "
-];
-var _WORDMARK_LETTERS = [_LETTER_A, _LETTER_T, _LETTER_H, _LETTER_E, _LETTER_N, _LETTER_A];
-var WORDMARK_ROWS = Array.from({ length: 6 }, (_, rowIdx) => _WORDMARK_LETTERS.map((letter) => letter[rowIdx] ?? "").join(" "));
-var BREAKPOINT_WIDE = 56;
-var BREAKPOINT_MEDIUM = 26;
-function Wordmark({
-  palette,
-  termCols
-}) {
-  if (termCols >= BREAKPOINT_WIDE)
-    return /* @__PURE__ */ jsx_runtime12.jsx(WordmarkFull, {
-      palette
-    });
-  if (termCols >= BREAKPOINT_MEDIUM)
-    return /* @__PURE__ */ jsx_runtime12.jsx(WordmarkMedium, {
-      palette
-    });
-  return /* @__PURE__ */ jsx_runtime12.jsx(WordmarkNarrow, {
-    palette
-  });
-}
-var SHADOW_GLYPHS = new Set([
-  "░"
-]);
-var LETTER_RANGES = [
-  [0, 7],
-  [8, 15],
-  [16, 23],
-  [24, 31],
-  [32, 39],
-  [40, 47]
-];
-function _letterAt(col) {
-  for (let i = 0;i < LETTER_RANGES.length; i++) {
-    const range2 = LETTER_RANGES[i];
-    if (!range2)
-      continue;
-    const [start, end] = range2;
-    if (col >= start && col < end)
-      return i;
-  }
-  return -1;
-}
-function _segmentRow(row) {
-  const out = [];
-  let cur = "";
-  let curKind = null;
-  let curLetter = null;
-  for (let i = 0;i < row.length; i++) {
-    const ch = row[i] ?? " ";
-    const kind = ch === " " ? "space" : SHADOW_GLYPHS.has(ch) ? "shadow" : "block";
-    const letterIdx = _letterAt(i);
-    if (cur && (kind !== curKind || letterIdx !== curLetter)) {
-      out.push({ text: cur, kind: curKind, letterIdx: curLetter });
-      cur = "";
-    }
-    cur += ch;
-    curKind = kind;
-    curLetter = letterIdx;
-  }
-  if (cur) {
-    out.push({ text: cur, kind: curKind, letterIdx: curLetter });
-  }
-  return out;
-}
-function WordmarkFull({ palette }) {
-  const tick = useTicker(500);
-  const gradient = palette.gradient && palette.gradient.length >= 3 ? palette.gradient : [
-    palette.accent,
-    palette.primary,
-    palette.primary_dim,
-    palette.primary,
-    palette.accent
-  ];
-  const blockColor = (letterIdx) => {
-    if (letterIdx < 0)
-      return palette.accent;
-    const idx = (letterIdx + tick) % gradient.length;
-    return gradient[idx] ?? palette.accent;
-  };
-  const shadowColor = palette.primary_faint || palette.primary_dim;
-  return /* @__PURE__ */ jsx_runtime12.jsx(Box_default, {
-    flexDirection: "column",
-    alignItems: "center",
-    children: WORDMARK_ROWS.map((row, rowIdx) => {
-      const segs = _segmentRow(row);
-      return /* @__PURE__ */ jsx_runtime12.jsx(Text, {
-        children: segs.map((s, j) => {
-          if (s.kind === "space") {
-            return /* @__PURE__ */ jsx_runtime12.jsx(Text, {
-              children: s.text
-            }, j);
-          }
-          if (s.kind === "shadow") {
-            return /* @__PURE__ */ jsx_runtime12.jsx(Text, {
-              color: shadowColor,
-              children: s.text
-            }, j);
-          }
-          return /* @__PURE__ */ jsx_runtime12.jsx(Text, {
-            bold: true,
-            color: blockColor(s.letterIdx),
-            children: s.text
-          }, j);
-        })
-      }, rowIdx);
-    })
-  });
-}
-function WordmarkMedium({ palette }) {
-  return /* @__PURE__ */ jsx_runtime12.jsx(Box_default, {
-    justifyContent: "center",
-    children: /* @__PURE__ */ jsx_runtime12.jsxs(Text, {
-      bold: true,
-      color: palette.accent,
-      children: [
-        "▰▰",
-        "  ",
-        "A T H E N A",
-        "  ",
-        "▰▰"
-      ]
-    })
-  });
-}
-function WordmarkNarrow({ palette }) {
-  return /* @__PURE__ */ jsx_runtime12.jsx(Box_default, {
-    justifyContent: "center",
-    children: /* @__PURE__ */ jsx_runtime12.jsx(Text, {
-      bold: true,
-      color: palette.accent,
-      children: "athena"
-    })
-  });
-}
-
 // src/components/Banner.tsx
-var jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
-var SPRAY_CAP = "▒▒";
-var SPRAY_FILL_MAX = 46;
-var SPRAY_FILL_MIN = 12;
+var jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 var MIN_OWL_WIDTH = 32;
 var PANEL_HEIGHT_FALLBACK = 22;
+var MIN_PANEL_ROWS = 9;
 function _Banner({
   event,
-  termCols,
-  termRows
+  termCols
 }) {
   const palette = event.palette ?? defaultPalette();
-  const sideBySide = termCols >= MIN_OWL_WIDTH * 2 + 4 && event.owl_pixels !== null;
-  const panelHeight = Math.max(PANEL_HEIGHT_FALLBACK, event.owl_pixels ? event.owl_pixels.height + 2 : PANEL_HEIGHT_FALLBACK);
+  const hasOwl = event.owl_pixels !== null || (event.owl_art?.length ?? 0) > 0;
+  const owlArtW = event.owl_art && event.owl_art.length > 0 ? Math.max(...event.owl_art.map((r) => r.length)) : 0;
+  const owlArtH = event.owl_art?.length ?? 0;
   const OUTER_PADDING = 2;
-  const GAP = 1;
-  const owlPanelOuterW = sideBySide && event.owl_pixels ? event.owl_pixels.width + 4 : 0;
+  const GAP = 3;
+  const owlNeed = event.owl_pixels ? MIN_OWL_WIDTH * 2 + 4 : owlArtW + GAP + 30 + OUTER_PADDING;
+  const sideBySide = hasOwl && termCols >= owlNeed;
+  const panelHeight = event.owl_pixels ? Math.max(PANEL_HEIGHT_FALLBACK, event.owl_pixels.height + 2) : Math.max(owlArtH, MIN_PANEL_ROWS);
+  const owlPanelOuterW = sideBySide ? event.owl_pixels ? event.owl_pixels.width + 4 : owlArtW : 0;
   const infoPanelOuterW = sideBySide ? Math.max(30, termCols - owlPanelOuterW - GAP - OUTER_PADDING) : Math.max(30, termCols - OUTER_PADDING);
-  return /* @__PURE__ */ jsx_runtime13.jsxs(Box_default, {
-    flexDirection: "column",
+  return /* @__PURE__ */ jsx_runtime12.jsxs(Box_default, {
+    marginTop: 1,
+    flexDirection: "row",
+    gap: 3,
+    alignItems: "center",
     children: [
-      /* @__PURE__ */ jsx_runtime13.jsx(Wordmark, {
+      sideBySide && /* @__PURE__ */ jsx_runtime12.jsx(Owl, {
+        art: event.owl_art,
+        pixels: event.owl_pixels,
         palette,
-        termCols
+        width: owlArtW + 4,
+        maxHeight: panelHeight,
+        height: panelHeight
       }),
-      /* @__PURE__ */ jsx_runtime13.jsx(Box_default, {
-        alignItems: "center",
-        justifyContent: "center",
-        children: /* @__PURE__ */ jsx_runtime13.jsxs(Text, {
-          children: [
-            /* @__PURE__ */ jsx_runtime13.jsx(Text, {
-              color: palette.primary_faint,
-              children: SPRAY_CAP
-            }),
-            /* @__PURE__ */ jsx_runtime13.jsx(Text, {
-              color: palette.primary,
-              children: "█".repeat(Math.max(SPRAY_FILL_MIN, Math.min(SPRAY_FILL_MAX, termCols - 8)))
-            }),
-            /* @__PURE__ */ jsx_runtime13.jsx(Text, {
-              color: palette.primary_faint,
-              children: SPRAY_CAP
-            })
-          ]
-        })
-      }),
-      /* @__PURE__ */ jsx_runtime13.jsxs(Box_default, {
-        marginTop: 1,
-        flexDirection: "row",
-        gap: 1,
-        alignItems: "flex-start",
-        children: [
-          sideBySide && /* @__PURE__ */ jsx_runtime13.jsx(Owl, {
-            art: event.owl_art,
-            pixels: event.owl_pixels,
-            palette,
-            width: Math.floor((termCols - 4) / 2),
-            maxHeight: panelHeight,
-            height: panelHeight
-          }),
-          /* @__PURE__ */ jsx_runtime13.jsx(InfoPanel, {
-            model: event.model,
-            cwd: event.cwd,
-            themeName: palette.name,
-            themeDescription: palette.description,
-            tools: event.tools,
-            commandsHint: event.commands_hint,
-            palette,
-            height: panelHeight,
-            width: infoPanelOuterW
-          })
-        ]
+      /* @__PURE__ */ jsx_runtime12.jsx(InfoPanel, {
+        model: event.model,
+        cwd: event.cwd,
+        themeName: palette.name,
+        commandsHint: event.commands_hint,
+        palette,
+        height: panelHeight,
+        width: infoPanelOuterW
       })
     ]
   });
@@ -16408,31 +16135,31 @@ function defaultPalette() {
 var Banner = import_react25.default.memo(_Banner);
 
 // src/components/Nameplate.tsx
-var jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 function Nameplate({
   banner,
   palette
 }) {
-  return /* @__PURE__ */ jsx_runtime14.jsxs(Box_default, {
+  return /* @__PURE__ */ jsx_runtime13.jsxs(Box_default, {
     children: [
-      /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
         bold: true,
         color: palette.primary,
         children: "██ athena"
       }),
-      /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
         color: palette.primary_dim,
         children: " · "
       }),
-      /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
         color: palette.accent,
         children: banner.model
       }),
-      /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
         color: palette.primary_dim,
         children: " · "
       }),
-      /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
         color: palette.primary,
         children: palette.name
       })
@@ -16441,7 +16168,7 @@ function Nameplate({
 }
 
 // src/components/PulsingCursor.tsx
-var jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 function PulsingCursor({
   lastDeltaAtMs,
   solidWindowMs = 400,
@@ -16452,13 +16179,13 @@ function PulsingCursor({
     return null;
   const ageMs = performance.now() - lastDeltaAtMs;
   if (ageMs < solidWindowMs) {
-    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
       color,
       children: "▌"
     });
   }
   const visible = tick % 2 === 0;
-  return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+  return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
     color,
     children: visible ? "▌" : " "
   });
@@ -16532,7 +16259,7 @@ function parseInline(text) {
 }
 
 // src/components/Transcript.tsx
-var jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 function Transcript({
   banner,
   lines,
@@ -16564,57 +16291,57 @@ function Transcript({
   const scrolledUp = scrollOffset > 0;
   const streamTail = streamReserve > 0 ? streamingRows.slice(-streamReserve) : [];
   if (!hasConversation) {
-    return /* @__PURE__ */ jsx_runtime16.jsxs(Box_default, {
+    return /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
       flexDirection: "column",
       flexGrow: 1,
       overflow: "hidden",
       children: [
-        banner && palette ? /* @__PURE__ */ jsx_runtime16.jsx(Banner, {
+        banner && palette ? /* @__PURE__ */ jsx_runtime15.jsx(Banner, {
           event: banner,
           termCols,
           termRows: headerHeight
-        }) : /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+        }) : /* @__PURE__ */ jsx_runtime15.jsx(Text, {
           dimColor: true,
           children: "connecting to gateway…"
         }),
-        /* @__PURE__ */ jsx_runtime16.jsx(Box_default, {
+        /* @__PURE__ */ jsx_runtime15.jsx(Box_default, {
           flexGrow: 1
         }),
-        banner && palette && /* @__PURE__ */ jsx_runtime16.jsxs(Box_default, {
+        banner && palette && /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
           flexDirection: "column",
           marginBottom: 1,
           paddingX: 2,
           children: [
-            /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+            /* @__PURE__ */ jsx_runtime15.jsx(Text, {
               color: palette.primary_dim,
               children: "try one of these to get started:"
             }),
-            /* @__PURE__ */ jsx_runtime16.jsxs(Box_default, {
+            /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
               marginTop: 1,
               flexDirection: "column",
               children: [
-                /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                   color: palette.accent_dim,
                   children: [
                     "  ",
                     "explain what this project does"
                   ]
                 }),
-                /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                   color: palette.accent_dim,
                   children: [
                     "  ",
                     "@ATHENA.md what should I know before touching the agent loop?"
                   ]
                 }),
-                /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                   color: palette.accent_dim,
                   children: [
                     "  ",
                     "/plan refactor the X module"
                   ]
                 }),
-                /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                   color: palette.accent_dim,
                   children: [
                     "  ",
@@ -16623,12 +16350,12 @@ function Transcript({
                 })
               ]
             }),
-            /* @__PURE__ */ jsx_runtime16.jsxs(Box_default, {
+            /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
               marginTop: 1,
               flexDirection: "column",
               alignItems: "center",
               children: [
-                /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                   color: palette.primary_faint,
                   children: [
                     "Enter sends · Shift+Enter newline · Tab completes",
@@ -16636,7 +16363,7 @@ function Transcript({
                     "↑↓ history · Ctrl+R search"
                   ]
                 }),
-                /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+                /* @__PURE__ */ jsx_runtime15.jsx(Text, {
                   color: palette.primary_faint,
                   children: "Shift+↑↓ or PageUp/Dn to scroll · Esc interrupt · Ctrl+C exit"
                 })
@@ -16647,19 +16374,19 @@ function Transcript({
       ]
     });
   }
-  return /* @__PURE__ */ jsx_runtime16.jsxs(Box_default, {
+  return /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
     flexDirection: "column",
     flexGrow: 1,
     overflow: "hidden",
     children: [
-      banner && palette && /* @__PURE__ */ jsx_runtime16.jsx(Nameplate, {
+      banner && palette && /* @__PURE__ */ jsx_runtime15.jsx(Nameplate, {
         banner,
         palette
       }),
-      /* @__PURE__ */ jsx_runtime16.jsx(Box_default, {
+      /* @__PURE__ */ jsx_runtime15.jsx(Box_default, {
         flexGrow: 1
       }),
-      moreAbove > 0 && /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+      moreAbove > 0 && /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
         color: palette?.primary_faint ?? "gray",
         dimColor: true,
         children: [
@@ -16671,9 +16398,9 @@ function Transcript({
         ]
       }),
       visibleLines.map((line) => renderLine(line, palette, promptColor)),
-      streamTail.length > 0 && /* @__PURE__ */ jsx_runtime16.jsxs(jsx_runtime16.Fragment, {
+      streamTail.length > 0 && /* @__PURE__ */ jsx_runtime15.jsxs(jsx_runtime15.Fragment, {
         children: [
-          streamTail.map((row, i) => /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+          streamTail.map((row, i) => /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
             color: "white",
             children: [
               i === 0 ? "" : "   ",
@@ -16681,13 +16408,13 @@ function Transcript({
               row
             ]
           }, `s${i}`)),
-          /* @__PURE__ */ jsx_runtime16.jsx(PulsingCursor, {
+          /* @__PURE__ */ jsx_runtime15.jsx(PulsingCursor, {
             lastDeltaAtMs,
             color: "white"
           })
         ]
       }),
-      moreBelow > 0 && /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+      moreBelow > 0 && /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
         color: palette?.accent ?? "yellow",
         dimColor: true,
         children: [
@@ -16703,33 +16430,33 @@ function Transcript({
 }
 function renderLine(line, palette, promptColor) {
   if (line.role === "separator") {
-    return /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: palette?.primary_faint ?? "gray",
       children: line.content
     }, line.key);
   }
   if (line.role === "assistant") {
     const segments = parseInline(line.content);
-    return /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
       color: "white",
       children: [
         "   ",
         segments.map((s, i) => {
           const segKey = `${line.key}-${i}`;
           if (s.code) {
-            return /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+            return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
               color: palette?.accent_dim ?? "yellow",
               children: s.text
             }, segKey);
           }
           if (s.url) {
-            return /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+            return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
               color: palette?.accent ?? "cyan",
               underline: true,
               children: s.text
             }, segKey);
           }
-          return /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+          return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
             bold: s.bold ?? false,
             italic: s.italic ?? false,
             children: s.text
@@ -16740,7 +16467,7 @@ function renderLine(line, palette, promptColor) {
   }
   if (line.role === "tool") {
     const isHeader = line.content.startsWith("> ");
-    return /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
       color: isHeader ? palette?.accent_dim ?? "yellow" : palette?.primary_dim ?? "gray",
       bold: isHeader,
       children: [
@@ -16750,13 +16477,13 @@ function renderLine(line, palette, promptColor) {
     }, line.key);
   }
   if (line.role === "code") {
-    return /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
       children: [
-        /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+        /* @__PURE__ */ jsx_runtime15.jsx(Text, {
           color: palette?.accent_dim ?? "yellow",
           children: "   │ "
         }),
-        /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+        /* @__PURE__ */ jsx_runtime15.jsx(Text, {
           color: palette?.accent ?? "cyan",
           children: line.content
         })
@@ -16764,33 +16491,33 @@ function renderLine(line, palette, promptColor) {
     }, line.key);
   }
   if (line.role === "diff-add") {
-    return /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: "green",
       children: line.content
     }, line.key);
   }
   if (line.role === "diff-del") {
-    return /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: "red",
       children: line.content
     }, line.key);
   }
   if (line.role === "diff-hunk") {
-    return /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: palette?.accent_dim ?? "yellow",
       bold: true,
       children: line.content
     }, line.key);
   }
   if (line.role === "diff-file") {
-    return /* @__PURE__ */ jsx_runtime16.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: palette?.primary_faint ?? "gray",
       bold: true,
       children: line.content
     }, line.key);
   }
   if (line.role === "user") {
-    return /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
       color: promptColor,
       children: [
         "▸▸ ",
@@ -16798,7 +16525,7 @@ function renderLine(line, palette, promptColor) {
       ]
     }, line.key);
   }
-  return /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
+  return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
     color: palette?.primary_dim ?? "gray",
     children: [
       ".  ",
@@ -17542,7 +17269,8 @@ function reduceEvent(state, event) {
       if (e.stream_id !== state.streamId)
         return state;
       const rawText = state.streaming + (state._streamFilter.tail || "");
-      const finalText = rawText.replace(/·\s*\(thought\)\s*/g, "").trim();
+      const fallbackText = rawText.replace(/·\s*\(thought\)\s*/g, "").trim();
+      const finalText = (e.final_text ?? fallbackText).trim();
       const hasContent = finalText.length > 0;
       const wasAtBottom = state.scrollOffset === 0;
       let newLines = state.lines;
@@ -17811,7 +17539,7 @@ function connectGateway() {
 }
 
 // src/main.tsx
-var jsx_runtime17 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 function App2() {
   const { exit } = use_app_default();
   const { cols, rows } = useStdoutSize();
@@ -18098,7 +17826,7 @@ function App2() {
       dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + vb });
       return;
     }
-    if (key.pageDown || key.ctrl && typedChar === "d" && editor.text === "") {
+    if (key.pageDown) {
       const vb = computeVisibleBudget();
       dispatch({ type: "SET_SCROLL", offset: state.scrollOffset - vb });
       return;
@@ -18185,6 +17913,11 @@ function App2() {
       exit();
       return;
     }
+    if (key.ctrl && typedChar === "d" && editor.text === "") {
+      client.sendCommand({ type: "interrupt" });
+      exit();
+      return;
+    }
     if (key.leftArrow)
       return editor.moveLeft();
     if (key.rightArrow)
@@ -18241,12 +17974,12 @@ function App2() {
     return Math.max(4, rows - reserved - 1);
   }
   const visibleBudget = computeVisibleBudget();
-  return /* @__PURE__ */ jsx_runtime17.jsxs(Box_default, {
+  return /* @__PURE__ */ jsx_runtime16.jsxs(Box_default, {
     flexDirection: "column",
     height: rows,
     paddingX: 1,
     children: [
-      /* @__PURE__ */ jsx_runtime17.jsx(Transcript, {
+      /* @__PURE__ */ jsx_runtime16.jsx(Transcript, {
         banner: state.banner,
         lines: state.lines,
         streaming: state.streaming,
@@ -18257,7 +17990,7 @@ function App2() {
         termRows: rows,
         lastDeltaAtMs: lastDeltaAt.current
       }),
-      /* @__PURE__ */ jsx_runtime17.jsx(Composer, {
+      /* @__PURE__ */ jsx_runtime16.jsx(Composer, {
         banner: state.banner,
         status: state.status,
         toolLane: state.toolLane,
@@ -18286,4 +18019,4 @@ function turnSeparator() {
   const ss = String(now2.getSeconds()).padStart(2, "0");
   return `── ${hh}:${mm}:${ss} ──`;
 }
-render_default(/* @__PURE__ */ jsx_runtime17.jsx(App2, {}));
+render_default(/* @__PURE__ */ jsx_runtime16.jsx(App2, {}));

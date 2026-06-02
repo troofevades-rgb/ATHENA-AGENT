@@ -540,6 +540,7 @@ def _run(
         },
         "required": ["path"],
     },
+    parallel_safe=True,
 )
 def document_analyze(**kwargs: Any) -> str:
     return _run(**kwargs)

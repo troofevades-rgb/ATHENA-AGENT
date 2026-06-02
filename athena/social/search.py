@@ -64,6 +64,7 @@ _DEFAULT_MAX_RESULTS = 20
         },
         "required": ["query"],
     },
+    parallel_safe=True,
 )
 def search_x(
     query: str = "",

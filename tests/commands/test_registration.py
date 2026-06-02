@@ -27,6 +27,7 @@ EXPECTED_SLASH_COMMANDS: dict[str, str] = {
     "cwd": "athena/commands/cwd.py",
     "dump": "athena/commands/dump.py",
     "goal": "athena/commands/goal.py",
+    "godmode": "athena/commands/godmode.py",
     "help": "athena/commands/help.py",
     "hooks": "athena/commands/hooks.py",
     "init": "athena/commands/init.py",
@@ -90,9 +91,14 @@ def test_help_does_not_advertise_unregistered_commands():
     from athena.commands import get_command
 
     # Extract every ``/word`` token from the help text and verify
-    # each resolves. Skip /exit / /quit since those are dispatched
-    # inline in __main__.py, not via the @command decorator.
-    inline_only = {"exit", "quit", "q", "plan-exit", "loop-stop"}
+    # each resolves. Only ``/exit /quit /q`` are dispatched inline
+    # in ``__main__.py:_handle_slash`` -- they signal "break the
+    # outer REPL loop" by returning False, which the @command
+    # return contract can't express. Everything else, including
+    # ``plan-exit`` and ``loop-stop``, is registered via the
+    # decorator (verified by _ACTUAL_INLINE_REPL_COMMANDS pin
+    # below).
+    inline_only = _ACTUAL_INLINE_REPL_COMMANDS
     seen = set(
         re.findall(
             r"^/([\w-]+)",
@@ -109,3 +115,73 @@ def test_help_does_not_advertise_unregistered_commands():
         f"SLASH_HELP advertises commands that aren't registered: "
         f"{missing}. Either register them or remove from help."
     )
+
+
+# The single inline-dispatch exception in ``__main__.py:_handle_slash``.
+# Every other slash command goes through ``commands.get_command(name)``.
+# Pinned so a future "let me just inline one more for convenience"
+# refactor breaks the test instead of silently fragmenting the
+# dispatch architecture.
+_ACTUAL_INLINE_REPL_COMMANDS: frozenset[str] = frozenset({"exit", "quit", "q"})
+
+
+def test_repl_dispatcher_has_only_documented_inline_exception():
+    """The slash-dispatch architecture is single-path: every command
+    goes through ``commands.get_command()`` EXCEPT ``/exit /quit /q``,
+    which inline-return False to break the REPL loop.
+
+    Without this pin, a future shortcut ("let me just add this one
+    inline for performance") would silently fragment the dispatch
+    surface. ATHENA.md documents the single-exception design;
+    this test enforces it.
+
+    Implementation: parse ``_handle_slash`` source, extract the
+    ``cmd in (...)`` literal that gates the inline branch, and
+    assert it matches the documented set.
+    """
+    import ast
+    import inspect
+
+    import athena.__main__ as main_mod
+
+    src = inspect.getsource(main_mod._handle_slash)
+    tree = ast.parse(src)
+
+    # Find every ``Compare`` node testing ``cmd <op> ...`` for
+    # equality / membership. The inline branch is the only ``cmd in
+    # (...)`` / ``cmd == ...`` check in the function before the
+    # registry lookup.
+    inline_commands: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare):
+            continue
+        if not (isinstance(node.left, ast.Name) and node.left.id == "cmd"):
+            continue
+        for op, comparator in zip(node.ops, node.comparators):
+            if isinstance(op, (ast.Eq, ast.In)):
+                if isinstance(comparator, ast.Constant) and isinstance(comparator.value, str):
+                    inline_commands.add(comparator.value)
+                elif isinstance(comparator, ast.Tuple):
+                    for elt in comparator.elts:
+                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                            inline_commands.add(elt.value)
+
+    assert inline_commands == set(_ACTUAL_INLINE_REPL_COMMANDS), (
+        f"_handle_slash inline-dispatches {inline_commands}, but the "
+        f"documented single-exception set is "
+        f"{set(_ACTUAL_INLINE_REPL_COMMANDS)}. Either route the new "
+        "command through the @command registry or update "
+        "_ACTUAL_INLINE_REPL_COMMANDS + ATHENA.md to reflect the new "
+        "architecture."
+    )
+
+
+def test_plan_exit_and_loop_stop_are_registered_not_inline():
+    """Regression pin for a stale-docs trap: the older test treated
+    ``plan-exit`` and ``loop-stop`` as inline, but both are
+    registered via ``@command``. Without this pin the registration
+    check could silently skip them."""
+    from athena.commands import get_command
+
+    assert get_command("plan-exit") is not None
+    assert get_command("loop-stop") is not None

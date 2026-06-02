@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import re
 import sys
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -428,9 +430,39 @@ def _emit_flash(level: str, text: str) -> bool:
         return False
 
 
+# Thread-local mute. When set, ``info``/``warn`` are swallowed on the
+# CURRENT thread only — used to silence a forked sub-agent's
+# construction-time startup chatter ("inherited SYSTEM", "loaded
+# ATHENA.md", "loaded skills catalog") which Agent.__init__ emits.
+# Forks build their child agent synchronously on the calling thread
+# BEFORE entering their stdout-redirect, so without this the child's
+# boot messages leak to the console (a duplicate banner at startup
+# when the curator/review fork fires). Thread-local (not a module
+# global) so muting the fork-spawning thread never suppresses the
+# main thread's legitimate concurrent output. Errors are never muted.
+_mute_state = threading.local()
+
+
+def _muted() -> bool:
+    return bool(getattr(_mute_state, "on", False))
+
+
+@contextlib.contextmanager
+def muted() -> Iterator[None]:
+    """Suppress ``info``/``warn`` on the current thread for the block."""
+    prev = getattr(_mute_state, "on", False)
+    _mute_state.on = True
+    try:
+        yield
+    finally:
+        _mute_state.on = prev
+
+
 def info(msg: str) -> None:
     # In TUI mode: ephemeral toast above the prompt. In Rich
     # mode: console line as before.
+    if _muted():
+        return
     if _emit_flash("info", msg):
         return
     console.print(f"[{LIME_DIM}]·[/] [dim]{msg}[/]")
@@ -439,6 +471,8 @@ def info(msg: str) -> None:
 def warn(msg: str) -> None:
     # In TUI mode: ephemeral toast (level=warn). Persistent
     # failures should use ``ui.error`` instead.
+    if _muted():
+        return
     if _emit_flash("warn", msg):
         return
     console.print(f"[yellow]![/] [yellow]{msg}[/]")
@@ -743,20 +777,18 @@ def _strip_think_blocks(text: str) -> str:
     thought doesn't appear in the polished view. Open / unclosed think
     blocks (rare on a clean finalize but possible on interrupt) get
     truncated at the opener.
-    """
-    import re as _re
 
-    out = _re.sub(
-        r"<think>.*?</think>\s*",
-        "_(thought collapsed)_\n\n",
+    Thin wrapper over :func:`athena.text_utils.strip_think_blocks` with
+    terminal-flavored markers; the gateway calls the same helper with
+    empty replacements to strip thinking out cleanly.
+    """
+    from .text_utils import strip_think_blocks
+
+    return strip_think_blocks(
         text,
-        flags=_re.DOTALL,
+        closed_replacement="_(thought collapsed)_\n\n",
+        open_replacement="_(thinking…)_",
     )
-    # Drop any trailing unclosed <think> block.
-    idx = out.find("<think>")
-    if idx != -1:
-        out = out[:idx] + "_(thinking…)_"
-    return out
 
 
 class TypewriterStream:
@@ -894,12 +926,22 @@ class TypewriterStream:
         if self._closed:
             return self._buf
         text = self._buf
-        # Gateway path: emit StreamEnd, nothing else to clean up.
+        # Gateway path: emit StreamEnd carrying the stripped final
+        # view so the TUI can swap its accumulated buffer for the
+        # polished version. Without ``final_text`` the TUI would
+        # keep showing the raw streamed text -- including any
+        # ``<think>...</think>`` blocks that leaked into the
+        # render layer.
         if self._stream_id is not None and self._gateway is not None:
             try:
                 from .tui_gateway.events import StreamEndEvent
 
-                self._gateway.send_event(StreamEndEvent(stream_id=self._stream_id))
+                self._gateway.send_event(
+                    StreamEndEvent(
+                        stream_id=self._stream_id,
+                        final_text=_strip_think_blocks(text),
+                    )
+                )
             except Exception:  # noqa: BLE001
                 pass
             self._stream_id = None

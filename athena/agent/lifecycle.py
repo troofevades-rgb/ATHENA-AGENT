@@ -31,6 +31,7 @@ documents the contract.
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
@@ -43,7 +44,7 @@ from ..config import profile_dir as _profile_dir
 from ..plugins.hooks import HookDispatcher
 from ..prompts import build_system_prompt
 from ..providers import Provider
-from ..providers.credential_pool import global_pool as _global_pool
+from ..providers.credential_pool import profile_pool as _profile_pool
 from ..providers.runtime_resolver import resolve_provider
 from ..sessions.store import SessionMeta, SessionStore, new_session_id
 from .param_policy import ParamPolicy, policy_from_config
@@ -165,12 +166,16 @@ class AgentLifecycle:
         Both are best-effort; the foreground REPL must never crash because
         a background loop misbehaved.
         """
+        from ..boot_trace import cp as _cp
+
+        _cp("session_start_hooks_entry")
         try:
             from ..skills.state_machine_runner import run_lifecycle
 
             run_lifecycle(self.workspace)
         except Exception as e:
             ui.info(f"lifecycle pass skipped: {e}")
+        _cp("session_start_hooks_lifecycle_done")
 
         # ``ATHENA_DISABLE_BACKGROUND_CURATOR=1`` short-circuits the
         # session-start curator spawn. The spawn launches a daemon
@@ -187,6 +192,7 @@ class AgentLifecycle:
         import os
 
         if os.environ.get("ATHENA_DISABLE_BACKGROUND_CURATOR") == "1":
+            _cp("curator_skipped_env_disabled")
             return
         try:
             import threading
@@ -194,18 +200,23 @@ class AgentLifecycle:
             from ..curator.orchestrator import maybe_run_curator
 
             def _spawn():
+                _cp("curator_thread_entry")
                 try:
                     maybe_run_curator(self)
                 except Exception as e:
                     ui.info(f"curator run failed: {e}")
+                    _cp("curator_thread_exception", exc=f"{type(e).__name__}: {e}")
+                _cp("curator_thread_exit")
 
             threading.Thread(
                 target=_spawn,
                 daemon=True,
                 name=f"curator-{(self.session_id or 'init')[:8]}",
             ).start()
+            _cp("curator_thread_spawned")
         except Exception as e:
             ui.info(f"curator could not start: {e}")
+            _cp("curator_spawn_exception", exc=f"{type(e).__name__}: {e}")
 
     def _init_cross_session_cache(self) -> None:
         """T5-06 -- at session start, look up the cross-session
@@ -375,6 +386,19 @@ class AgentLifecycle:
         except Exception as e:
             ui.info(f"skills catalog load failed: {e}")
 
+        # 0.3.0 godmode: operator-supplied system-prompt append.
+        # Precedence: ATHENA_EPHEMERAL_SYSTEM_PROMPT env var (highest,
+        # for on-the-fly overrides) > cfg.agent_system_prompt_append
+        # (persisted in config.toml) > none. Mirrors the hermes-agent
+        # HERMES_EPHEMERAL_SYSTEM_PROMPT convention.
+        import os as _os
+
+        extra_append = (
+            _os.environ.get("ATHENA_EPHEMERAL_SYSTEM_PROMPT")
+            or getattr(self.cfg, "agent_system_prompt_append", None)
+            or None
+        )
+
         return build_system_prompt(
             workspace=self.workspace,
             model=self.model,
@@ -393,6 +417,8 @@ class AgentLifecycle:
             },
             lean=self.cfg.lean_prompt,
             disabled_sections=self.cfg.disabled_prompt_sections,
+            tool_result_nonce=getattr(self, "_tool_result_nonce", None),
+            extra_append=extra_append,
         )
 
     def _profile_dir(self) -> Path:
@@ -471,10 +497,137 @@ class AgentLifecycle:
                 "content": self._build_system(),
             }
 
+    def reload_system_prompt(self) -> None:
+        """Rebuild ``self.messages[0]`` in place against the current
+        config + env state. Called by ``/godmode apply`` and
+        ``/godmode clear`` after mutating
+        ``cfg.agent_system_prompt_append`` so the model picks up the
+        change on the next turn without a session restart. Mirrors
+        the existing :meth:`reload_skills` / :meth:`reload_goal`
+        pattern."""
+        if self.messages and self.messages[0].get("role") == "system":
+            self.messages[0] = {
+                "role": "system",
+                "content": self._build_system(),
+            }
+
+    def reload_prefill_messages(self) -> None:
+        """Invalidate the cached prefill messages so the next API
+        call re-reads ``cfg.agent_prefill_messages_file`` from disk.
+
+        Called by ``/godmode load`` (when the loaded config flips
+        the prefill file) and by ``/godmode clear`` (when the
+        operator wants the prefill to stop firing). The cache lives
+        on ``self._prefill_cache`` -- setting it back to ``None``
+        forces a fresh read on next access.
+        """
+        self._prefill_cache = None
+
+    def _load_prefill_messages(self) -> list[dict[str, Any]]:
+        """Resolve and parse the prefill messages file, caching the
+        result on the agent.
+
+        Cache semantics: ``None`` means "never loaded, try now"; a
+        list (even empty) means "already loaded, don't re-read".
+        Re-load happens via :meth:`reload_prefill_messages`.
+
+        Returns ``[]`` when no file is configured, the file is
+        missing, the file isn't valid JSON, or every entry is
+        malformed. Surface errors are warned (missing file) or
+        errored (parse failures) so operators see what's wrong
+        without the agent crashing -- prefill is best-effort.
+
+        Path resolution:
+
+          * Absolute paths used as-is.
+          * Paths starting with ``~`` expanded against the home dir.
+          * Relative paths resolved against ``~/.athena/`` (parity
+            with hermes's ``prefill_messages_file: "prefill.json"``
+            convention, where the bare filename means "in ~/.hermes/").
+
+        Schema validation: each entry must be a dict with
+        ``role`` in {``user``, ``assistant``} and a string
+        ``content``. Invalid entries are skipped with a warning;
+        valid entries are returned with extra keys stripped so the
+        provider sees only the contract shape.
+        """
+        cache = getattr(self, "_prefill_cache", None)
+        if cache is not None:
+            return cache
+        path_str = getattr(self.cfg, "agent_prefill_messages_file", None)
+        if not path_str:
+            self._prefill_cache = []
+            return self._prefill_cache
+        # Resolve path: absolute > ~ > relative-to-~/.athena/
+        p = Path(path_str).expanduser()
+        if not p.is_absolute():
+            p = Path.home() / ".athena" / path_str
+        if not p.exists():
+            ui.warn(f"prefill messages file not found: {p}")
+            self._prefill_cache = []
+            return self._prefill_cache
+        try:
+            raw = p.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except OSError as e:
+            ui.error(f"could not read prefill file {p}: {e}")
+            self._prefill_cache = []
+            return self._prefill_cache
+        except json.JSONDecodeError as e:
+            ui.error(f"prefill file is not valid JSON: {p}: {e}")
+            self._prefill_cache = []
+            return self._prefill_cache
+        if not isinstance(data, list):
+            ui.error(
+                f"prefill file must contain a JSON list of messages, got {type(data).__name__}: {p}"
+            )
+            self._prefill_cache = []
+            return self._prefill_cache
+        valid: list[dict[str, Any]] = []
+        for i, entry in enumerate(data):
+            if not isinstance(entry, dict):
+                ui.warn(f"prefill[{i}] is not a dict; skipping")
+                continue
+            role = entry.get("role")
+            content = entry.get("content")
+            if role not in ("user", "assistant", "system"):
+                ui.warn(
+                    f"prefill[{i}] has invalid role {role!r} "
+                    "(expected 'user', 'assistant', or 'system'); skipping"
+                )
+                continue
+            if not isinstance(content, str):
+                ui.warn(f"prefill[{i}] has non-string content ({type(content).__name__}); skipping")
+                continue
+            valid.append({"role": role, "content": content})
+        if valid:
+            ui.info(f"loaded {len(valid)} prefill message(s) from {p.name}")
+        self._prefill_cache = valid
+        return self._prefill_cache
+
     def reset(self) -> None:
-        """Wipe history but keep the system prompt."""
+        """Wipe history but keep the system prompt.
+
+        Also drops any side-channel session state so ``/clear``
+        truly means clear:
+
+          * ``_active_godmode`` -- the jailbreak marker; without
+            this drop, ``/godmode list`` would show ``(active)``
+            after a clear despite the steer that carried the
+            jailbreak being gone from history (a stale-marker lie).
+          * Pending entries in ``GLOBAL_STEER_QUEUE`` -- without
+            this drain, a steer pushed before ``/clear`` would
+            still fire on the next prompt, surprising operators
+            who think clear cleared everything.
+        """
         self.messages = [{"role": "system", "content": self._build_system()}]
         self.stats = Stats()
+        if hasattr(self, "_active_godmode"):
+            self._active_godmode = None
+        if self.session_id is not None:
+            from ..steer.queue import GLOBAL_STEER_QUEUE
+
+            GLOBAL_STEER_QUEUE.clear(self.session_id)
         ui.info("conversation cleared")
 
     def __init__(
@@ -528,7 +681,7 @@ class AgentLifecycle:
             self.provider, self.model = resolve_provider(
                 self.model,
                 cfg,
-                _global_pool(),
+                _profile_pool(cfg.profile),
             )
         self.client = self.provider  # back-compat alias
         self._owns_client = passed is None
@@ -547,6 +700,34 @@ class AgentLifecycle:
         # Serializes run_turn so the REPL thread and a /loop thread cannot
         # interleave turns or corrupt self.messages.
         self._turn_lock = threading.Lock()
+        # Phase 18.2 stage 3: stats counters and the breakdown dict
+        # aren't atomic. The parallel tool-dispatch path takes this
+        # before calling ``self.stats.record_tool_call``; the serial
+        # path takes it too (uncontended -- free), keeping the lock
+        # discipline uniform between modes.
+        self._stats_lock = threading.Lock()
+        # Phase 18.2 stage 4: ``ui.tool_call_summary`` and
+        # ``ui.tool_result`` each emit several console.print lines.
+        # Rich's console is thread-safe per-print but NOT atomic
+        # across the multi-line panel each helper draws. The
+        # parallel-dispatch path wraps each call in this lock so
+        # one tool's panel doesn't get spliced into another's.
+        # Like ``_stats_lock``, the serial path takes it too
+        # (uncontended) for uniform discipline.
+        self._ui_lock = threading.Lock()
+        # 0.3.0 hardening tier 0 #4: per-session nonce for tool-result
+        # boundary markers. ``_record_tool_result`` wraps every result
+        # in ``[TOOL_RESULT.<nonce>] ... [/TOOL_RESULT.<nonce>]`` so
+        # injected content inside a Read / WebFetch / MCP response
+        # can't pre-guess the closing tag and break out of the wrapper.
+        # Fresh per Agent so resumed sessions get a new nonce -- prior
+        # transcript replays land in the message stream verbatim (with
+        # the old nonce embedded in the recorded text) but new tool
+        # results use the new one, defeating any attacker who somehow
+        # observed an earlier session's nonce.
+        import secrets
+
+        self._tool_result_nonce = secrets.token_hex(8)
         # Configure tools with workspace
         tools.file_ops.set_workspace(self.workspace, max_read=cfg.max_file_read)
         tools.shell.set_max_output(cfg.max_bash_output)
@@ -559,8 +740,8 @@ class AgentLifecycle:
             Path(getattr(cfg, "tool_result_storage_path", "~/.athena/tool_results")).expanduser(),
             session_id="pending",  # rebound below once session_id is allocated
         )
-        # ShellHookPlugin (bundled, enabled by default) replaces the legacy
-        # athena.hooks settings.json reader. The plugin's
+        # ShellHookPlugin (bundled, enabled by default) reads the
+        # settings.json hooks block. The plugin's
         # ``configure_workspace`` call below runs AFTER plugin_hooks is
         # built so workspace-local .athena/settings.json contributes
         # alongside ~/.athena/settings.json.
@@ -599,6 +780,11 @@ class AgentLifecycle:
         # decision. Reset on every _run_turn_inner entry.
         self._last_assistant_text: str = ""
         self._last_turn_interrupted: bool = False
+        # Last stop reason recorded by _fire_stop. Consulted by
+        # _consult_goal_continuation so a circuit-breaker trip pauses
+        # the goal loop instead of being papered over by another
+        # synthetic turn.
+        self._last_stop_reason: str | None = None
         # Running token budget for the active goal loop. Reset when
         # a new goal is set or the loop terminates. Each
         # continuation step adds the turn's prompt + eval tokens.
@@ -741,6 +927,16 @@ class AgentLifecycle:
         # Fire on_session_start once the session_id exists.
         if self.session_id is not None:
             self.plugin_hooks.on_session_start(self.session_id, cfg.profile or "default")
+        # Audit P1 structured event log: rotate old session files
+        # once per session start so the cap (MAX_LOG_FILES, default
+        # 200) is enforced without operators having to manage it.
+        # Best-effort -- a rotate failure must never block startup.
+        try:
+            from ..event_log import rotate_logs
+
+            rotate_logs()
+        except Exception:  # noqa: BLE001
+            logger.debug("event_log rotate failed", exc_info=True)
         # Wire ShellHookPlugin's workspace AFTER on_session_start so it
         # can re-read settings.json with the correct workspace context.
         self._configure_shell_hook_plugin()
@@ -794,6 +990,32 @@ class AgentLifecycle:
         except Exception:  # noqa: BLE001
             logger.debug("cancel hook registration failed", exc_info=True)
 
+        # Register a crash-context supplier so an uncaught exception
+        # anywhere in the process surfaces a record with live state
+        # (model, provider, profile, workspace, session_id, counters,
+        # last-N message roles). The excepthook itself is installed
+        # in ``__main__.py:main()`` before this code runs; the
+        # supplier is what gives the hook live context to capture.
+        try:
+            from ..crash_log import CrashContext, register_context_supplier
+
+            def _crash_context() -> CrashContext:
+                msgs = getattr(self, "messages", []) or []
+                return CrashContext(
+                    model=getattr(self, "model", None),
+                    provider=getattr(getattr(self, "provider", None), "name", None),
+                    profile=getattr(cfg, "profile", None),
+                    workspace=str(self.workspace),
+                    session_id=self.session_id,
+                    turn_count=getattr(self.stats, "turns", None),
+                    tool_call_count=getattr(self.stats, "tool_calls", None),
+                    last_message_roles=[str(m.get("role", "")) for m in msgs[-10:]],
+                )
+
+            register_context_supplier(_crash_context)
+        except Exception:  # noqa: BLE001
+            logger.debug("crash context supplier registration failed", exc_info=True)
+
         # Optional skill watcher (cfg.skills.autoload). Kicks off a
         # daemon thread that polls the skill search paths and triggers
         # reload_skills() when a SKILL.md is added, edited, or
@@ -840,8 +1062,8 @@ class AgentLifecycle:
         if self.session_id is not None:
             try:
                 self.plugin_hooks.on_session_end(self.session_id, completed=True, interrupted=False)
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("plugin on_session_end raised", exc_info=True)
             # Drop this session's entry from the per-session review
             # nudge counter so long-lived daemons (gateway, scheduled
             # cron) don't accumulate stale ints forever.
@@ -849,23 +1071,33 @@ class AgentLifecycle:
                 from ..review.nudge import reset as _nudge_reset
 
                 _nudge_reset(self.session_id)
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("review nudge reset raised", exc_info=True)
+            # Audit P1 structured event log: release the per-session
+            # writer + file handle so long-lived daemons (gateway,
+            # cron) don't accumulate one EventLog instance per
+            # evicted session.
+            try:
+                from ..event_log import close_event_log
+
+                close_event_log(self.session_id)
+            except Exception:  # noqa: BLE001
+                logger.debug("event_log close raised", exc_info=True)
         if self._owns_client:
             try:
                 self.client.close()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("client.close raised", exc_info=True)
         if self.session_store is not None and self.session_id is not None:
             try:
                 self.session_store.close_session(self.session_id)
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("session_store.close_session raised", exc_info=True)
             if self._owns_session_store:
                 try:
                     self.session_store.close()
-                except Exception:
-                    pass
+                except Exception:  # noqa: BLE001
+                    logger.debug("session_store.close raised", exc_info=True)
         # T4-03: tear down the persistent browser session.
         # Idempotent — close() is safe to call even when
         # ensure_started never fired (no chromium to tear down).
@@ -874,8 +1106,8 @@ class AgentLifecycle:
         if getattr(self, "browser_session", None) is not None:
             try:
                 self.browser_session.close()
-            except Exception:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("browser_session.close raised", exc_info=True)
             try:
                 from ..browser.session import set_active_browser
 

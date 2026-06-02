@@ -137,6 +137,14 @@ ALLOWLIST: frozenset[str] = frozenset(
         # (one line, atomic rewrite). Config file is itself the
         # operator-facing surface, not user content.
         "athena/commands/theme.py",
+        # /godmode save writes a per-config JSON file to
+        # ``~/.athena/godmode/configs/<name>.json``. Operator-facing
+        # config persistence, parallel in shape to /theme save above
+        # -- not an agent-driven mutation of user content. The module
+        # itself is gated by ATHENA_ALLOW_GODMODE=1 at import time
+        # (see athena/commands/godmode.py); without the env var the
+        # write site is unreachable.
+        "athena/commands/godmode.py",
         # User-modeling backend writes auto-extracted facts to
         # ``~/.athena/profiles/<profile>/user_model/<id>.md`` plus
         # an INDEX.md. These are machine-managed observation
@@ -155,6 +163,43 @@ ALLOWLIST: frozenset[str] = frozenset(
         # File is closed and replaced with the real sys.stdout
         # on TUI shutdown.
         "athena/ui.py",
+        # Crash log writer -- atomic tmp + os.replace into
+        # ~/.athena/crashes/. Diagnostic-only files; never user
+        # content. Routing through snapshot_and_record would
+        # require the audit subsystem to be alive at crash time,
+        # which is exactly when it can't be assumed -- the
+        # crash_log writer must work from a sys.excepthook before
+        # any other state is reachable. Bounded by
+        # MAX_CRASH_RECORDS rotation so disk usage is capped.
+        # See athena/crash_log.py module docstring.
+        "athena/crash_log.py",
+        # Event log writer -- append-only JSONL into
+        # ~/.athena/logs/session-<id>.jsonl. Same diagnostic-only
+        # rationale as crash_log: captures provider_error /
+        # tool_error / circuit_breaker events at the moments they
+        # happen, which is exactly when the audit subsystem may
+        # itself be the failing surface (think: snapshot_and_record
+        # raising mid-tool-error). Bounded by MAX_LOG_FILES rotation.
+        # See athena/event_log.py module docstring.
+        "athena/event_log.py",
+        # Boot tracer -- opt-in (gated on ATHENA_BOOT_TRACE=1)
+        # append-only JSONL into ~/.athena/boot-trace.jsonl for
+        # debugging silent-exit / hang bugs at startup. Same
+        # diagnostic-only rationale as crash_log / event_log:
+        # tracing fires BEFORE any other state is reachable
+        # (excepthook, agent, snapshot_and_record), so routing
+        # through the audit subsystem is impossible by definition.
+        # See athena/boot_trace.py module docstring.
+        "athena/boot_trace.py",
+        # TUI subprocess stderr capture -- append-only file at
+        # ~/.athena/tui-stderr.log that receives the Ink
+        # subprocess's stderr stream (production routes stderr
+        # there instead of inheriting sys.stderr so a silent
+        # Ink crash leaves a tail-able forensic trail). Pure
+        # diagnostic: opened once at gateway.start() and lives
+        # the lifetime of the subprocess; never carries
+        # user-content data.
+        "athena/tui_gateway/server.py",
     }
 )
 

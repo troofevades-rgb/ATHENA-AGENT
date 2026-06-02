@@ -17,6 +17,7 @@ test path; production reindex is a Phase 16 concern.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import sqlite3
 from contextlib import closing
@@ -411,7 +412,14 @@ class BuiltinFileProvider(MemoryProvider):
             if len(line) > 200:
                 line = line[:197] + "..."
             lines.append(line)
-        (d / _MEMORY_FILE_INDEX).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # Atomic write — readers (foreground + cron subprocess + background
+        # review fork) always see a complete index. os.replace is atomic on
+        # POSIX and Windows. Last writer wins among concurrent regenerators
+        # but each individual write is durable, never torn.
+        index_path = d / _MEMORY_FILE_INDEX
+        tmp_path = d / (_MEMORY_FILE_INDEX + ".tmp")
+        tmp_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.replace(tmp_path, index_path)
 
     def _reconcile_from_disk(self, profile: str, workspace: Path | None = None) -> None:
         """Rebuild SQLite rows from the on-disk Markdown files.

@@ -111,9 +111,21 @@ class StreamDeltaEvent(_Event):
 
 @dataclass(frozen=True)
 class StreamEndEvent(_Event):
-    """Mark the assistant stream complete."""
+    """Mark the assistant stream complete.
+
+    ``final_text`` (optional) carries the post-processed view of the
+    stream -- ``<think>...</think>`` blocks stripped, any other
+    finalize-time cleanup applied. When present, the TUI replaces
+    the accumulated stream buffer with ``final_text`` so the
+    polished view is what the user sees in the transcript. When
+    None (legacy callers, raw-passthrough mode), the TUI keeps
+    whatever it accumulated. Streaming chunks are still raw so
+    the in-flight typing feel is preserved; only the FINAL frame
+    is swapped.
+    """
 
     stream_id: str
+    final_text: str | None = None
     type: Literal["stream.end"] = "stream.end"
 
 
