@@ -654,7 +654,19 @@ def _summarize_skill_md(output: str) -> str:
     return "\n".join(out_lines)
 
 
-def tool_result(name: str, output: str, max_lines: int = 12) -> None:
+def _format_duration(duration_s: float | None) -> str | None:
+    """Human-readable tool duration. Sub-second → ``123ms``; otherwise
+    ``1.2s``. Returns None when there's nothing worth showing."""
+    if duration_s is None or duration_s < 0:
+        return None
+    if duration_s < 1.0:
+        return f"{int(duration_s * 1000)}ms"
+    return f"{duration_s:.1f}s"
+
+
+def tool_result(
+    name: str, output: str, max_lines: int = 12, duration_s: float | None = None
+) -> None:
     # Escape rich markup in the tool output — arbitrary tool text may
     # contain characters like ``[/]``, ``[bold]``, or ``[red]`` that
     # rich's parser would otherwise interpret as markup tags and
@@ -694,6 +706,7 @@ def tool_result(name: str, output: str, max_lines: int = 12) -> None:
                     tool=name,
                     ok=True,
                     result_preview=body_truncated,
+                    duration_ms=(duration_s * 1000.0 if duration_s is not None else None),
                 )
             )
             return
@@ -703,8 +716,10 @@ def tool_result(name: str, output: str, max_lines: int = 12) -> None:
     body = _markup_escape("\n".join(shown))
     if len(lines) > max_lines:
         body += f"\n[dim]... ({len(lines) - max_lines} more lines)[/]"
+    dur = _format_duration(duration_s)
+    title = f"↳ {name}  [dim]{dur}[/]" if dur else f"↳ {name}"
     console.print(
-        Panel(body, title=f"↳ {name}", border_style=LIME_FAINT, title_align="left", padding=(0, 1))
+        Panel(body, title=title, border_style=LIME_FAINT, title_align="left", padding=(0, 1))
     )
 
 

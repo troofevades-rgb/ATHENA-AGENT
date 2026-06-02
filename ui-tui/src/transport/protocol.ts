@@ -178,6 +178,8 @@ export interface ToolCompleteEvent {
   tool: string;
   ok: boolean;
   result_preview: string;
+  /** Wall-clock dispatch time in ms; absent on older/non-runtime emitters. */
+  duration_ms?: number;
 }
 
 export interface StatusUpdateEvent {
