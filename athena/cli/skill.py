@@ -9,6 +9,7 @@ from pathlib import Path
 from ..config import load_config
 from ..skills.discovery import discover_skills
 from ..skills.importer import ImportResult, import_archive, import_skill
+from ..skills.validation import validate_skill
 from .rollback import (
     RollbackError,
     confirm_via_stdio,
@@ -156,6 +157,47 @@ def cmd_metrics(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_lint(args: argparse.Namespace) -> int:
+    """``athena skill lint <name>|--all`` — run the same frontmatter
+    validator the importer uses, but against installed skills, so a
+    manual SKILL.md edit gets checked without waiting for the next
+    import. Exit 1 if any skill has problems."""
+    workspace = Path(args.cwd).resolve() if args.cwd else None
+    skills = discover_skills(workspace, include_archived=True)
+    if args.all:
+        targets = sorted(skills.keys())
+    elif args.name:
+        if args.name not in skills:
+            sys.stderr.write(f"error: no skill named {args.name!r}\n")
+            return 1
+        targets = [args.name]
+    else:
+        sys.stderr.write("error: give a skill name or --all\n")
+        return 2
+    if not targets:
+        sys.stdout.write("(no skills found)\n")
+        return 0
+
+    problems = 0
+    for name in targets:
+        _, skill_dir = skills[name]
+        errs = validate_skill(skill_dir)
+        if errs:
+            problems += len(errs)
+            sys.stdout.write(f"FAIL  {name}\n")
+            for e in errs:
+                sys.stdout.write(f"        - {e}\n")
+        else:
+            sys.stdout.write(f"ok    {name}\n")
+    if problems:
+        sys.stderr.write(
+            f"\n{problems} problem(s) across {len(targets)} skill(s)\n"
+        )
+        return 1
+    sys.stdout.write(f"\nall {len(targets)} skill(s) valid\n")
+    return 0
+
+
 def cmd_rollback(args: argparse.Namespace) -> int:
     workspace = Path(args.cwd).resolve() if args.cwd else None
     target = _resolve_skill_md(args.name, workspace)
@@ -203,6 +245,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_add.add_argument("-C", "--cwd", help="Workspace directory (with --workspace).")
     p_add.set_defaults(handler=cmd_add)
+
+    p_lint = sub.add_parser(
+        "lint",
+        help="Validate an installed skill's SKILL.md (catches manual edits "
+        "without a re-import).",
+    )
+    p_lint.add_argument("name", nargs="?", help="Skill name to lint (omit with --all).")
+    p_lint.add_argument("--all", action="store_true", help="Lint every discovered skill.")
+    p_lint.add_argument("-C", "--cwd", help="Workspace directory.")
+    p_lint.set_defaults(handler=cmd_lint)
 
     p_diff = sub.add_parser("diff", help="Diff a skill against its most recent snapshot.")
     p_diff.add_argument("name")
