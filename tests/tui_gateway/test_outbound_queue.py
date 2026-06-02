@@ -226,7 +226,10 @@ def _drive_gateway(gw, transport):
 
 
 def _teardown(gw, conn, transport):
-    deadline = time.monotonic() + 2.0
+    # Generous drain window: under coverage instrumentation the writer
+    # ships the backlog several times slower, so a tight deadline would
+    # cut it off and flake the lossless/pressure assertions.
+    deadline = time.monotonic() + 15.0
     while len(gw._outbound) > 0 and time.monotonic() < deadline:
         time.sleep(0.01)
     gw._writer_stop.set()
@@ -268,7 +271,7 @@ def test_single_stream_burst_is_lossless(slow_heartbeats):
                 gw.send_event(StreamDeltaEvent(stream_id="S", text=f"{i:04d}|"))
             gw.send_event(StreamEndEvent(stream_id="S"))
             gw.send_event(MessageAppendEvent(role="system", content="DONE-LOSSLESS"))
-            done.wait(timeout=10.0)
+            done.wait(timeout=60.0)
             assert state.get("err") is None, state.get("err")
             got = "".join(state.get("deltas", []))
             assert got == expected, f"lost text! got {len(got)} bytes vs expected {len(expected)}"
@@ -320,7 +323,7 @@ def test_non_stream_events_never_dropped_under_pressure(slow_heartbeats):
                     )
                 gw.send_event(StatusUpdateEvent(tokens_up=i))
             gw.send_event(MessageAppendEvent(role="system", content="DONE-PRESSURE"))
-            done.wait(timeout=10.0)
+            done.wait(timeout=60.0)
             assert state.get("err") is None, state.get("err")
             from collections import Counter
 
