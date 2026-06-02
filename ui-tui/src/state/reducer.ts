@@ -359,8 +359,14 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
 
       const rows: TranscriptLine[] = [];
       let key = state._nextKey;
-      // Header
-      rows.push({ key: key++, role: "tool", content: `> ${e.tool}` });
+      // Header — append a dim duration suffix when the backend timed
+      // the dispatch (sub-second → "123ms", else "1.2s").
+      const durSuffix = formatToolDuration(e.duration_ms);
+      rows.push({
+        key: key++,
+        role: "tool",
+        content: durSuffix ? `> ${e.tool}  ${durSuffix}` : `> ${e.tool}`,
+      });
       // Body lines — if this is a diff (tool name starts with
       // "diff " — see athena/ui.py:show_diff), classify each line
       // with the appropriate diff-* role so it renders with the
@@ -418,4 +424,12 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 1) + "…";
+}
+
+/** Format a tool dispatch duration for the result header. Sub-second →
+ * "123ms"; otherwise "1.2s". Returns "" when there's nothing to show. */
+function formatToolDuration(ms: number | undefined): string {
+  if (ms == null || ms < 0) return "";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }

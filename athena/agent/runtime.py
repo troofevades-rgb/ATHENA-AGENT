@@ -1165,9 +1165,10 @@ class AgentRuntime:
             )
             raise
         finally:
-            self.stats.record_tool_duration(name, _time.perf_counter() - _tool_start)
+            _tool_dur = _time.perf_counter() - _tool_start
+            self.stats.record_tool_duration(name, _tool_dur)
         with ui_lock:
-            ui.tool_result(name, result)
+            ui.tool_result(name, result, duration_s=_tool_dur)
 
         # Relay the result to a gateway chat if this tool opted in
         # (gateway_relay=True) -- e.g. skills_list, whose output is itself

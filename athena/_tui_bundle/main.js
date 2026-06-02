@@ -17316,7 +17316,12 @@ function reduceEvent(state, event) {
       const overflow = bodyLines.length - MAX_BODY;
       const rows = [];
       let key = state._nextKey;
-      rows.push({ key: key++, role: "tool", content: `> ${e.tool}` });
+      const durSuffix = formatToolDuration(e.duration_ms);
+      rows.push({
+        key: key++,
+        role: "tool",
+        content: durSuffix ? `> ${e.tool}  ${durSuffix}` : `> ${e.tool}`
+      });
       const isDiff = e.tool.startsWith("diff ");
       if (isDiff) {
         const diffRows = splitDiffContent(shown.join(`
@@ -17361,6 +17366,13 @@ function truncate2(s, max2) {
   if (s.length <= max2)
     return s;
   return s.slice(0, max2 - 1) + "…";
+}
+function formatToolDuration(ms) {
+  if (ms == null || ms < 0)
+    return "";
+  if (ms < 1000)
+    return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
 
 // src/transport/client.ts
@@ -17647,7 +17659,7 @@ function App2() {
       }
     };
   }, [cols, rows, client]);
-  const mouseEnabled = process.platform !== "win32";
+  const mouseEnabled = process.env.ATHENA_TUI_MOUSE !== "0";
   const handleWheel = import_react31.useCallback((delta) => {
     dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + delta });
   }, [state.scrollOffset]);

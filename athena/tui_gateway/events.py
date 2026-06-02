@@ -157,6 +157,9 @@ class ToolCompleteEvent(_Event):
     tool: str
     ok: bool
     result_preview: str
+    # Wall-clock duration of the tool dispatch, in milliseconds. None when
+    # the caller didn't time the call (older paths / non-runtime emitters).
+    duration_ms: float | None = None
     type: Literal["tool.complete"] = "tool.complete"
 
 
