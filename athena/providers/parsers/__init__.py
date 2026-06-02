@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -42,6 +43,15 @@ logger = logging.getLogger(__name__)
 
 _REGISTRY: list[tuple[str, str, Parser]] = []  # ordered: (provider, model_glob, parser)
 _DEFAULTS: dict[str, Parser] = {}  # provider -> default parser
+
+# Per-(provider, model) count of resolutions that fell through to the
+# last-resort fallback parser — i.e. no specific or provider-default
+# parser matched. This is the canary for "a new model/provider lost
+# native tool calling": when it climbs, tool calls are riding on
+# heuristic extraction. Surfaced in /status. Process-global + locked
+# because resolve_parser runs on fork / gateway threads too.
+_FALLBACK_COUNTS: dict[tuple[str, str], int] = {}
+_FALLBACK_LOCK = threading.Lock()
 
 
 def register(provider: str, model_glob: str, parser: Parser) -> None:
@@ -74,11 +84,41 @@ def resolve_parser(provider: str, model: str) -> Parser:
             return parser
     if provider in _DEFAULTS:
         return _DEFAULTS[provider]
+    _record_fallback(provider, model)
     # Lazy import: fallback module imports the registry too; defer to
     # avoid a circular dependency on first import.
     from .fallback import fallback_parser
 
     return fallback_parser
+
+
+def _record_fallback(provider: str, model: str) -> None:
+    key = (provider, model or "")
+    with _FALLBACK_LOCK:
+        first = key not in _FALLBACK_COUNTS
+        _FALLBACK_COUNTS[key] = _FALLBACK_COUNTS.get(key, 0) + 1
+    if first:
+        # Warn once per (provider, model) — the canary. Repeats only
+        # bump the counter (visible in /status) to avoid log spam.
+        logger.warning(
+            "no tool-call parser registered for (%s, %s); using last-resort "
+            "fallback — tool calls now ride on heuristic extraction. Register "
+            "a parser if calls misfire.",
+            provider,
+            model,
+        )
+
+
+def fallback_counts() -> dict[tuple[str, str], int]:
+    """Snapshot of per-(provider, model) fallback-resolution counts."""
+    with _FALLBACK_LOCK:
+        return dict(_FALLBACK_COUNTS)
+
+
+def reset_fallback_counts() -> None:
+    """Test affordance — clear the fallback counters."""
+    with _FALLBACK_LOCK:
+        _FALLBACK_COUNTS.clear()
 
 
 def clear_registry() -> None:
@@ -114,4 +154,6 @@ __all__ = [
     "register_default",
     "resolve_parser",
     "clear_registry",
+    "fallback_counts",
+    "reset_fallback_counts",
 ]

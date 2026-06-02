@@ -151,6 +151,17 @@ def render_status(snapshot: dict[str, Any]) -> str:
         lines.append("")
         lines.append(f"errors:  provider={prov_err}  tool={tool_err}")
 
+    # Parser-fallback canary: a non-empty block means some (provider,
+    # model) had no registered tool-call parser and is relying on
+    # last-resort heuristic extraction — investigate if tool calls
+    # misfire for that model.
+    parser_fallbacks = snapshot.get("parser_fallbacks") or {}
+    if parser_fallbacks:
+        lines.append("")
+        lines.append("parser fallbacks (no native parser — heuristic extraction):")
+        for key, count in sorted(parser_fallbacks.items(), key=lambda kv: -int(kv[1])):
+            lines.append(f"  {key:<28} {count:>4}")
+
     # 0.3.0 Phase 2: godmode session state. Gated on snapshot key
     # presence so a fresh / clean session's /status stays clean.
     godmode = snapshot.get("godmode")
