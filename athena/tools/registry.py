@@ -9,6 +9,7 @@ the model by filtering the registry to a subset of toolsets via the
 return value gates whether the tool is advertised at all on a given call.
 """
 
+import difflib
 import inspect
 import json
 import traceback
@@ -198,7 +199,12 @@ def dispatch(name: str, arguments: Any) -> str:
     """
     t = get_tool(name)
     if not t:
-        return f"ERROR: unknown tool '{name}'"
+        # Suggest the nearest real tool so a model that hallucinated or
+        # typo'd a name can self-correct instead of repeating it.
+        known = sorted(set(_REGISTRY) | set(_ALIASES))
+        close = difflib.get_close_matches(name, known, n=3, cutoff=0.6)
+        hint = f" Did you mean: {', '.join(close)}?" if close else ""
+        return f"ERROR: unknown tool '{name}'.{hint}"
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments) if arguments else {}
@@ -219,6 +225,37 @@ def dispatch(name: str, arguments: Any) -> str:
         valid = dict(arguments)
     else:
         valid = {k: v for k, v in arguments.items() if k in sig.parameters}
+    # Actionable feedback for malformed calls so a small/local model can
+    # self-correct: name the required args it omitted, and flag arg names
+    # we had to drop (often a typo of a real param — silently dropping
+    # them otherwise left the model to fail with an opaque TypeError and
+    # no clue which name was wrong).
+    required = [
+        p.name
+        for p in sig.parameters.values()
+        if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        and p.default is inspect.Parameter.empty
+    ]
+    missing = [p for p in required if p not in valid]
+    if missing:
+        dropped = [] if accepts_var_kw else [k for k in arguments if k not in sig.parameters]
+        hints = [
+            f"'{d}' looks like '{near[0]}'"
+            for d in dropped
+            if (near := difflib.get_close_matches(d, missing, n=1, cutoff=0.6))
+        ]
+        accepted = [
+            p.name
+            for p in sig.parameters.values()
+            if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        ]
+        msg = f"ERROR: tool '{name}' is missing required argument(s): {', '.join(missing)}."
+        if hints:
+            msg += " " + "; ".join(hints) + "."
+        elif dropped:
+            msg += f" (ignored unknown argument(s): {', '.join(dropped)})"
+        msg += f" Accepted arguments: {', '.join(accepted)}."
+        return msg
     try:
         result = t.func(**valid)
         if not isinstance(result, str):
