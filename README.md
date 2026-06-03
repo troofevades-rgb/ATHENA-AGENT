@@ -6,7 +6,7 @@
 [![osv-scanner](https://github.com/troofevades-rgb/ATHENA-AGENT/actions/workflows/osv-scanner.yml/badge.svg?branch=master)](https://github.com/troofevades-rgb/ATHENA-AGENT/actions/workflows/osv-scanner.yml)
 [![supply-chain](https://github.com/troofevades-rgb/ATHENA-AGENT/actions/workflows/supply-chain.yml/badge.svg?branch=master)](https://github.com/troofevades-rgb/ATHENA-AGENT/actions/workflows/supply-chain.yml)
 
-A terminal-based agentic coding assistant.
+A local-first, terminal-based agentic coding assistant — Claude-Code-style, but running on your own Ollama models by default (with hosted providers when you want them).
 
 > **Status:** Beta. Tested on Linux + macOS. Default Ollama path is
 > production-ready for single-user development. Multi-user gateway is
@@ -15,26 +15,50 @@ A terminal-based agentic coding assistant.
 
 ## Features
 
-- Native Ollama tool calling (no prompt-engineered fake function calls)
-- Streaming token output
-- File read / write / surgical edit via `str_replace`
-- Bash execution with per-call confirmation for destructive ops; works on Linux, macOS, and Windows (git-bash auto-detected)
-- Glob + ripgrep-style search
-- Project context loaded from `ATHENA.md` (analogous to `CLAUDE.md`)
-- Slash commands: `/clear`, `/cost`, `/model`, `/tools`, `/help`, `/exit`, `/dump`, `/cwd`, `/loop`, `/compact`, `/resume`, `/memory`, `/plan`, `/review`, `/security-review`, `/init`, `/steer`, `/queue`, `/goal`
-- Session transcript saved to `~/.athena/profiles/<profile>/sessions/` with SQLite FTS5 search
-- Sub-agent forks via `Agent.fork()` (daemon-thread; isolated provider client; auto-deny approval callback)
-- File-based skill system (agentskills.io standard), plus `import-from-hermes`
-- Per-turn background review and 7-day curator pass — autonomous memory/skill consolidation
-- Plugin system with lifecycle hooks (`athena plugins list|enable|disable|info`)
-- APScheduler-backed cron with watchdog and agent modes (`athena cron ...`)
-- In-flight redirection (`/steer`) and persistent invariant (`/goal`)
-- Closed training loop: review trajectories, build SFT+DPO datasets, train a new LoRA, register with Ollama (`athena train review|build-dataset|run|status`, `athena model switch`)
-- Multi-provider: Ollama (default) plus Anthropic, OpenAI, Google, OpenRouter, and Nous Portal, behind one credential pool that rotates keys on 429
-- Local-model reliability guards: re-prompts when the model narrates an action without actually calling a tool, repairs malformed tool calls (suggests the right tool / argument names), circuit-breaks stuck loops, and can escalate to a stronger model when the local one gets stuck (opt-in `routing_enabled`)
-- Semantic recall: past turns and memory entries are embedded into a local vector index; opt-in `recall_auto` injects the most relevant prior context into each turn for cross-session continuity
-- Conversation checkpoints with snapshot-backed rollback (`athena checkpoint create|list|rollback`)
-- Ink TUI rendering: native terminal scrolling (mouse wheel + text selection), a `⏺ Tool(args)` / `⎿ output` call tree, markdown with syntax-highlighted code blocks, and a live context-window gauge
+Everything below runs **locally by default** — your own Ollama models, on-disk state, no network egress unless you add a hosted provider or an HTTP MCP server — and scales up to hosted models and multi-user gateways when you want.
+
+### Core coding agent
+- Native tool calling (no prompt-engineered fake calls), streaming output
+- File read / write / surgical edit (`str_replace`); Bash with per-call confirmation for destructive ops (Linux/macOS/Windows, git-bash auto-detected); Glob + ripgrep search
+- Project context auto-loaded from `ATHENA.md` (like `CLAUDE.md`)
+- Plan mode, in-flight redirects (`/steer`), and a persistent goal invariant (`/goal`)
+- A deep slash-command set: `/model`, `/plan`, `/review`, `/security-review`, `/compact`, `/resume`, `/memory`, `/loop`, `/cost`, `/init`, `/tools`, `/dump`, `/cwd`, `/queue`, …
+
+### Models & providers
+- Ollama (default) plus Anthropic, OpenAI, Google, OpenRouter, and Nous Portal — one credential pool, profile-scoped, with automatic key rotation on 429
+- Opt-in struggle-based escalation: stay on the local model, jump to a stronger one only when it gets stuck (`routing_enabled`)
+
+### Reliability for small / local models
+- Re-prompts when the model narrates an action without actually calling a tool
+- Repairs malformed tool calls (suggests the right tool / argument names)
+- Circuit breakers for stuck loops and consecutive provider errors
+- Semantic recall — past turns + memory embedded into a local vector index and auto-injected for cross-session continuity (`recall_auto`)
+
+### Multimodal & rich tools
+- Vision (image analysis) and OCR
+- Video analysis and generation
+- Audio, document parsing, and LSP (language-server) integration
+- Browser automation (Playwright) and computer-use (screenshot + control)
+- Social search (X/Twitter)
+
+### Autonomy, memory & self-improvement
+- Sub-agent forks (`Agent.fork()`) — isolated daemon-thread agents for parallel work
+- Per-turn background review + a 7-day curator pass: autonomous memory/skill consolidation
+- File-based skills (agentskills.io standard), memory (per-workspace + global), conversation checkpoints with snapshot-backed rollback
+- Closed training loop: review trajectories → SFT+DPO datasets → train a LoRA → register with Ollama → `athena model switch` (GPU)
+
+### Integration & automation
+- MCP client — stdio **and** HTTP/SSE (OAuth 2.1 PKCE); any MCP server's tools sit alongside the built-ins
+- Messaging gateways: Discord, Slack, Telegram, Signal, Matrix, iMessage, email
+- APScheduler cron (agent + watchdog modes), a webhook server, and an OpenAI-compatible proxy (`athena proxy` — point any OpenAI client at athena)
+- ACP (Agent Client Protocol), headless one-shot + batch runs, an eval battery, and a plugin system with lifecycle hooks
+
+### Terminal UI
+- Ink-rendered: native terminal scrolling (mouse wheel + text selection), a `⏺ Tool(args)` / `⎿ output` call tree, markdown with syntax-highlighted code, a live context-window gauge, and switchable themes
+
+### Sessions & safety
+- Session transcripts in `~/.athena/profiles/<profile>/sessions/` with SQLite FTS5 search
+- Mutation audit log, approval gating, provenance tracking, and an air-gapped-by-default posture
 
 
 ## Requirements
