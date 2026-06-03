@@ -75,7 +75,7 @@ def _policy_for_config() -> ShellPolicy:
 _IS_WINDOWS = sys.platform == "win32"
 
 if not _IS_WINDOWS:
-    import select  # type: ignore  # POSIX-only path
+    import select  # POSIX-only path
 
 
 def _resolve_bash_executable() -> str | None:

@@ -27,7 +27,7 @@ from rich.text import Text
 if sys.platform == "win32":
     for _stream in (sys.stdout, sys.stderr):
         try:
-            _stream.reconfigure(errors="replace")  # type: ignore[attr-defined]
+            _stream.reconfigure(errors="replace")
         except (AttributeError, ValueError):
             pass
 
@@ -290,7 +290,7 @@ def set_gateway(gateway: Any | None) -> None:
         # ``user_facing_render()`` blocks; silent no-op otherwise.
         if _saved_console_print is None:
             _saved_console_print = console.print
-        console.print = _bridged_print  # type: ignore[assignment]
+        console.print = _bridged_print  # type: ignore[method-assign]
         # Layer 1: console.file → devnull so any Rich machinery
         # that bypasses .print() (Live regions, status spinners)
         # writes to the void instead of the terminal.
@@ -314,7 +314,7 @@ def set_gateway(gateway: Any | None) -> None:
             # a fresh sys.stdout per test, and a cached
             # console.file reference would point at the
             # previous test's (closed) capture buffer.
-            console._file = None  # type: ignore[attr-defined]
+            console._file = None
             _saved_console_file = None
         if _saved_console_print is not None:
             # Remove the instance attribute we set so the

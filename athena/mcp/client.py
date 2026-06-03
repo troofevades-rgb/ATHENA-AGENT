@@ -221,7 +221,7 @@ class MCPStdioClient:
 
     def _read_loop(self) -> None:
         try:
-            for line in self.proc.stdout:  # type: ignore[arg-type]
+            for line in self.proc.stdout:
                 if self._stop.is_set():
                     break
                 line = line.strip()
@@ -246,7 +246,7 @@ class MCPStdioClient:
 
     def _stderr_loop(self) -> None:
         try:
-            for line in self.proc.stderr:  # type: ignore[arg-type]
+            for line in self.proc.stderr:
                 if self._stop.is_set():
                     break
                 line = line.rstrip()

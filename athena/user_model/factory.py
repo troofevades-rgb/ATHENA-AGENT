@@ -31,7 +31,7 @@ class _DisabledBackend:
 
     backend_name = "none"
 
-    async def ingest_session(self, transcript, *, session_id):  # type: ignore[override]
+    async def ingest_session(self, transcript, *, session_id):
         return IngestResult(
             facts_added=0,
             facts_updated=0,
@@ -39,7 +39,7 @@ class _DisabledBackend:
             backend=self.backend_name,
         )
 
-    async def query(self, question, *, max_tokens=800):  # type: ignore[override]
+    async def query(self, question, *, max_tokens=800):
         return QueryResult(
             answer="(user model disabled — set [user_model] backend to enable)",
             sources=[],

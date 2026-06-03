@@ -91,8 +91,8 @@ class DiscordAdapter(GatewayAdapter):
         # ``add_listener`` is only on ``discord.ext.commands.Bot``, not
         # plain Client. Set the attribute directly: it's the same shape
         # ``Client.event`` would produce, just with the correct name.
-        self._client.on_ready = self._on_ready  # type: ignore[method-assign]
-        self._client.on_message = self._on_message  # type: ignore[method-assign]
+        self._client.on_ready = self._on_ready
+        self._client.on_message = self._on_message
 
         @self._tree.command(
             name="athena",
@@ -490,7 +490,7 @@ def _build_approval_view(
             self._request_id = request_id
 
         @ui.button(label="✅ Allow", style=ButtonStyle.success)
-        async def allow_button(  # type: ignore[override]
+        async def allow_button(
             self,
             interaction: discord.Interaction,
             button: discord.ui.Button,
@@ -498,7 +498,7 @@ def _build_approval_view(
             await self._resolve(interaction, "allow")
 
         @ui.button(label="✖ Deny", style=ButtonStyle.danger)
-        async def deny_button(  # type: ignore[override]
+        async def deny_button(
             self,
             interaction: discord.Interaction,
             button: discord.ui.Button,

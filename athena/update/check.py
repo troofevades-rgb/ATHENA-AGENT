@@ -69,7 +69,7 @@ def _parse(version: str) -> Any:
     LAST in the fallback so a corrupted PyPI entry doesn't
     surface as "latest"."""
     try:
-        from packaging.version import Version  # type: ignore[import-untyped]
+        from packaging.version import Version
 
         return Version(version)
     except Exception:  # noqa: BLE001
