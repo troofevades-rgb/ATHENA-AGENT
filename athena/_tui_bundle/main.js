@@ -16177,8 +16177,189 @@ function defaultPalette() {
 }
 var Banner = import_react25.default.memo(_Banner);
 
+// src/stream/syntaxHighlight.ts
+var KEYWORDS = new Set([
+  "def",
+  "class",
+  "return",
+  "if",
+  "elif",
+  "else",
+  "for",
+  "while",
+  "import",
+  "from",
+  "as",
+  "try",
+  "except",
+  "finally",
+  "with",
+  "lambda",
+  "pass",
+  "break",
+  "continue",
+  "raise",
+  "yield",
+  "global",
+  "nonlocal",
+  "assert",
+  "del",
+  "in",
+  "is",
+  "not",
+  "and",
+  "or",
+  "None",
+  "True",
+  "False",
+  "const",
+  "let",
+  "var",
+  "function",
+  "async",
+  "await",
+  "new",
+  "typeof",
+  "instanceof",
+  "of",
+  "this",
+  "null",
+  "undefined",
+  "true",
+  "false",
+  "export",
+  "default",
+  "extends",
+  "implements",
+  "interface",
+  "type",
+  "enum",
+  "public",
+  "private",
+  "protected",
+  "static",
+  "readonly",
+  "void",
+  "abstract",
+  "super",
+  "func",
+  "package",
+  "go",
+  "defer",
+  "chan",
+  "map",
+  "range",
+  "select",
+  "struct",
+  "switch",
+  "case",
+  "fallthrough",
+  "goto",
+  "fn",
+  "pub",
+  "impl",
+  "trait",
+  "mut",
+  "match",
+  "use",
+  "mod",
+  "crate",
+  "self",
+  "Self",
+  "where",
+  "dyn",
+  "unsafe",
+  "move",
+  "ref",
+  "echo",
+  "then",
+  "fi",
+  "do",
+  "done",
+  "esac",
+  "local",
+  "set",
+  "exit"
+]);
+var COMMENT_RE = /^(#.*|\/\/.*)/;
+var STRING_RE = /^("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/;
+var NUMBER_RE = /^\d+(?:\.\d+)?/;
+var IDENT_RE = /^[A-Za-z_$][\w$]*/;
+function tokenizeCode(line) {
+  const tokens = [];
+  let plain = "";
+  const flushPlain = () => {
+    if (plain) {
+      tokens.push({ kind: "plain", text: plain });
+      plain = "";
+    }
+  };
+  let i = 0;
+  while (i < line.length) {
+    const rest2 = line.slice(i);
+    const c = rest2.match(COMMENT_RE);
+    if (c) {
+      flushPlain();
+      tokens.push({ kind: "comment", text: c[0] });
+      break;
+    }
+    const s = rest2.match(STRING_RE);
+    if (s) {
+      flushPlain();
+      tokens.push({ kind: "string", text: s[0] });
+      i += s[0].length;
+      continue;
+    }
+    const prev = i > 0 ? line[i - 1] : "";
+    if (!/[\w$]/.test(prev)) {
+      const n = rest2.match(NUMBER_RE);
+      if (n) {
+        flushPlain();
+        tokens.push({ kind: "number", text: n[0] });
+        i += n[0].length;
+        continue;
+      }
+    }
+    const id = rest2.match(IDENT_RE);
+    if (id) {
+      flushPlain();
+      const word = id[0];
+      const after2 = line[i + word.length];
+      if (KEYWORDS.has(word)) {
+        tokens.push({ kind: "keyword", text: word });
+      } else if (after2 === "(") {
+        tokens.push({ kind: "function", text: word });
+      } else {
+        tokens.push({ kind: "plain", text: word });
+      }
+      i += word.length;
+      continue;
+    }
+    plain += line[i];
+    i += 1;
+  }
+  flushPlain();
+  return tokens;
+}
+
 // src/components/Markdown.tsx
 var jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+function codeColor(kind, palette) {
+  switch (kind) {
+    case "keyword":
+      return palette.accent;
+    case "string":
+      return palette.primary;
+    case "comment":
+      return palette.primary_faint;
+    case "number":
+      return palette.accent_dim;
+    case "function":
+      return palette.primary_dim;
+    default:
+      return;
+  }
+}
 function parseBlocks(src) {
   const lines = src.split(`
 `);
@@ -16310,7 +16491,8 @@ function Markdown({
   text,
   baseColor,
   dimColor,
-  accentColor
+  accentColor,
+  palette
 }) {
   const blocks = parseBlocks(text);
   return /* @__PURE__ */ jsx_runtime14.jsx(Box_default, {
@@ -16343,7 +16525,11 @@ function Markdown({
             color: dimColor ?? "cyan",
             children: [
               "  ",
-              ln
+              palette ? tokenizeCode(ln).map((t, ti) => /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+                color: codeColor(t.kind, palette),
+                bold: t.kind === "keyword",
+                children: t.text
+              }, ti)) : ln
             ]
           }, `${k}-${j}`))
         }, k);
@@ -16499,7 +16685,8 @@ function renderLine(line, palette, promptColor) {
         text: line.content,
         baseColor: "white",
         dimColor: palette?.accent_dim,
-        accentColor: palette?.accent
+        accentColor: palette?.accent,
+        palette
       })
     }, line.key);
   }

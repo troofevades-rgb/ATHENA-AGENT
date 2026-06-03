@@ -154,6 +154,7 @@ export function renderLine(
           baseColor="white"
           dimColor={palette?.accent_dim}
           accentColor={palette?.accent}
+          palette={palette}
         />
       </Box>
     );

@@ -23,6 +23,9 @@
 import React from "react";
 import { Box, Text } from "ink";
 
+import type { ThemePalette } from "../transport/protocol.js";
+import { tokenizeCode, type CodeTokenKind } from "../stream/syntaxHighlight.js";
+
 interface Props {
   text: string;
   /** Color the assistant text uses by default. */
@@ -31,6 +34,22 @@ interface Props {
   dimColor?: string;
   /** Accent color for headings + emphasis. */
   accentColor?: string;
+  /** When provided, fenced code blocks are syntax-highlighted using
+   * these colors; without it they render flat in dimColor. */
+  palette?: ThemePalette;
+}
+
+/** Map a code token kind to a palette color (undefined = inherit the
+ * surrounding dim code color, used for plain tokens). */
+function codeColor(kind: CodeTokenKind, palette: ThemePalette): string | undefined {
+  switch (kind) {
+    case "keyword": return palette.accent;
+    case "string": return palette.primary;
+    case "comment": return palette.primary_faint;
+    case "number": return palette.accent_dim;
+    case "function": return palette.primary_dim;
+    default: return undefined;
+  }
 }
 
 interface Block {
@@ -172,7 +191,7 @@ function renderSpans(
 }
 
 export function Markdown({
-  text, baseColor, dimColor, accentColor,
+  text, baseColor, dimColor, accentColor, palette,
 }: Props): React.JSX.Element {
   const blocks = parseBlocks(text);
   return (
@@ -195,7 +214,18 @@ export function Markdown({
             <Box key={k} flexDirection="column" marginY={0}>
               {b.text.split("\n").map((ln, j) => (
                 <Text key={`${k}-${j}`} color={dimColor ?? "cyan"}>
-                  {"  "}{ln}
+                  {"  "}
+                  {palette
+                    ? tokenizeCode(ln).map((t, ti) => (
+                        <Text
+                          key={ti}
+                          color={codeColor(t.kind, palette)}
+                          bold={t.kind === "keyword"}
+                        >
+                          {t.text}
+                        </Text>
+                      ))
+                    : ln}
                 </Text>
               ))}
             </Box>
