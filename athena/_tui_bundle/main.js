@@ -14551,6 +14551,25 @@ var getInstance = (stdout, createInstance) => {
 };
 // node_modules/ink/build/components/Static.js
 var import_react11 = __toESM(require_react(), 1);
+function Static(props) {
+  const { items, children: render2, style: customStyle } = props;
+  const [index, setIndex] = import_react11.useState(0);
+  const itemsToRender = import_react11.useMemo(() => {
+    return items.slice(index);
+  }, [items, index]);
+  import_react11.useLayoutEffect(() => {
+    setIndex(items.length);
+  }, [items.length]);
+  const children = itemsToRender.map((item, itemIndex) => {
+    return render2(item, index + itemIndex);
+  });
+  const style = import_react11.useMemo(() => ({
+    position: "absolute",
+    flexDirection: "column",
+    ...customStyle
+  }), [customStyle]);
+  return import_react11.default.createElement("ink-box", { internal_static: true, style }, children);
+}
 // node_modules/ink/build/components/Transform.js
 var import_react12 = __toESM(require_react(), 1);
 // node_modules/ink/build/components/Newline.js
@@ -14819,7 +14838,7 @@ var import_react20 = __toESM(require_react(), 1);
 // node_modules/ink/build/hooks/use-focus-manager.js
 var import_react21 = __toESM(require_react(), 1);
 // src/main.tsx
-var import_react31 = __toESM(require_react(), 1);
+var import_react30 = __toESM(require_react(), 1);
 
 // src/components/AskQuestionOverlay.tsx
 var jsx_runtime = __toESM(require_jsx_runtime(), 1);
@@ -15739,11 +15758,35 @@ function renderMultiLineInput(text, cursor, promptColor) {
   return out;
 }
 
+// src/components/PulsingCursor.tsx
+var jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+function PulsingCursor({
+  lastDeltaAtMs,
+  solidWindowMs = 400,
+  color
+}) {
+  const tick = useTicker(250);
+  if (lastDeltaAtMs === null)
+    return null;
+  const ageMs = performance.now() - lastDeltaAtMs;
+  if (ageMs < solidWindowMs) {
+    return /* @__PURE__ */ jsx_runtime9.jsx(Text, {
+      color,
+      children: "▌"
+    });
+  }
+  const visible = tick % 2 === 0;
+  return /* @__PURE__ */ jsx_runtime9.jsx(Text, {
+    color,
+    children: visible ? "▌" : " "
+  });
+}
+
 // src/components/Banner.tsx
 var import_react25 = __toESM(require_react(), 1);
 
 // src/components/Layout.tsx
-var jsx_runtime9 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
 function Row({
   label,
   value,
@@ -15752,16 +15795,16 @@ function Row({
   valueColor,
   palette
 }) {
-  return /* @__PURE__ */ jsx_runtime9.jsxs(Box_default, {
+  return /* @__PURE__ */ jsx_runtime10.jsxs(Box_default, {
     children: [
-      /* @__PURE__ */ jsx_runtime9.jsx(Box_default, {
+      /* @__PURE__ */ jsx_runtime10.jsx(Box_default, {
         width: labelWidth,
-        children: /* @__PURE__ */ jsx_runtime9.jsx(Text, {
+        children: /* @__PURE__ */ jsx_runtime10.jsx(Text, {
           color: labelColor ?? palette.accent_dim,
           children: label
         })
       }),
-      /* @__PURE__ */ jsx_runtime9.jsx(Text, {
+      /* @__PURE__ */ jsx_runtime10.jsx(Text, {
         color: valueColor ?? palette.primary_dim,
         children: value
       })
@@ -15770,7 +15813,7 @@ function Row({
 }
 
 // src/components/InfoPanel.tsx
-var jsx_runtime10 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
 var LABEL_WIDTH = 6;
 function InfoPanel({
   model,
@@ -15783,36 +15826,36 @@ function InfoPanel({
 }) {
   const innerW = Math.max(20, (width ?? 60) - 2);
   const cwdDisplay = elideMiddle(cwd2, innerW - LABEL_WIDTH);
-  return /* @__PURE__ */ jsx_runtime10.jsxs(Box_default, {
+  return /* @__PURE__ */ jsx_runtime11.jsxs(Box_default, {
     flexDirection: "column",
     justifyContent: "center",
     paddingX: 1,
     ...width ? { width } : { flexGrow: 1 },
     ...height ? { height } : {},
     children: [
-      /* @__PURE__ */ jsx_runtime10.jsxs(Box_default, {
+      /* @__PURE__ */ jsx_runtime11.jsxs(Box_default, {
         children: [
-          /* @__PURE__ */ jsx_runtime10.jsx(Text, {
+          /* @__PURE__ */ jsx_runtime11.jsx(Text, {
             color: palette.accent,
             children: "✦ "
           }),
-          /* @__PURE__ */ jsx_runtime10.jsx(Text, {
+          /* @__PURE__ */ jsx_runtime11.jsx(Text, {
             bold: true,
             color: palette.accent,
             children: "athena"
           }),
-          /* @__PURE__ */ jsx_runtime10.jsx(Text, {
+          /* @__PURE__ */ jsx_runtime11.jsx(Text, {
             italic: true,
             color: palette.primary_dim,
             children: "  ·  local agentic coder"
           })
         ]
       }),
-      /* @__PURE__ */ jsx_runtime10.jsxs(Box_default, {
+      /* @__PURE__ */ jsx_runtime11.jsxs(Box_default, {
         marginTop: 1,
         flexDirection: "column",
         children: [
-          /* @__PURE__ */ jsx_runtime10.jsx(Row, {
+          /* @__PURE__ */ jsx_runtime11.jsx(Row, {
             palette,
             label: "model",
             value: model,
@@ -15820,7 +15863,7 @@ function InfoPanel({
             labelColor: palette.primary_faint,
             valueColor: palette.primary
           }),
-          /* @__PURE__ */ jsx_runtime10.jsx(Row, {
+          /* @__PURE__ */ jsx_runtime11.jsx(Row, {
             palette,
             label: "cwd",
             value: cwdDisplay,
@@ -15828,7 +15871,7 @@ function InfoPanel({
             labelColor: palette.primary_faint,
             valueColor: palette.primary_dim
           }),
-          /* @__PURE__ */ jsx_runtime10.jsx(Row, {
+          /* @__PURE__ */ jsx_runtime11.jsx(Row, {
             palette,
             label: "theme",
             value: themeName,
@@ -15838,9 +15881,9 @@ function InfoPanel({
           })
         ]
       }),
-      /* @__PURE__ */ jsx_runtime10.jsx(Box_default, {
+      /* @__PURE__ */ jsx_runtime11.jsx(Box_default, {
         marginTop: 1,
-        children: /* @__PURE__ */ jsx_runtime10.jsx(Text, {
+        children: /* @__PURE__ */ jsx_runtime11.jsx(Text, {
           color: palette.primary_faint,
           children: elideTail(commandsHint, innerW)
         })
@@ -15868,7 +15911,7 @@ function elideMiddle(s, max2) {
 
 // src/components/Owl.tsx
 var import_react24 = __toESM(require_react(), 1);
-var jsx_runtime11 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
 var INK_WEIGHT = {
   " ": 0,
   ".": 1,
@@ -15946,7 +15989,7 @@ function OwlPanel({
   height,
   children
 }) {
-  return /* @__PURE__ */ jsx_runtime11.jsx(Box_default, {
+  return /* @__PURE__ */ jsx_runtime12.jsx(Box_default, {
     borderStyle: "round",
     borderColor: palette.primary_faint,
     flexDirection: "column",
@@ -15968,18 +16011,18 @@ function PhotoOwl({
       const glyph = tuple[0] ?? " ";
       const fg = tuple[1] ?? "#000000";
       const bg = tuple[2] ?? fg;
-      return /* @__PURE__ */ jsx_runtime11.jsx(Text, {
+      return /* @__PURE__ */ jsx_runtime12.jsx(Text, {
         color: fg,
         backgroundColor: bg,
         children: glyph
       }, colIdx);
     });
-    return /* @__PURE__ */ jsx_runtime11.jsx(Box_default, {
+    return /* @__PURE__ */ jsx_runtime12.jsx(Box_default, {
       children: cells
     }, rowIdx);
   });
   const panelOuterW = pixels.width + 4;
-  return /* @__PURE__ */ jsx_runtime11.jsx(OwlPanel, {
+  return /* @__PURE__ */ jsx_runtime12.jsx(OwlPanel, {
     palette,
     width: panelOuterW,
     height,
@@ -16000,13 +16043,13 @@ function AsciiOwl({
   if (rendered.length === 0)
     return null;
   if (braille) {
-    const lines2 = rendered.map((row, i) => /* @__PURE__ */ jsx_runtime11.jsx(Box_default, {
-      children: /* @__PURE__ */ jsx_runtime11.jsx(Text, {
+    const lines2 = rendered.map((row, i) => /* @__PURE__ */ jsx_runtime12.jsx(Box_default, {
+      children: /* @__PURE__ */ jsx_runtime12.jsx(Text, {
         color: palette.primary,
         children: row
       })
     }, i));
-    return /* @__PURE__ */ jsx_runtime11.jsx(Box_default, {
+    return /* @__PURE__ */ jsx_runtime12.jsx(Box_default, {
       flexDirection: "column",
       justifyContent: "center",
       ...height ? { height } : {},
@@ -16027,11 +16070,11 @@ function AsciiOwl({
           runTone = t;
       }
     }
-    return /* @__PURE__ */ jsx_runtime11.jsx(Box_default, {
+    return /* @__PURE__ */ jsx_runtime12.jsx(Box_default, {
       children: spans
     }, rowIdx);
   });
-  return /* @__PURE__ */ jsx_runtime11.jsx(OwlPanel, {
+  return /* @__PURE__ */ jsx_runtime12.jsx(OwlPanel, {
     palette,
     height,
     children: lines
@@ -16039,12 +16082,12 @@ function AsciiOwl({
 }
 function renderSpan(segment, segTone, palette, key) {
   if (segTone === "blank") {
-    return /* @__PURE__ */ jsx_runtime11.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime12.jsx(Text, {
       children: segment
     }, key);
   }
   const color = segTone === "body" ? palette.accent : palette.primary_faint;
-  return /* @__PURE__ */ jsx_runtime11.jsx(Text, {
+  return /* @__PURE__ */ jsx_runtime12.jsx(Text, {
     color,
     children: segment
   }, key);
@@ -16058,14 +16101,14 @@ function Owl({
   height
 }) {
   if (pixels && pixels.cells.length > 0) {
-    return /* @__PURE__ */ jsx_runtime11.jsx(PhotoOwl, {
+    return /* @__PURE__ */ jsx_runtime12.jsx(PhotoOwl, {
       pixels,
       palette,
       width,
       height
     });
   }
-  return /* @__PURE__ */ jsx_runtime11.jsx(AsciiOwl, {
+  return /* @__PURE__ */ jsx_runtime12.jsx(AsciiOwl, {
     art,
     palette,
     width,
@@ -16075,7 +16118,7 @@ function Owl({
 }
 
 // src/components/Banner.tsx
-var jsx_runtime12 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
 var MIN_OWL_WIDTH = 32;
 var PANEL_HEIGHT_FALLBACK = 22;
 var MIN_PANEL_ROWS = 9;
@@ -16094,13 +16137,13 @@ function _Banner({
   const panelHeight = event.owl_pixels ? Math.max(PANEL_HEIGHT_FALLBACK, event.owl_pixels.height + 2) : Math.max(owlArtH, MIN_PANEL_ROWS);
   const owlPanelOuterW = sideBySide ? event.owl_pixels ? event.owl_pixels.width + 4 : owlArtW : 0;
   const infoPanelOuterW = sideBySide ? Math.max(30, termCols - owlPanelOuterW - GAP - OUTER_PADDING) : Math.max(30, termCols - OUTER_PADDING);
-  return /* @__PURE__ */ jsx_runtime12.jsxs(Box_default, {
+  return /* @__PURE__ */ jsx_runtime13.jsxs(Box_default, {
     marginTop: 1,
     flexDirection: "row",
     gap: 3,
     alignItems: "center",
     children: [
-      sideBySide && /* @__PURE__ */ jsx_runtime12.jsx(Owl, {
+      sideBySide && /* @__PURE__ */ jsx_runtime13.jsx(Owl, {
         art: event.owl_art,
         pixels: event.owl_pixels,
         palette,
@@ -16108,7 +16151,7 @@ function _Banner({
         maxHeight: panelHeight,
         height: panelHeight
       }),
-      /* @__PURE__ */ jsx_runtime12.jsx(InfoPanel, {
+      /* @__PURE__ */ jsx_runtime13.jsx(InfoPanel, {
         model: event.model,
         cwd: event.cwd,
         themeName: palette.name,
@@ -16133,63 +16176,6 @@ function defaultPalette() {
   };
 }
 var Banner = import_react25.default.memo(_Banner);
-
-// src/components/Nameplate.tsx
-var jsx_runtime13 = __toESM(require_jsx_runtime(), 1);
-function Nameplate({
-  banner,
-  palette
-}) {
-  return /* @__PURE__ */ jsx_runtime13.jsxs(Box_default, {
-    children: [
-      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
-        bold: true,
-        color: palette.primary,
-        children: "██ athena"
-      }),
-      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
-        color: palette.primary_dim,
-        children: " · "
-      }),
-      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
-        color: palette.accent,
-        children: banner.model
-      }),
-      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
-        color: palette.primary_dim,
-        children: " · "
-      }),
-      /* @__PURE__ */ jsx_runtime13.jsx(Text, {
-        color: palette.primary,
-        children: palette.name
-      })
-    ]
-  });
-}
-
-// src/components/PulsingCursor.tsx
-var jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
-function PulsingCursor({
-  lastDeltaAtMs,
-  solidWindowMs = 400,
-  color
-}) {
-  const tick = useTicker(250);
-  if (lastDeltaAtMs === null)
-    return null;
-  const ageMs = performance.now() - lastDeltaAtMs;
-  if (ageMs < solidWindowMs) {
-    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
-      color,
-      children: "▌"
-    });
-  }
-  const visible = tick % 2 === 0;
-  return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
-    color,
-    children: visible ? "▌" : " "
-  });
-}
 
 // src/stream/inlineMarkdown.ts
 function parseInline(text) {
@@ -16259,171 +16245,105 @@ function parseInline(text) {
 }
 
 // src/components/Transcript.tsx
-var jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
 var FILE_LINE_RE = /^(\s*)([^\s:][^:]*?):(\d+)(.*)$/;
+function isWelcome(i) {
+  return i.welcome === true;
+}
 function Transcript({
   banner,
   lines,
-  streaming,
-  streamId,
-  scrollOffset,
-  visibleBudget,
   termCols,
-  termRows,
-  lastDeltaAtMs = null
+  termRows
 }) {
   const palette = banner?.palette ?? undefined;
   const promptColor = palette?.primary ?? "green";
-  const hasConversation = lines.length > 0 || streamId !== null;
-  const headerHeight = hasConversation ? 1 : Math.max(15, termRows - 12);
-  const rawRows = !scrollOffset && streamId !== null && streaming ? streaming.split(`
-`) : [];
-  let trimEnd2 = rawRows.length;
-  while (trimEnd2 > 0 && rawRows[trimEnd2 - 1] === "")
-    trimEnd2--;
-  const streamingRows = rawRows.slice(0, trimEnd2);
-  const streamReserve = streamingRows.length > 0 ? Math.min(streamingRows.length + 1, Math.floor(visibleBudget / 2)) : 0;
-  const committedBudget = visibleBudget - streamReserve;
-  const windowEnd = Math.max(0, lines.length - scrollOffset);
-  const windowStart = Math.max(0, windowEnd - committedBudget);
-  const visibleLines = hasConversation ? lines.slice(windowStart, windowEnd) : [];
-  const moreBelow = scrollOffset > 0 ? scrollOffset : 0;
-  const moreAbove = Math.max(0, windowStart);
-  const scrolledUp = scrollOffset > 0;
-  const streamTail = streamReserve > 0 ? streamingRows.slice(-streamReserve) : [];
-  if (!hasConversation) {
-    return /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
-      flexDirection: "column",
-      flexGrow: 1,
-      overflow: "hidden",
-      children: [
-        banner && palette ? /* @__PURE__ */ jsx_runtime15.jsx(Banner, {
-          event: banner,
-          termCols,
-          termRows: headerHeight
-        }) : /* @__PURE__ */ jsx_runtime15.jsx(Text, {
-          dimColor: true,
-          children: "connecting to gateway…"
-        }),
-        /* @__PURE__ */ jsx_runtime15.jsx(Box_default, {
-          flexGrow: 1
-        }),
-        banner && palette && /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
-          flexDirection: "column",
-          marginBottom: 1,
-          paddingX: 2,
-          children: [
-            /* @__PURE__ */ jsx_runtime15.jsx(Text, {
-              color: palette.primary_dim,
-              children: "try one of these to get started:"
-            }),
-            /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
-              marginTop: 1,
-              flexDirection: "column",
-              children: [
-                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
-                  color: palette.accent_dim,
-                  children: [
-                    "  ",
-                    "explain what this project does"
-                  ]
-                }),
-                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
-                  color: palette.accent_dim,
-                  children: [
-                    "  ",
-                    "@ATHENA.md what should I know before touching the agent loop?"
-                  ]
-                }),
-                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
-                  color: palette.accent_dim,
-                  children: [
-                    "  ",
-                    "/plan refactor the X module"
-                  ]
-                }),
-                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
-                  color: palette.accent_dim,
-                  children: [
-                    "  ",
-                    "/help — list every slash command"
-                  ]
-                })
-              ]
-            }),
-            /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
-              marginTop: 1,
-              flexDirection: "column",
-              alignItems: "center",
-              children: [
-                /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
-                  color: palette.primary_faint,
-                  children: [
-                    "Enter sends · Shift+Enter newline · Tab completes",
-                    " · ",
-                    "↑↓ history · Ctrl+R search"
-                  ]
-                }),
-                /* @__PURE__ */ jsx_runtime15.jsx(Text, {
-                  color: palette.primary_faint,
-                  children: "Shift+↑↓ or PageUp/Dn to scroll · Esc interrupt · Ctrl+C exit"
-                })
-              ]
-            })
-          ]
-        })
-      ]
-    });
-  }
-  return /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
+  const items = banner ? [{ key: -1, welcome: true }, ...lines] : lines;
+  return /* @__PURE__ */ jsx_runtime14.jsx(Static, {
+    items,
+    children: (item) => isWelcome(item) ? /* @__PURE__ */ jsx_runtime14.jsx(Welcome, {
+      banner,
+      termCols,
+      termRows
+    }, "welcome") : renderLine(item, palette, promptColor)
+  });
+}
+function Welcome({
+  banner,
+  termCols,
+  termRows
+}) {
+  const palette = banner.palette;
+  return /* @__PURE__ */ jsx_runtime14.jsxs(Box_default, {
     flexDirection: "column",
-    flexGrow: 1,
-    overflow: "hidden",
     children: [
-      banner && palette && /* @__PURE__ */ jsx_runtime15.jsx(Nameplate, {
-        banner,
-        palette
+      /* @__PURE__ */ jsx_runtime14.jsx(Banner, {
+        event: banner,
+        termCols,
+        termRows: Math.max(15, termRows - 12)
       }),
-      /* @__PURE__ */ jsx_runtime15.jsx(Box_default, {
-        flexGrow: 1
-      }),
-      moreAbove > 0 && /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
-        color: palette?.primary_faint ?? "gray",
-        dimColor: true,
+      /* @__PURE__ */ jsx_runtime14.jsxs(Box_default, {
+        flexDirection: "column",
+        marginTop: 1,
+        marginBottom: 1,
+        paddingX: 2,
         children: [
-          "↑ ",
-          moreAbove,
-          " earlier line",
-          moreAbove === 1 ? "" : "s",
-          scrollOffset === 0 ? " — Shift+↑ or PageUp to scroll" : ""
-        ]
-      }),
-      visibleLines.map((line) => renderLine(line, palette, promptColor)),
-      streamTail.length > 0 && /* @__PURE__ */ jsx_runtime15.jsxs(jsx_runtime15.Fragment, {
-        children: [
-          streamTail.map((row, i) => /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
-            color: "white",
+          /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+            color: palette.primary_dim,
+            children: "try one of these to get started:"
+          }),
+          /* @__PURE__ */ jsx_runtime14.jsxs(Box_default, {
+            marginTop: 1,
+            flexDirection: "column",
             children: [
-              i === 0 ? "" : "   ",
-              i === 0 ? "" : "",
-              row
+              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+                color: palette.accent_dim,
+                children: [
+                  "  ",
+                  "explain what this project does"
+                ]
+              }),
+              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+                color: palette.accent_dim,
+                children: [
+                  "  ",
+                  "@ATHENA.md what should I know before touching the agent loop?"
+                ]
+              }),
+              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+                color: palette.accent_dim,
+                children: [
+                  "  ",
+                  "/plan refactor the X module"
+                ]
+              }),
+              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+                color: palette.accent_dim,
+                children: [
+                  "  ",
+                  "/help — list every slash command"
+                ]
+              })
             ]
-          }, `s${i}`)),
-          /* @__PURE__ */ jsx_runtime15.jsx(PulsingCursor, {
-            lastDeltaAtMs,
-            color: "white"
+          }),
+          /* @__PURE__ */ jsx_runtime14.jsxs(Box_default, {
+            marginTop: 1,
+            flexDirection: "column",
+            children: [
+              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+                color: palette.primary_faint,
+                children: [
+                  "Enter sends · Shift+Enter newline · Tab completes",
+                  " · ",
+                  "↑↓ history · Ctrl+R search"
+                ]
+              }),
+              /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+                color: palette.primary_faint,
+                children: "Mouse wheel / terminal scrollback to scroll · Esc interrupt · Ctrl+C exit"
+              })
+            ]
           })
-        ]
-      }),
-      moreBelow > 0 && /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
-        color: palette?.accent ?? "yellow",
-        dimColor: true,
-        children: [
-          "↓ ",
-          moreBelow,
-          " newer line",
-          moreBelow === 1 ? "" : "s",
-          " — press Esc to jump to bottom"
         ]
       })
     ]
@@ -16431,33 +16351,33 @@ function Transcript({
 }
 function renderLine(line, palette, promptColor) {
   if (line.role === "separator") {
-    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
       color: palette?.primary_faint ?? "gray",
       children: line.content
     }, line.key);
   }
   if (line.role === "assistant") {
     const segments = parseInline(line.content);
-    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
       color: "white",
       children: [
         "   ",
         segments.map((s, i) => {
           const segKey = `${line.key}-${i}`;
           if (s.code) {
-            return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+            return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
               color: palette?.accent_dim ?? "yellow",
               children: s.text
             }, segKey);
           }
           if (s.url) {
-            return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+            return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
               color: palette?.accent ?? "cyan",
               underline: true,
               children: s.text
             }, segKey);
           }
-          return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+          return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
             bold: s.bold ?? false,
             italic: s.italic ?? false,
             children: s.text
@@ -16471,29 +16391,29 @@ function renderLine(line, palette, promptColor) {
     const fileLine = !isHeader ? line.content.match(FILE_LINE_RE) : null;
     if (fileLine && /[/\\.]/.test(fileLine[2])) {
       const [, lead, path, lineNo, rest2] = fileLine;
-      return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+      return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
         children: [
           "   ",
           lead,
-          /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+          /* @__PURE__ */ jsx_runtime14.jsx(Text, {
             color: palette?.primary_faint ?? "gray",
             children: path
           }),
-          /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+          /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
             color: palette?.accent_dim ?? "yellow",
             children: [
               ":",
               lineNo
             ]
           }),
-          /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+          /* @__PURE__ */ jsx_runtime14.jsx(Text, {
             color: palette?.primary_dim ?? "gray",
             children: rest2
           })
         ]
       }, line.key);
     }
-    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
       color: isHeader ? palette?.accent_dim ?? "yellow" : palette?.primary_dim ?? "gray",
       bold: isHeader,
       children: [
@@ -16503,13 +16423,13 @@ function renderLine(line, palette, promptColor) {
     }, line.key);
   }
   if (line.role === "code") {
-    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
       children: [
-        /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+        /* @__PURE__ */ jsx_runtime14.jsx(Text, {
           color: palette?.accent_dim ?? "yellow",
           children: "   │ "
         }),
-        /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+        /* @__PURE__ */ jsx_runtime14.jsx(Text, {
           color: palette?.accent ?? "cyan",
           children: line.content
         })
@@ -16517,33 +16437,33 @@ function renderLine(line, palette, promptColor) {
     }, line.key);
   }
   if (line.role === "diff-add") {
-    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
       color: "green",
       children: line.content
     }, line.key);
   }
   if (line.role === "diff-del") {
-    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
       color: "red",
       children: line.content
     }, line.key);
   }
   if (line.role === "diff-hunk") {
-    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
       color: palette?.accent_dim ?? "yellow",
       bold: true,
       children: line.content
     }, line.key);
   }
   if (line.role === "diff-file") {
-    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
       color: palette?.primary_faint ?? "gray",
       bold: true,
       children: line.content
     }, line.key);
   }
   if (line.role === "user") {
-    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
       color: promptColor,
       children: [
         "▸▸ ",
@@ -16551,7 +16471,7 @@ function renderLine(line, palette, promptColor) {
       ]
     }, line.key);
   }
-  return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+  return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
     color: palette?.primary_dim ?? "gray",
     children: [
       ".  ",
@@ -16958,50 +16878,8 @@ function useBracketedPaste(onPaste, enabled = true) {
   }, [enabled]);
 }
 
-// src/hooks/useMouseWheel.ts
-var import_react29 = __toESM(require_react(), 1);
-var ENABLE2 = "\x1B[?1000h\x1B[?1006h";
-var DISABLE2 = "\x1B[?1000l\x1B[?1006l";
-var SGR_RE = /\x1b\[<(\d+);\d+;\d+[Mm]/g;
-function useMouseWheel(onScroll, enabled = true) {
-  const scrollRef = import_react29.useRef(onScroll);
-  scrollRef.current = onScroll;
-  import_react29.useEffect(() => {
-    if (!enabled)
-      return;
-    const stdin = process.stdin;
-    if (!stdin.isTTY)
-      return;
-    const origRead = stdin.read.bind(stdin);
-    stdin.read = function patchedRead(size2) {
-      const chunk2 = origRead(size2);
-      if (chunk2 === null)
-        return null;
-      const str = typeof chunk2 === "string" ? chunk2 : chunk2.toString("utf-8");
-      let m;
-      SGR_RE.lastIndex = 0;
-      while ((m = SGR_RE.exec(str)) !== null) {
-        const btn = parseInt(m[1], 10);
-        if ((btn & 67) === 64)
-          scrollRef.current(3);
-        else if ((btn & 67) === 65)
-          scrollRef.current(-3);
-      }
-      const cleaned = str.replace(SGR_RE, "");
-      if (cleaned.length === 0)
-        return origRead(0) ?? null;
-      return cleaned;
-    };
-    process.stdout.write(ENABLE2);
-    return () => {
-      process.stdout.write(DISABLE2);
-      stdin.read = origRead;
-    };
-  }, [enabled]);
-}
-
 // src/hooks/useStdoutSize.ts
-var import_react30 = __toESM(require_react(), 1);
+var import_react29 = __toESM(require_react(), 1);
 var FALLBACK = { cols: 100, rows: 30 };
 function readSize(stdout) {
   if (!stdout)
@@ -17015,8 +16893,8 @@ function readSize(stdout) {
 }
 function useStdoutSize() {
   const { stdout } = use_stdout_default();
-  const [size2, setSize] = import_react30.useState(() => readSize(stdout));
-  import_react30.useEffect(() => {
+  const [size2, setSize] = import_react29.useState(() => readSize(stdout));
+  import_react29.useEffect(() => {
     if (!stdout)
       return;
     const onResize = () => setSize(readSize(stdout));
@@ -17107,7 +16985,6 @@ function appendFilter(prev, chunk2) {
 }
 
 // src/state/types.ts
-var LINES_CAP = 5000;
 var initialTuiState = {
   banner: null,
   status: null,
@@ -17121,7 +16998,6 @@ var initialTuiState = {
   flash: null,
   confirmReq: null,
   askReq: null,
-  scrollOffset: 0,
   _nextKey: 1,
   _lastProgressMs: 0,
   _pendingUserInputSince: null
@@ -17129,17 +17005,12 @@ var initialTuiState = {
 
 // src/state/reducer.ts
 function appendLine(lines, newLine) {
-  if (lines.length < LINES_CAP)
-    return [...lines, newLine];
-  return [...lines.slice(lines.length - LINES_CAP + 1), newLine];
+  return [...lines, newLine];
 }
 function appendLines(lines, newLines) {
   if (newLines.length === 0)
     return lines;
-  const combined = [...lines, ...newLines];
-  if (combined.length <= LINES_CAP)
-    return combined;
-  return combined.slice(combined.length - LINES_CAP);
+  return [...lines, ...newLines];
 }
 function splitToRows(content, role, startKey) {
   if (role === "assistant") {
@@ -17216,8 +17087,7 @@ function reducer(state, action) {
           role: "separator",
           content: action.content
         }),
-        _nextKey: k._nextKey,
-        scrollOffset: 0
+        _nextKey: k._nextKey
       };
     }
     case "DISMISS_FLASH":
@@ -17226,11 +17096,6 @@ function reducer(state, action) {
       return { ...state, confirmReq: null };
     case "DISMISS_ASK":
       return { ...state, askReq: null };
-    case "SET_SCROLL": {
-      const maxOffset = Math.max(0, state.lines.length);
-      const clamped = Math.min(maxOffset, Math.max(0, action.offset));
-      return { ...state, scrollOffset: clamped };
-    }
     case "USER_INPUT_SENT":
       return {
         ...state,
@@ -17260,13 +17125,11 @@ function reduceEvent(state, event) {
       return state.banner ? { ...state, banner: { ...state.banner, palette: event.palette } } : state;
     case "message.append": {
       const e = event;
-      const wasAtBottom = state.scrollOffset === 0;
       const { rows, nextKey: nk } = splitToRows(e.content, e.role, state._nextKey);
       return withProgress({
         ...state,
         lines: appendLines(state.lines, rows),
-        _nextKey: nk,
-        scrollOffset: wasAtBottom ? 0 : state.scrollOffset
+        _nextKey: nk
       });
     }
     case "stream.start": {
@@ -17298,7 +17161,6 @@ function reduceEvent(state, event) {
       const fallbackText = rawText.replace(/·\s*\(thought\)\s*/g, "").trim();
       const finalText = (e.final_text ?? fallbackText).trim();
       const hasContent = finalText.length > 0;
-      const wasAtBottom = state.scrollOffset === 0;
       let newLines = state.lines;
       let nk = state._nextKey;
       if (hasContent) {
@@ -17312,8 +17174,7 @@ function reduceEvent(state, event) {
         _nextKey: nk,
         streaming: "",
         _streamFilter: initialThinkFilterState,
-        streamId: null,
-        scrollOffset: wasAtBottom ? 0 : state.scrollOffset
+        streamId: null
       });
     }
     case "tool.start": {
@@ -17333,7 +17194,6 @@ function reduceEvent(state, event) {
     }
     case "tool.complete": {
       const e = event;
-      const wasAtBottom = state.scrollOffset === 0;
       const bodyText = truncate2(e.result_preview, 2000);
       const bodyLines = bodyText.split(`
 `);
@@ -17368,19 +17228,17 @@ function reduceEvent(state, event) {
         ...state,
         toolLane: state.toolLane.filter((t) => t.id !== e.call_id && t.tool !== e.tool),
         lines: appendLines(state.lines, rows),
-        _nextKey: key,
-        scrollOffset: wasAtBottom ? 0 : state.scrollOffset
+        _nextKey: key
       });
     }
     case "tool.progress":
       return withProgress(state);
     case "confirm.request":
-      return { ...state, confirmReq: event, scrollOffset: 0 };
+      return { ...state, confirmReq: event };
     case "ask_question.request":
       return {
         ...state,
-        askReq: event,
-        scrollOffset: 0
+        askReq: event
       };
     case "exit":
       return state;
@@ -17577,16 +17435,16 @@ function connectGateway() {
 }
 
 // src/main.tsx
-var jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 function App2() {
   const { exit } = use_app_default();
   const { cols, rows } = useStdoutSize();
-  const [state, dispatch] = import_react31.useReducer(reducer, initialTuiState);
+  const [state, dispatch] = import_react30.useReducer(reducer, initialTuiState);
   const editor = useLineEditor();
   const history = useInputHistory();
-  const [client] = import_react31.useState(() => connectGateway());
-  const [slashSelectedIdx, setSlashSelectedIdx] = import_react31.useState(0);
-  const [reverseSearch, setReverseSearch] = import_react31.useState(null);
+  const [client] = import_react30.useState(() => connectGateway());
+  const [slashSelectedIdx, setSlashSelectedIdx] = import_react30.useState(0);
+  const [reverseSearch, setReverseSearch] = import_react30.useState(null);
   const setEditorTo = (text) => {
     editor.clear();
     if (text)
@@ -17598,10 +17456,10 @@ function App2() {
   const cwd2 = state.banner?.cwd ?? "";
   const atMatches = atMention !== null && cwd2 ? matchWorkspaceFiles(cwd2, atMention.query, 8) : [];
   const atOpen = atMention !== null && atMatches.length > 0;
-  const [atSelectedIdx, setAtSelectedIdx] = import_react31.useState(0);
-  const [askFocusedIdx, setAskFocusedIdx] = import_react31.useState(0);
-  const [askSelections, setAskSelections] = import_react31.useState([]);
-  const lastAskReqId = import_react31.useRef(null);
+  const [atSelectedIdx, setAtSelectedIdx] = import_react30.useState(0);
+  const [askFocusedIdx, setAskFocusedIdx] = import_react30.useState(0);
+  const [askSelections, setAskSelections] = import_react30.useState([]);
+  const lastAskReqId = import_react30.useRef(null);
   if (state.askReq && state.askReq.request_id !== lastAskReqId.current) {
     lastAskReqId.current = state.askReq.request_id;
     setAskFocusedIdx(0);
@@ -17611,8 +17469,8 @@ function App2() {
   }
   const totalTokens = (state.status?.tokens_up ?? 0) + (state.status?.tokens_down ?? 0);
   const tokenRate = useTokenRate(totalTokens, { buckets: 16, windowSec: 30 });
-  const flashQueue = import_react31.useRef([]);
-  const flashTimer = import_react31.useRef(null);
+  const flashQueue = import_react30.useRef([]);
+  const flashTimer = import_react30.useRef(null);
   const FLASH_MIN_DWELL_MS = 800;
   const pumpFlashQueue = () => {
     if (flashTimer.current !== null)
@@ -17627,8 +17485,8 @@ function App2() {
       pumpFlashQueue();
     }, ttl);
   };
-  const lastDeltaAt = import_react31.useRef(null);
-  import_react31.useEffect(() => {
+  const lastDeltaAt = import_react30.useRef(null);
+  import_react30.useEffect(() => {
     const unsub = client.onEvent((event) => {
       if (event.type === "exit") {
         unsub();
@@ -17657,13 +17515,9 @@ function App2() {
       unsubErr();
     };
   }, [client]);
-  const scrollOffsetRef = import_react31.useRef(state.scrollOffset);
-  import_react31.useEffect(() => {
-    scrollOffsetRef.current = state.scrollOffset;
-  }, [state.scrollOffset]);
-  const lastSentSize = import_react31.useRef(null);
-  const resizeTimer = import_react31.useRef(null);
-  import_react31.useEffect(() => {
+  const lastSentSize = import_react30.useRef(null);
+  const resizeTimer = import_react30.useRef(null);
+  import_react30.useEffect(() => {
     if (lastSentSize.current === null) {
       lastSentSize.current = { cols, rows };
       return;
@@ -17685,11 +17539,6 @@ function App2() {
       }
     };
   }, [cols, rows, client]);
-  const mouseEnabled = process.platform !== "win32";
-  const handleWheel = import_react31.useCallback((delta) => {
-    dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + delta });
-  }, [state.scrollOffset]);
-  useMouseWheel(handleWheel, mouseEnabled);
   useBracketedPaste((pasted) => {
     const normalized = pasted.replace(/\r\n/g, `
 `).replace(/\r/g, `
@@ -17859,24 +17708,6 @@ function App2() {
         return;
       }
     }
-    if (key.pageUp || key.ctrl && typedChar === "u" && editor.text === "") {
-      const vb = computeVisibleBudget();
-      dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + vb });
-      return;
-    }
-    if (key.pageDown) {
-      const vb = computeVisibleBudget();
-      dispatch({ type: "SET_SCROLL", offset: state.scrollOffset - vb });
-      return;
-    }
-    if (key.shift && key.upArrow) {
-      dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + 1 });
-      return;
-    }
-    if (key.shift && key.downArrow) {
-      dispatch({ type: "SET_SCROLL", offset: state.scrollOffset - 1 });
-      return;
-    }
     if (key.tab && slashOpen && slashMatches.length > 0) {
       const pick2 = slashMatches[Math.min(slashSelectedIdx, slashMatches.length - 1)];
       setEditorTo(completionText(pick2));
@@ -17939,10 +17770,6 @@ function App2() {
       return;
     }
     if (key.escape) {
-      if (scrollOffsetRef.current > 0) {
-        dispatch({ type: "SET_SCROLL", offset: 0 });
-        return;
-      }
       client.sendCommand({ type: "interrupt" });
       return;
     }
@@ -17989,46 +17816,41 @@ function App2() {
       editor.insert(typedChar);
     }
   });
-  function computeVisibleBudget() {
-    const COMPOSER_BORDER = 2;
-    let CONFIRM_EXTRA = 0;
-    if (state.confirmReq) {
-      CONFIRM_EXTRA = 1;
-      if (state.confirmReq.tool_name)
-        CONFIRM_EXTRA += 1;
-      if (state.confirmReq.preview) {
-        const previewLines = state.confirmReq.preview.split(`
-`).length;
-        CONFIRM_EXTRA += Math.min(previewLines, 15) + 2;
-      }
-    }
-    const PLAN_MODE_BANNER = !state.confirmReq && state.status?.plan_mode ? 1 : 0;
-    const EDITOR_LINES = state.confirmReq ? 0 : Math.max(0, editor.text.split(`
-`).length - 1);
-    const SLASH_POPUP_LINES = !state.confirmReq && editor.text.startsWith("/") ? Math.min(7, matchSlashCommands(editor.text).length) : 0;
-    const AT_POPUP_LINES = !state.confirmReq && atOpen ? Math.min(8, atMatches.length) : 0;
-    const base2 = 5 + COMPOSER_BORDER + CONFIRM_EXTRA + EDITOR_LINES + SLASH_POPUP_LINES + AT_POPUP_LINES + PLAN_MODE_BANNER;
-    const reserved = base2 + (state.toolLane.length > 0 ? state.toolLane.length + 1 : 0);
-    return Math.max(4, rows - reserved - 1);
-  }
-  const visibleBudget = computeVisibleBudget();
-  return /* @__PURE__ */ jsx_runtime16.jsxs(Box_default, {
+  const streamRows = (() => {
+    if (state.streamId === null || !state.streaming)
+      return [];
+    const r = state.streaming.split(`
+`);
+    let end = r.length;
+    while (end > 0 && r[end - 1] === "")
+      end--;
+    return r.slice(0, end).slice(-Math.max(3, rows - 8));
+  })();
+  return /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
     flexDirection: "column",
-    height: rows,
     paddingX: 1,
     children: [
-      /* @__PURE__ */ jsx_runtime16.jsx(Transcript, {
+      /* @__PURE__ */ jsx_runtime15.jsx(Transcript, {
         banner: state.banner,
         lines: state.lines,
-        streaming: state.streaming,
-        streamId: state.streamId,
-        scrollOffset: state.scrollOffset,
-        visibleBudget,
         termCols: cols,
-        termRows: rows,
-        lastDeltaAtMs: lastDeltaAt.current
+        termRows: rows
       }),
-      /* @__PURE__ */ jsx_runtime16.jsx(Composer, {
+      streamRows.length > 0 && /* @__PURE__ */ jsx_runtime15.jsx(Box_default, {
+        flexDirection: "column",
+        children: streamRows.map((row, i) => /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+          color: "white",
+          children: [
+            i === 0 ? "" : "   ",
+            row
+          ]
+        }, `s${i}`))
+      }),
+      state.streamId !== null && /* @__PURE__ */ jsx_runtime15.jsx(PulsingCursor, {
+        lastDeltaAtMs: lastDeltaAt.current,
+        color: "white"
+      }),
+      /* @__PURE__ */ jsx_runtime15.jsx(Composer, {
         banner: state.banner,
         status: state.status,
         toolLane: state.toolLane,
@@ -18057,4 +17879,4 @@ function turnSeparator() {
   const ss = String(now2.getSeconds()).padStart(2, "0");
   return `── ${hh}:${mm}:${ss} ──`;
 }
-render_default(/* @__PURE__ */ jsx_runtime16.jsx(App2, {}));
+render_default(/* @__PURE__ */ jsx_runtime15.jsx(App2, {}));

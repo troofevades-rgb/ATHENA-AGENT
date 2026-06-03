@@ -24,12 +24,15 @@ import type { ThinkFilterState } from "../stream/thinkBlocks.js";
 import { initialThinkFilterState } from "../stream/thinkBlocks.js";
 
 /**
- * Bound on `lines` to prevent unbounded growth in long sessions
- * (OOM at ~4 GB heap was observed after a few minutes of OSINT
- * activity). When the array would exceed this, the OLDEST
- * entries are dropped — the user loses early scrollback but
- * keeps the most-recent context. 1000 lines is generous and
- * still well under any plausible memory ceiling.
+ * Soft advisory bound on `lines`. NOTE: since the transcript renders
+ * through Ink's <Static> (each line printed once into terminal
+ * scrollback), `lines` is APPEND-ONLY — front-trimming would shift
+ * Static's internal render index and silently drop output. So this is
+ * no longer enforced by trimming; each TranscriptLine is a small
+ * {key, role, content} record, so even a very long session stays well
+ * under the memory ceiling. (The historic ~4 GB OOM was the O(N²)
+ * streaming-buffer rebuild, since fixed — not this array.) Kept as a
+ * hook for a future windowed-Static design if bounding is ever needed.
  */
 export const LINES_CAP = 5000;
 
@@ -97,8 +100,6 @@ export interface TuiState {
   /** AskUserQuestion overlay. Null when no question is pending.
    * Owns the whole keyboard until answered (or Esc cancels). */
   askReq: AskQuestionRequestEvent | null;
-  /** Scrollback: how many lines from the bottom we're scrolled up. */
-  scrollOffset: number;
   /** Monotonic counter for line keys. */
   _nextKey: number;
   /** ``performance.now()`` of the last progress event (stream delta,
@@ -127,7 +128,6 @@ export const initialTuiState: TuiState = {
   flash: null,
   confirmReq: null,
   askReq: null,
-  scrollOffset: 0,
   _nextKey: 1,
   _lastProgressMs: 0,
   _pendingUserInputSince: null,
