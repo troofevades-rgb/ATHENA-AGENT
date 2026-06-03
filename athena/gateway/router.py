@@ -20,7 +20,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .events import MessageEvent
 
@@ -264,7 +264,7 @@ class SessionRouter:
             "SELECT platform, chat_id, user_id, session_id, profile, "
             "created_at, last_seen_at FROM gateway_routes"
         )
-        params: tuple = ()
+        params: tuple[Any, ...] = ()
         if platform is not None:
             sql += " WHERE platform = ?"
             params = (platform,)

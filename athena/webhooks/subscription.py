@@ -20,7 +20,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 AuthType = Literal["hmac_sha256", "bearer", "none"]
 BindingType = Literal["skill", "prompt"]
@@ -222,7 +222,7 @@ class WebhookStore:
 # ---- helpers --------------------------------------------------------
 
 
-def _from_row(row: tuple) -> WebhookSubscription:
+def _from_row(row: tuple[Any, ...]) -> WebhookSubscription:
     (
         id_,
         description,

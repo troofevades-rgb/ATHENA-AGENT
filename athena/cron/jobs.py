@@ -24,6 +24,7 @@ from contextlib import closing
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 _VALID_MODES = ("agent", "watchdog")
 
@@ -57,7 +58,7 @@ class CronJob:
 
     # ---- JSON serialization ----
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         for key in ("created_at", "last_run_at"):
             v = d.get(key)
@@ -66,7 +67,7 @@ class CronJob:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> CronJob:
+    def from_dict(cls, d: dict[str, Any]) -> CronJob:
         kwargs = dict(d)
         for key in ("created_at", "last_run_at"):
             v = kwargs.get(key)

@@ -218,7 +218,7 @@ def Bash(
     return _stream_posix(proc, timeout)
 
 
-def _spawn(command: str, **extra_kwargs: Any) -> subprocess.Popen:
+def _spawn(command: str, **extra_kwargs: Any) -> subprocess.Popen[Any]:
     """Construct the Popen the right way for the platform.
 
     POSIX: ``shell=True, executable="/bin/bash"`` works naturally.
@@ -323,7 +323,7 @@ def _maybe_sandbox(command: str, exec_path: str | None) -> list[str] | None:
     )
 
 
-def _stream_posix(proc: subprocess.Popen, timeout: int) -> str:
+def _stream_posix(proc: subprocess.Popen[Any], timeout: int) -> str:
     """Live-stream stdout via select() on POSIX."""
     buf: list[str] = []
     pending = b""
@@ -377,7 +377,7 @@ def _stream_posix(proc: subprocess.Popen, timeout: int) -> str:
     return f"exit={rc}\n{_truncate(out)}"
 
 
-def _stream_windows(proc: subprocess.Popen, timeout: int) -> str:
+def _stream_windows(proc: subprocess.Popen[Any], timeout: int) -> str:
     """Read stdout on a daemon thread on Windows — select() doesn't accept pipes."""
     buf: list[str] = []
     pending = b""

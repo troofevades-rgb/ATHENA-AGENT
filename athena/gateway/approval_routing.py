@@ -40,7 +40,7 @@ import logging
 import secrets
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from .events import ApprovalRequest
 
@@ -113,7 +113,7 @@ class ApprovalRouter:
         *,
         session_id: str,
         tool_name: str,
-        tool_args: dict,
+        tool_args: dict[str, Any],
         platform: str = "",
         chat_id: str = "",
         timeout: float | None = None,
@@ -178,7 +178,7 @@ class ApprovalRouter:
         *,
         session_id: str,
         tool_name: str,
-        tool_args: dict,
+        tool_args: dict[str, Any],
         platform: str = "",
         chat_id: str = "",
         timeout: float | None = None,
@@ -202,7 +202,7 @@ class ApprovalRouter:
         hard = soft + 5.0
 
         try:
-            cf: concurrent.futures.Future = asyncio.run_coroutine_threadsafe(
+            cf: concurrent.futures.Future[Any] = asyncio.run_coroutine_threadsafe(
                 self.request_async(
                     session_id=session_id,
                     tool_name=tool_name,

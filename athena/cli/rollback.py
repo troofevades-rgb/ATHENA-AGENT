@@ -22,6 +22,7 @@ import tarfile
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from ..provenance import FOREGROUND, get_current_write_origin
 from ..safety.audit import MutationRecord, now_iso, sha_of_file
@@ -115,7 +116,7 @@ def rollback_target(
     snapshot_id: str | None = None,
     confirm: Callable[[str], bool] | None = None,
     relative_to: Path | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Roll the live file at ``target`` back to the snapshot copy.
 
     Writes a MutationRecord (``tool_name=<arg>``) after the restore

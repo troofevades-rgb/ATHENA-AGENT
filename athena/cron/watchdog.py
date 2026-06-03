@@ -14,6 +14,7 @@ import logging
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from .delivery import deliver
 from .jobs import JobStore
@@ -46,7 +47,7 @@ def run_watchdog_job_by_id(job_id: str, *, jobs_db_path: Path | None = None) -> 
     run_watchdog_job(job, store=store)
 
 
-def run_watchdog_job(job, *, store: JobStore | None = None) -> dict:
+def run_watchdog_job(job, *, store: JobStore | None = None) -> dict[str, Any]:
     """Execute ``job.script`` as a shell command. Returns the result dict
     (also delivered via :func:`deliver` and recorded against the store).
     """

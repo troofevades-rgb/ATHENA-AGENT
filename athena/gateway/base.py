@@ -229,10 +229,10 @@ class GatewayAdapter(ABC):
     def __init__(self, daemon: GatewayDaemon) -> None:
         self.daemon = daemon
         self._active_sessions: dict[str, asyncio.Event] = {}
-        self._session_tasks: dict[str, asyncio.Task] = {}
+        self._session_tasks: dict[str, asyncio.Task[Any]] = {}
         self._pending_messages: dict[str, MessageEvent] = {}
-        self._background_tasks: set[asyncio.Task] = set()
-        self._expected_cancelled_tasks: set[asyncio.Task] = set()
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._expected_cancelled_tasks: set[asyncio.Task[Any]] = set()
         self._busy_session_handler: BusySessionHandler | None = None
 
     # ---- platform protocol ----

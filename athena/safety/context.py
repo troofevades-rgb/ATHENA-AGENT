@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from typing import Any
 
 from .audit import MutationAuditLog
 from .snapshots import SnapshotStore
@@ -42,7 +43,7 @@ def get_snapshot_store(profile_dir: Path | None = None) -> SnapshotStore:
             # fixtures that monkeypatch CONFIG_PATH before importing
             # safety, etc.) we fall back to SnapshotStore's hardcoded
             # defaults, which match SafetyConfig's defaults exactly.
-            kwargs: dict = {"root": root / "snapshots"}
+            kwargs: dict[str, Any] = {"root": root / "snapshots"}
             try:
                 from ..config import load_config as _load_config
 

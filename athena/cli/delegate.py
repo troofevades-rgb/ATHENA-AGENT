@@ -26,11 +26,12 @@ import shlex
 import shutil
 import sys
 from pathlib import Path
+from typing import Any
 
 from ..config import load_config
 
 
-def _verify_command(template: str | None) -> dict:
+def _verify_command(template: str | None) -> dict[str, Any]:
     """Inspect a ``cli_delegate_command`` template, return a
     structured verdict."""
     if not template:

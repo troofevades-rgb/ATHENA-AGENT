@@ -69,7 +69,7 @@ class MCPStdioClient:
 
         self._next_id = 1
         self._id_lock = threading.Lock()
-        self._pending: dict[int, Future] = {}
+        self._pending: dict[int, Future[Any]] = {}
         self._pending_lock = threading.Lock()
         self._send_lock = threading.Lock()
         self._stop = threading.Event()
@@ -167,7 +167,7 @@ class MCPStdioClient:
         msg: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": method}
         if params is not None:
             msg["params"] = params
-        fut: Future = Future()
+        fut: Future[Any] = Future()
         with self._pending_lock:
             self._pending[req_id] = fut
         self._send(msg)

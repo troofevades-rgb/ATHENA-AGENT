@@ -109,7 +109,7 @@ class WebhookServer:
         self._site: web.BaseSite | None = None
         # Tasks spawned by the handler; cancelled on shutdown so a
         # slow agent run can't keep the process alive past stop.
-        self._dispatch_tasks: set[asyncio.Task] = set()
+        self._dispatch_tasks: set[asyncio.Task[Any]] = set()
         # Set to True the moment ``stop()`` begins. ``_handle``
         # checks this BEFORE spawning a new dispatch task so a
         # request that lands during the shutdown window doesn't

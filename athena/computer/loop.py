@@ -73,7 +73,7 @@ class ActionProposal:
     message: str | None = None
 
 
-ProposeFn = Callable[[str, Screenshot, list], ActionProposal]
+ProposeFn = Callable[[str, Screenshot, list[Any]], ActionProposal]
 """Vision dispatcher signature: (task, screenshot, history) →
 proposal. ``history`` is the list of audit-entry summaries from
 prior iterations so the model has loop context. The injection

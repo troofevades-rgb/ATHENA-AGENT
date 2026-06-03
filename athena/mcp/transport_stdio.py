@@ -24,7 +24,7 @@ import io
 import json
 import logging
 import sys
-from typing import IO
+from typing import IO, Any
 
 from .server import AthenaMCPServer
 
@@ -81,7 +81,7 @@ def run_stdio(
         _write_response(out_stream, response)
 
 
-def _write_response(out_stream: IO[str], payload: dict) -> None:
+def _write_response(out_stream: IO[str], payload: dict[str, Any]) -> None:
     """One-line compact JSON + newline + flush. Stdout buffering eats
     replies in some environments (Windows console with line-buffered
     stdio is the usual offender), so flush is non-optional here."""

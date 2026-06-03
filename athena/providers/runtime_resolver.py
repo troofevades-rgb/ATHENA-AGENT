@@ -38,7 +38,7 @@ exhausted lists the providers attempted so the user can correct.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import get_provider_class, providers_with_capability
 from .base import Provider
@@ -181,7 +181,7 @@ def _build_provider(
     # Pass the pool so providers can rotate credentials on repeated
     # 429s. Providers that don't accept ``credential_pool=`` will
     # raise — every hosted provider added by Phase 17.6 does.
-    kwargs: dict = {"api_key": api_key, "credential_pool": pool}
+    kwargs: dict[str, Any] = {"api_key": api_key, "credential_pool": pool}
     if "base_url" in provider_cfg:
         kwargs["base_url"] = provider_cfg["base_url"]
     return cls(**kwargs), bare

@@ -21,7 +21,7 @@ user the exact ``/rollback-to <id>`` they can run.
 from __future__ import annotations
 
 import dataclasses
-from typing import Literal
+from typing import Any, Literal
 
 # Tool-result return values use the same vocabulary so the model's
 # `read_tool_result` flow can grep for them.
@@ -95,7 +95,7 @@ class VerificationOutcome:
             head += "\n  (auto-rolled back to pre-write checkpoint)"
         return head
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Audit-log-friendly serialisation."""
         return {
             "path": self.path,

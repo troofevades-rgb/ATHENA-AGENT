@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 
 # Bounded rolling-window size for latency samples. Large enough to
 # give stable percentiles in a normal session (hundreds of turns,
@@ -145,7 +146,7 @@ class Stats:
         profile: str,
         cache_strategy: str | None = None,
         prompt_cache_ttl: str | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         return {
             "session_id": session_id,
             "model": model,

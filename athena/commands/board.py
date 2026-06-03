@@ -145,7 +145,7 @@ def _try_run_tui(state: dict[str, Any]) -> bool:
     except ImportError:
         return False
 
-    class _BoardApp(App):
+    class _BoardApp(App[Any]):
         CSS = """
         Screen { background: $surface; }
         .col { width: 1fr; height: 1fr; padding: 1; border: solid $primary; }

@@ -28,7 +28,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +59,14 @@ class Subgoal:
     done: bool = False
     task_id: str | None = None
 
-    def to_dict(self) -> dict:
-        d: dict = {"text": self.text, "done": bool(self.done)}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"text": self.text, "done": bool(self.done)}
         if self.task_id is not None:
             d["task_id"] = self.task_id
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> Subgoal:
+    def from_dict(cls, d: dict[str, Any]) -> Subgoal:
         return cls(
             text=str(d.get("text", "")),
             done=bool(d.get("done", False)),
@@ -125,7 +125,7 @@ class GoalState:
                 return sg
         return None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text,
             "status": self.status,
@@ -141,7 +141,7 @@ class GoalState:
         return json.dumps(self.to_dict(), indent=2, sort_keys=True)
 
     @classmethod
-    def from_dict(cls, d: dict) -> GoalState:
+    def from_dict(cls, d: dict[str, Any]) -> GoalState:
         status = d.get("status", "active")
         if status not in _VALID_STATUSES:
             # Fall through to "active" rather than raising — a

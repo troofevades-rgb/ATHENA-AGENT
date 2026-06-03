@@ -25,6 +25,7 @@ from __future__ import annotations
 import dataclasses
 import struct
 from pathlib import Path
+from typing import Any
 
 
 @dataclasses.dataclass(frozen=True)
@@ -102,7 +103,7 @@ def is_likely_isobmff(atoms: list[Atom]) -> bool:
     return atoms[0].type in ("ftyp", "moov", "skip", "free")
 
 
-def faststart_remux_signature(atoms: list[Atom]) -> dict:
+def faststart_remux_signature(atoms: list[Atom]) -> dict[str, Any]:
     """Diagnose the moov-vs-mdat ordering.
 
     Returns a dict with:

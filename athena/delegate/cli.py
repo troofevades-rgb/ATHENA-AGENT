@@ -190,7 +190,7 @@ def cleanup_worktree(handle: WorktreeHandle, *, repo_path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _git(cwd: Path, *args: str, timeout_s: float = 30.0) -> subprocess.CompletedProcess:
+def _git(cwd: Path, *args: str, timeout_s: float = 30.0) -> subprocess.CompletedProcess[Any]:
     """Run ``git <args>`` in ``cwd``. Captures both streams,
     never raises on non-zero exit (caller branches on
     ``returncode``)."""

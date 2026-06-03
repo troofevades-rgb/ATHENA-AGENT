@@ -39,7 +39,7 @@ def cmd_compact(agent: Any, arg: str = "") -> str:
         head_message_indices=1,
     )
 
-    def _summarizer(prompt_messages: list, target_tokens: int) -> str:
+    def _summarizer(prompt_messages: list[Any], target_tokens: int) -> str:
         chunks: list[str] = []
         for chunk in agent.provider.stream_chat(
             model=agent.model,
