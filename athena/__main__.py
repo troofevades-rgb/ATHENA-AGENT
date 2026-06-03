@@ -41,7 +41,7 @@ def _rewrite_singledash_longs(argv: list[str], parser: argparse.ArgumentParser) 
 
     long_forms: set[str] = set()
     short_forms: set[str] = set()
-    for action in parser._actions:  # type: ignore[attr-defined]
+    for action in parser._actions:
         for opt in action.option_strings:
             if opt.startswith("--"):
                 long_forms.add(opt[2:])

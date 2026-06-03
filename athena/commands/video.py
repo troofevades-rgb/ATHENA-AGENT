@@ -28,7 +28,7 @@ def _video_backends() -> list[tuple[str, bool]]:
     provider whose static capabilities declare ``video_generation``.
     Sorted alphabetically for stable display.
     """
-    from ..providers import _REGISTRY  # type: ignore[attr-defined]
+    from ..providers import _REGISTRY
 
     out: list[tuple[str, bool]] = []
     for name, cls in _REGISTRY.items():
@@ -54,7 +54,7 @@ def _credential_env_candidates(name: str) -> list[str]:
       2. Heuristic fallback: ``ATHENA_<NAME>_API_KEY``,
          ``ATHENA_<NAME>_TOKEN``, ``<NAME>_API_KEY``.
     """
-    from ..providers import _REGISTRY  # type: ignore[attr-defined]
+    from ..providers import _REGISTRY
 
     cls = _REGISTRY.get(name)
     declared = getattr(cls, "credential_env_vars", None) if cls else None
@@ -79,7 +79,7 @@ def _find_credential(name: str) -> str | None:
     report "no credential" for a key that's actually in the pool.
     """
     from ..env import get_credential
-    from ..providers import _REGISTRY  # type: ignore[attr-defined]
+    from ..providers import _REGISTRY
 
     for key in _credential_env_candidates(name):
         if get_credential(key):

@@ -41,7 +41,7 @@ def _active_cfg_or_disk():
     except ImportError:
 
         def get_current_agent():
-            return None  # type: ignore[assignment]
+            return None
 
     agent = get_current_agent()
     if agent is not None and getattr(agent, "cfg", None) is not None:

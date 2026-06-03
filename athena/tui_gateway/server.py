@@ -760,7 +760,7 @@ class TuiGateway:
             ) from e
         self._conn = conn
         # Buffered reader for line-oriented reads.
-        self._conn_reader = io.BufferedReader(socket.SocketIO(conn, "rb"))  # type: ignore[arg-type]
+        self._conn_reader = io.BufferedReader(socket.SocketIO(conn, "rb"))
 
         # Synchronous hello handshake BEFORE starting the reader
         # thread. If versions don't match we close cleanly with
@@ -1106,7 +1106,7 @@ class TuiGateway:
             with self._conn_lock:
                 self._conn = new_conn
                 self._conn_reader = io.BufferedReader(
-                    socket.SocketIO(new_conn, "rb"),  # type: ignore[arg-type]
+                    socket.SocketIO(new_conn, "rb"),
                 )
 
             # Re-do handshake on the new conn (also handles replay).
