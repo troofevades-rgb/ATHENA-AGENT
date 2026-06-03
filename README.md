@@ -30,6 +30,11 @@ A terminal-based agentic coding assistant.
 - APScheduler-backed cron with watchdog and agent modes (`athena cron ...`)
 - In-flight redirection (`/steer`) and persistent invariant (`/goal`)
 - Closed training loop: review trajectories, build SFT+DPO datasets, train a new LoRA, register with Ollama (`athena train review|build-dataset|run|status`, `athena model switch`)
+- Multi-provider: Ollama (default) plus Anthropic, OpenAI, Google, OpenRouter, and Nous Portal, behind one credential pool that rotates keys on 429
+- Local-model reliability guards: re-prompts when the model narrates an action without actually calling a tool, repairs malformed tool calls (suggests the right tool / argument names), circuit-breaks stuck loops, and can escalate to a stronger model when the local one gets stuck (opt-in `routing_enabled`)
+- Semantic recall: past turns and memory entries are embedded into a local vector index; opt-in `recall_auto` injects the most relevant prior context into each turn for cross-session continuity
+- Conversation checkpoints with snapshot-backed rollback (`athena checkpoint create|list|rollback`)
+- Ink TUI rendering: native terminal scrolling (mouse wheel + text selection), a `⏺ Tool(args)` / `⎿ output` call tree, markdown with syntax-highlighted code blocks, and a live context-window gauge
 
 
 ## Requirements
@@ -107,7 +112,7 @@ list the files in this directory      # triggers a tool call (Bash or Glob)
 /exit                                 # leave the REPL
 ```
 
-You should see the model emit a tool call (rendered as `▸ Bash` or `▸ Glob` in the TUI), a tool result block, then a final assistant message describing the listing.
+You should see the model emit a tool call (rendered as a `⏺ Bash(...)` / `⏺ Glob(...)` call header with its output hung off a `⎿` branch in the TUI), then a final assistant message describing the listing.
 
 ### 3. Hosted models (OpenRouter, Anthropic, OpenAI)
 
@@ -150,6 +155,12 @@ model = "qwen2.5-coder:14b"
 ollama_host = "http://127.0.0.1:11434"
 auto_approve_bash = false   # if true, no confirmation prompts for bash
 context_window = 32768
+
+# Local-model reliability
+narrate_reprompt_attempts = 1     # re-prompt N times if the model narrates without calling a tool (0 disables)
+routing_enabled = false           # opt-in: escalate to a stronger model when the local one gets stuck
+routing_escalation_model = ""     # e.g. "anthropic/claude-sonnet-4-5"; required when routing_enabled
+recall_auto = false               # opt-in: inject relevant past turns/memory into context each turn
 ```
 
 ## Project memory
@@ -165,7 +176,7 @@ agent loop  ->  ollama (tool-call request)
     +---  tool exec  <--+
 ```
 
-Single loop in `agent.py`. Tools are registered in `tools/registry.py` with a JSON schema Ollama understands; new tools just need a `@tool(...)` decorator and a Python function.
+Single loop in `athena/agent/` (`core.py` plus the `runtime.py` turn-loop mixin). Tools are registered in `tools/registry.py` with a JSON schema Ollama understands; new tools just need a `@tool(...)` decorator and a Python function.
 
 ## Extending
 
@@ -239,7 +250,7 @@ If you need to disable a transport for a specific server, set `"disabled": true`
 
 ## Other limitations
 
-- Local models are weaker at long-horizon planning than Claude. Keep tasks scoped.
+- Local models are weaker at long-horizon planning than Claude — keep tasks scoped. (Opt-in `routing_enabled` escalates the stuck moments to a stronger model.)
 - Diff rendering is line-based, not semantic.
 
 ## Changelog
