@@ -1,149 +1,126 @@
 /**
- * <Transcript> — the scrolling content region.
+ * <Transcript> — committed conversation history, rendered through
+ * Ink's <Static> so each line is printed exactly ONCE into the
+ * terminal's native scrollback. The terminal owns scrolling (mouse
+ * wheel, text selection, copy, find) — the app does NOT window the
+ * content or track a scroll offset.
  *
- * INVARIANT: every TranscriptLine renders as exactly ONE terminal
- * row. The reducer splits multi-line content at commit time.
- * renderLine() returns a single <Text> — never a <Box> with
- * children that could be taller than one row. This makes the
- * windowing math (visibleBudget = terminal rows available)
- * trivially correct and prevents the layout collisions that
- * happened when multi-row elements overflowed the viewport.
+ * Consequences of the Static model:
+ *   - `lines` is append-only (the reducer never front-trims; Static
+ *     tracks emitted items by array index).
+ *   - The banner + welcome hints are the FIRST Static item: they print
+ *     once at the top and scroll away as the conversation grows
+ *     (Claude-Code style). The gateway always sends the banner before
+ *     any conversation line, so index 0 stays stable.
+ *   - The live streaming message and the input composer live in the
+ *     DYNAMIC region below Static (see main.tsx), not here.
+ *
+ * INVARIANT (kept for simplicity, not required by Static): the reducer
+ * splits multi-line content into one TranscriptLine per row at commit
+ * time, and renderLine() returns a single <Text>. That keeps the
+ * file:line / diff / code per-row classification trivial.
  */
 
 import React from "react";
-import { Box, Text } from "ink";
+import { Box, Static, Text } from "ink";
 
 import { Banner } from "./Banner.js";
-import { Nameplate } from "./Nameplate.js";
-import { PulsingCursor } from "./PulsingCursor.js";
 import { parseInline } from "../stream/inlineMarkdown.js";
 import type { BannerEvent } from "../transport/protocol.js";
 import type { TranscriptLine } from "../state/types.js";
 
+// Matches a "path:line<rest>" prefix on a tool body line (groups:
+// leading whitespace, path, line number, rest). Path may not contain a
+// colon, so URLs ("https://…") and Windows drive letters ("C:\…") won't
+// match — that's fine; we only need relative-path matches to light up.
+const FILE_LINE_RE = /^(\s*)([^\s:][^:]*?):(\d+)(.*)$/;
+
 interface Props {
   banner: BannerEvent | null;
   lines: TranscriptLine[];
-  streaming: string;
-  streamId: string | null;
-  scrollOffset: number;
-  visibleBudget: number;
   termCols: number;
   termRows: number;
-  lastDeltaAtMs?: number | null;
+}
+
+/** Static item: either a committed transcript line or the one-time
+ * welcome block (always index 0 when a banner is present). */
+type HistoryItem = TranscriptLine | { key: number; welcome: true };
+
+function isWelcome(i: HistoryItem): i is { key: number; welcome: true } {
+  return (i as { welcome?: true }).welcome === true;
 }
 
 export function Transcript({
-  banner, lines, streaming, streamId,
-  scrollOffset, visibleBudget, termCols, termRows,
-  lastDeltaAtMs = null,
+  banner, lines, termCols, termRows,
 }: Props): React.JSX.Element {
   const palette = banner?.palette ?? undefined;
   const promptColor = palette?.primary ?? "green";
-  const hasConversation = lines.length > 0 || streamId !== null;
-  const headerHeight = hasConversation ? 1 : Math.max(15, termRows - 12);
 
-  // Split the streaming buffer into rows so it doesn't overflow
-  // the viewport (same invariant as committed lines: 1 entry = 1 row).
-  // Trim trailing empty rows that ``"".split("\n")`` produces — without
-  // this, a freshly-opened stream with no content yet renders an empty
-  // row + floating PulsingCursor (visible as a stray ▌ above the
-  // composer when the model stalls between stream.start and the first
-  // delta).
-  const rawRows = (!scrollOffset && streamId !== null && streaming)
-    ? streaming.split("\n")
-    : [];
-  let trimEnd = rawRows.length;
-  while (trimEnd > 0 && rawRows[trimEnd - 1] === "") trimEnd--;
-  const streamingRows = rawRows.slice(0, trimEnd);
-  // Reserve rows for the streaming buffer so committed lines
-  // don't fight with live text for viewport space.
-  const streamReserve = streamingRows.length > 0
-    ? Math.min(streamingRows.length + 1, Math.floor(visibleBudget / 2))
-    : 0;
-  const committedBudget = visibleBudget - streamReserve;
-
-  const windowEnd = Math.max(0, lines.length - scrollOffset);
-  const windowStart = Math.max(0, windowEnd - committedBudget);
-  const visibleLines = hasConversation
-    ? lines.slice(windowStart, windowEnd)
-    : [];
-  const moreBelow = scrollOffset > 0 ? scrollOffset : 0;
-  const moreAbove = Math.max(0, windowStart);
-  const scrolledUp = scrollOffset > 0;
-
-  // Show only the tail of streaming text that fits in the reserve
-  const streamTail = streamReserve > 0
-    ? streamingRows.slice(-streamReserve)
-    : [];
-
-  if (!hasConversation) {
-    return (
-      <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        {banner && palette ? (
-          <Banner event={banner} termCols={termCols} termRows={headerHeight} />
-        ) : (
-          <Text dimColor>connecting to gateway…</Text>
-        )}
-        <Box flexGrow={1} />
-        {banner && palette && (
-          <Box flexDirection="column" marginBottom={1} paddingX={2}>
-            <Text color={palette.primary_dim}>try one of these to get started:</Text>
-            <Box marginTop={1} flexDirection="column">
-              <Text color={palette.accent_dim}>
-                {"  "}explain what this project does
-              </Text>
-              <Text color={palette.accent_dim}>
-                {"  "}@ATHENA.md what should I know before touching the agent loop?
-              </Text>
-              <Text color={palette.accent_dim}>
-                {"  "}/plan refactor the X module
-              </Text>
-              <Text color={palette.accent_dim}>
-                {"  "}/help — list every slash command
-              </Text>
-            </Box>
-            <Box marginTop={1} flexDirection="column" alignItems="center">
-              <Text color={palette.primary_faint}>
-                Enter sends · Shift+Enter newline · Tab completes
-                {" · "}↑↓ history · Ctrl+R search
-              </Text>
-              <Text color={palette.primary_faint}>
-                Shift+↑↓ or PageUp/Dn to scroll · Esc interrupt · Ctrl+C exit
-              </Text>
-            </Box>
-          </Box>
-        )}
-      </Box>
-    );
-  }
+  // Banner is the first Static item so it prints once and scrolls away.
+  // It must precede every line to keep the items array append-only.
+  const items: HistoryItem[] = banner
+    ? [{ key: -1, welcome: true }, ...lines]
+    : lines;
 
   return (
-    <Box flexDirection="column" flexGrow={1} overflow="hidden">
-      {banner && palette && <Nameplate banner={banner} palette={palette} />}
-      <Box flexGrow={1} />
-      {moreAbove > 0 && (
-        <Text color={palette?.primary_faint ?? "gray"} dimColor>
-          ↑ {moreAbove} earlier line{moreAbove === 1 ? "" : "s"}
-          {scrollOffset === 0 ? " — Shift+↑ or PageUp to scroll" : ""}
-        </Text>
-      )}
-      {visibleLines.map((line) => renderLine(line, palette, promptColor))}
-      {streamTail.length > 0 && (
-        <>
-          {streamTail.map((row, i) => (
-            <Text key={`s${i}`} color="white">
-              {i === 0 ? "" : "   "}{i === 0 ? "" : ""}{row}
-            </Text>
-          ))}
-          <PulsingCursor lastDeltaAtMs={lastDeltaAtMs} color="white" />
-        </>
-      )}
-      {moreBelow > 0 && (
-        <Text color={palette?.accent ?? "yellow"} dimColor>
-          ↓ {moreBelow} newer line{moreBelow === 1 ? "" : "s"} —
-          press Esc to jump to bottom
-        </Text>
-      )}
+    <Static items={items}>
+      {(item) =>
+        isWelcome(item) ? (
+          <Welcome
+            key="welcome"
+            banner={banner as BannerEvent}
+            termCols={termCols}
+            termRows={termRows}
+          />
+        ) : (
+          renderLine(item, palette, promptColor)
+        )
+      }
+    </Static>
+  );
+}
+
+/**
+ * The welcome block: full banner + getting-started hints. Printed once
+ * at the top of the session via Static; scrolls away as history grows.
+ */
+function Welcome({
+  banner, termCols, termRows,
+}: {
+  banner: BannerEvent;
+  termCols: number;
+  termRows: number;
+}): React.JSX.Element {
+  const palette = banner.palette;
+  return (
+    <Box flexDirection="column">
+      <Banner event={banner} termCols={termCols} termRows={Math.max(15, termRows - 12)} />
+      <Box flexDirection="column" marginTop={1} marginBottom={1} paddingX={2}>
+        <Text color={palette.primary_dim}>try one of these to get started:</Text>
+        <Box marginTop={1} flexDirection="column">
+          <Text color={palette.accent_dim}>
+            {"  "}explain what this project does
+          </Text>
+          <Text color={palette.accent_dim}>
+            {"  "}@ATHENA.md what should I know before touching the agent loop?
+          </Text>
+          <Text color={palette.accent_dim}>
+            {"  "}/plan refactor the X module
+          </Text>
+          <Text color={palette.accent_dim}>
+            {"  "}/help — list every slash command
+          </Text>
+        </Box>
+        <Box marginTop={1} flexDirection="column">
+          <Text color={palette.primary_faint}>
+            Enter sends · Shift+Enter newline · Tab completes
+            {" · "}↑↓ history · Ctrl+R search
+          </Text>
+          <Text color={palette.primary_faint}>
+            Mouse wheel / terminal scrollback to scroll · Esc interrupt · Ctrl+C exit
+          </Text>
+        </Box>
+      </Box>
     </Box>
   );
 }
@@ -152,7 +129,7 @@ export function Transcript({
  * Render one transcript line as exactly one terminal row.
  * Never returns a <Box> or multi-child element.
  */
-function renderLine(
+export function renderLine(
   line: TranscriptLine,
   palette: BannerEvent["palette"] | undefined,
   promptColor: string,
@@ -207,6 +184,23 @@ function renderLine(
   if (line.role === "tool") {
     // Header lines start with "> ", body lines with "  "
     const isHeader = line.content.startsWith("> ");
+    // Light-touch file:line accenting on body lines: ripgrep/Grep emit
+    // "path:line:text", and compiler-style output looks the same. Dim the
+    // path, accent the :line so references pop without per-tool coupling.
+    // The path-likeness guard (must contain "/", "\", or ".") keeps
+    // timestamps ("12:30") and "str | None:" from matching.
+    const fileLine = !isHeader ? line.content.match(FILE_LINE_RE) : null;
+    if (fileLine && /[/\\.]/.test(fileLine[2]!)) {
+      const [, lead, path, lineNo, rest] = fileLine;
+      return (
+        <Text key={line.key}>
+          {"   "}{lead}
+          <Text color={palette?.primary_faint ?? "gray"}>{path}</Text>
+          <Text color={palette?.accent_dim ?? "yellow"}>:{lineNo}</Text>
+          <Text color={palette?.primary_dim ?? "gray"}>{rest}</Text>
+        </Text>
+      );
+    }
     return (
       <Text
         key={line.key}

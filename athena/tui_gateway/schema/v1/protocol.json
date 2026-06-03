@@ -326,6 +326,16 @@
         },
         "result_preview": {
           "type": "string"
+        },
+        "duration_ms": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

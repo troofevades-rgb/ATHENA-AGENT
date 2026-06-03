@@ -13,10 +13,11 @@
  * ./hooks/). This file should stay small (< 200 lines).
  */
 
-import { Box, render, useApp, useInput } from "ink";
+import { Box, render, Text, useApp, useInput } from "ink";
 import React, { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { Composer } from "./components/Composer.js";
+import { PulsingCursor } from "./components/PulsingCursor.js";
 import { Transcript } from "./components/Transcript.js";
 import { useInputHistory } from "./hooks/useInputHistory.js";
 import { useLineEditor } from "./hooks/useLineEditor.js";
@@ -27,7 +28,6 @@ import {
   applyAtMentionCompletion, findActiveAtMention, matchWorkspaceFiles,
 } from "./lib/workspaceFiles.js";
 import { useBracketedPaste } from "./hooks/useBracketedPaste.js";
-import { useMouseWheel } from "./hooks/useMouseWheel.js";
 import { useStdoutSize } from "./hooks/useStdoutSize.js";
 import { useTokenRate } from "./hooks/useTokenRate.js";
 import { initialTuiState } from "./state/types.js";
@@ -153,13 +153,6 @@ function App(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client]);
 
-  // Track latest scroll position via ref (read inside event handlers
-  // without forcing useEffect re-subscription on every state change).
-  const scrollOffsetRef = useRef(state.scrollOffset);
-  useEffect(() => {
-    scrollOffsetRef.current = state.scrollOffset;
-  }, [state.scrollOffset]);
-
   // ----- resize → gateway -----
   // When the terminal resizes, tell the gateway so it can re-render
   // the owl photo at the new width. The owl pixels are baked
@@ -202,13 +195,11 @@ function App(): React.JSX.Element {
     };
   }, [cols, rows, client]);
 
-  // ----- mouse wheel scrolling ----------------------------------------
-  // Off on Windows (ConPTY sends phantom mouse events). On elsewhere.
-  const mouseEnabled = process.platform !== "win32";
-  const handleWheel = useCallback((delta: number) => {
-    dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + delta });
-  }, [state.scrollOffset]);
-  useMouseWheel(handleWheel, mouseEnabled);
+  // Scrolling is handled by the terminal's native scrollback — the
+  // transcript renders through Ink's <Static> (see Transcript.tsx), so
+  // there's no app-managed scroll offset, no mouse capture, and no
+  // ConPTY raw-mode hazard. Mouse wheel / selection / copy / find all
+  // work because the content lives in the terminal, not a viewport.
 
   // Bracketed paste: pasted content arrives as one insertion instead
   // of being fed through useInput as N keystrokes. Critical for
@@ -399,35 +390,10 @@ function App(): React.JSX.Element {
       // through so the existing binding fires.
     }
 
-    // Scrollback — multiple keybindings for terminal compatibility.
-    // PageUp/PageDown work on Linux/macOS but Windows Terminal
-    // often intercepts them for its own scrollback. Ctrl+U/D are
-    // the reliable fallback (vim-style half-page scroll) — BUT
-    // only when the input buffer is empty. With text in the buffer,
-    // Ctrl+U falls through to the readline-style kill-to-start
-    // binding below (matches bash/zsh convention; without this
-    // guard the kill-to-start binding was unreachable dead code).
-    if (key.pageUp || (key.ctrl && typedChar === "u" && editor.text === "")) {
-      const vb = computeVisibleBudget();
-      dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + vb });
-      return;
-    }
-    // Ctrl+D-empty-buffer is bound to exit below (POSIX-shell
-    // convention). PageDown covers the scroll case directly so we
-    // don't need the Ctrl+D fallback that previously lived here.
-    if (key.pageDown) {
-      const vb = computeVisibleBudget();
-      dispatch({ type: "SET_SCROLL", offset: state.scrollOffset - vb });
-      return;
-    }
-    if (key.shift && key.upArrow) {
-      dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + 1 });
-      return;
-    }
-    if (key.shift && key.downArrow) {
-      dispatch({ type: "SET_SCROLL", offset: state.scrollOffset - 1 });
-      return;
-    }
+    // Scrollback is the terminal's job now (Static render) — no
+    // PageUp/PageDown/Shift+arrow scroll bindings. Ctrl+U with a
+    // non-empty buffer still falls through to the readline kill-to-start
+    // binding below.
 
     // Tab — when the slash popup is open with at least one match,
     // accept the selected completion. Replaces the buffer with the
@@ -511,10 +477,6 @@ function App(): React.JSX.Element {
       return;
     }
     if (key.escape) {
-      if (scrollOffsetRef.current > 0) {
-        dispatch({ type: "SET_SCROLL", offset: 0 });
-        return;
-      }
       // Interrupt the in-flight turn but stay in the session — the
       // Python side raises KeyboardInterrupt on the main thread,
       // run_turn unwinds, and the REPL returns to recv_command()
@@ -587,85 +549,42 @@ function App(): React.JSX.Element {
   // cols/rows come from useStdoutSize() at the top of the component
   // so they're always current (subscribes to 'resize' + post-mount
   // re-sync for the Windows spawn-timing case).
-
-  function computeVisibleBudget(): number {
-    // Reserved rows the transcript can't use (in order, top → bottom):
-    //   nameplate                       1
-    //   transcript spacer / margin      1
-    //   tool lane (when present)        N + 1  (rows + bottom margin)
-    //   composer border top             1   ← bordered card around prompt
-    //   composer prompt line            1
-    //   composer border bottom          1
-    //   status bar                      1
-    //   outer paddingX (vertical = 0)   0
-    //   safety slack                    1
-    // ─────────────────────────────────
-    //                                 = 7 + N (base) when no tool lane
-    //
-    // The +2 above the original baseline accounts for the bordered
-    // composer card added in the same iteration that fixed the
-    // composer to look like a proper input field. Without bumping
-    // this, the transcript renders 2 extra lines that get pushed
-    // above the visible viewport, making mid-stream agent output
-    // invisible until the user scrolls back.
-    //
-    // When a confirm overlay is active, the composer is taller:
-    // bordered box with 2 content lines (prompt + hint) = 4 rows
-    // vs. normal bordered input = 3 rows. Add 1 extra reserved.
-    const COMPOSER_BORDER = 2;
-    // Confirm overlay is taller when it carries a rich preview
-    // (tool_name header + preview body + 1-row margin). Cap the
-    // preview row count to MATCH the renderer's MAX (15) plus 2
-    // for tool header + margin.
-    let CONFIRM_EXTRA = 0;
-    if (state.confirmReq) {
-      CONFIRM_EXTRA = 1;
-      if (state.confirmReq.tool_name) CONFIRM_EXTRA += 1;
-      if (state.confirmReq.preview) {
-        const previewLines = state.confirmReq.preview.split("\n").length;
-        CONFIRM_EXTRA += Math.min(previewLines, 15) + 2;  // body + margin
-      }
-    }
-    // Plan-mode banner row above the composer (1 row), only when
-    // not in a confirm flow (the confirm box hides the composer).
-    const PLAN_MODE_BANNER = (!state.confirmReq && state.status?.plan_mode)
-      ? 1 : 0;
-    // Multi-line input: every \n in the buffer adds another visible
-    // row to the composer. Without compensating here, those extra
-    // rows push transcript content off the top of the viewport.
-    const EDITOR_LINES = state.confirmReq
-      ? 0  // composer hidden behind the confirm box; doesn't grow
-      : Math.max(0, editor.text.split("\n").length - 1);
-    // Slash popup adds rows when open with matches.
-    const SLASH_POPUP_LINES = (!state.confirmReq && editor.text.startsWith("/"))
-      ? Math.min(7, matchSlashCommands(editor.text).length)
-      : 0;
-    // @-mention popup adds rows similarly.
-    const AT_POPUP_LINES = (!state.confirmReq && atOpen)
-      ? Math.min(8, atMatches.length)
-      : 0;
-    const base = 5 + COMPOSER_BORDER + CONFIRM_EXTRA
-      + EDITOR_LINES + SLASH_POPUP_LINES + AT_POPUP_LINES
-      + PLAN_MODE_BANNER;
-    const reserved =
-      base + (state.toolLane.length > 0 ? state.toolLane.length + 1 : 0);
-    return Math.max(4, rows - reserved - 1);
-  }
-  const visibleBudget = computeVisibleBudget();
+  //
+  // No windowing / visibleBudget: committed history flows into the
+  // terminal via <Static> (Transcript.tsx) and the composer follows the
+  // live content inline. Only the in-progress stream needs bounding so a
+  // very long mid-stream message doesn't outgrow the screen before it
+  // commits — show its trailing rows here (the full text lands in
+  // scrollback on stream.end). Trailing blank rows from a buffer ending
+  // in "\n" are trimmed so we don't float a lone cursor.
+  const streamRows: string[] = (() => {
+    if (state.streamId === null || !state.streaming) return [];
+    const r = state.streaming.split("\n");
+    let end = r.length;
+    while (end > 0 && r[end - 1] === "") end--;
+    return r.slice(0, end).slice(-Math.max(3, rows - 8));
+  })();
 
   return (
-    <Box flexDirection="column" height={rows} paddingX={1}>
+    <Box flexDirection="column" paddingX={1}>
       <Transcript
         banner={state.banner}
         lines={state.lines}
-        streaming={state.streaming}
-        streamId={state.streamId}
-        scrollOffset={state.scrollOffset}
-        visibleBudget={visibleBudget}
         termCols={cols}
         termRows={rows}
-        lastDeltaAtMs={lastDeltaAt.current}
       />
+      {streamRows.length > 0 && (
+        <Box flexDirection="column">
+          {streamRows.map((row, i) => (
+            <Text key={`s${i}`} color="white">
+              {i === 0 ? "" : "   "}{row}
+            </Text>
+          ))}
+        </Box>
+      )}
+      {state.streamId !== null && (
+        <PulsingCursor lastDeltaAtMs={lastDeltaAt.current} color="white" />
+      )}
       <Composer
         banner={state.banner}
         status={state.status}
