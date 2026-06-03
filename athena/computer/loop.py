@@ -187,7 +187,7 @@ def computer_do(
         max_actions = 40
         max_per_sec = 2.0
     delay = 1.0 / max_per_sec if max_per_sec > 0 else 0.0
-    history: list[dict] = []
+    history: list[dict[str, Any]] = []
     actions_taken = 0
     last_screenshot_hash: str | None = None
     unchanged_count = 0

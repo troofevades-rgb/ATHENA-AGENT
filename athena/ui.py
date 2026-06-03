@@ -503,7 +503,7 @@ def tool_round_header() -> None:
     console.print(f"[{LIME_FAINT}]{content}[/]")
 
 
-def tool_call_summary(name: str, args: dict) -> None:
+def tool_call_summary(name: str, args: dict[str, Any]) -> None:
     # Compact one-liner so the user sees what the model is doing
     args_str = ", ".join(f"{k}={_short(v)}" for k, v in args.items())
     gw = _active_gateway
