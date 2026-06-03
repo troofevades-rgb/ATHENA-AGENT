@@ -142,9 +142,7 @@ def run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
                 if msgs is not None:
                     ctx_used = total_tokens(msgs)
                     ctx_limit = int(getattr(cfg, "context_window", 0)) or None
-                    ctx_ratio = (
-                        float(getattr(cfg, "context_compress_watermark", 0.0)) or None
-                    )
+                    ctx_ratio = float(getattr(cfg, "context_compress_watermark", 0.0)) or None
             except Exception:  # noqa: BLE001
                 ctx_used = ctx_limit = ctx_ratio = None
             gateway.send_event(
