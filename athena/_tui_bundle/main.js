@@ -17685,7 +17685,7 @@ function App2() {
       }
     };
   }, [cols, rows, client]);
-  const mouseEnabled = process.env.ATHENA_TUI_MOUSE !== "0";
+  const mouseEnabled = process.platform !== "win32";
   const handleWheel = import_react31.useCallback((delta) => {
     dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + delta });
   }, [state.scrollOffset]);
