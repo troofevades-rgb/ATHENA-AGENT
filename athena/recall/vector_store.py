@@ -197,6 +197,43 @@ class VectorStore:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [doc_id for _, doc_id in scored[: int(k)]]
 
+    def recall(
+        self,
+        query: str,
+        *,
+        k: int = 3,
+        min_score: float = 0.0,
+        workspace: str | None = None,
+        model_id: str | None = None,
+    ) -> list[tuple[float, str]]:
+        """Top-``k`` ``(score, text_preview)`` pairs at or above
+        ``min_score``, ranked by cosine similarity — for auto-recall
+        context injection. Like :meth:`search`, but returns the snippet
+        text + score (search returns bare doc_ids) and applies a
+        similarity floor so only confident matches get injected. Empty
+        when there's no embedder, no query vector, or nothing clears the
+        threshold."""
+        if self.embedder is None:
+            return []
+        if model_id is None:
+            model_id = self.embedder.model_id
+        qvec = self.embedder.embed(query)
+        if not qvec:
+            return []
+        scored: list[tuple[float, str]] = []
+        for entry in self._entries:
+            if entry.model_id != model_id:
+                continue
+            if workspace is not None and entry.workspace != workspace:
+                continue
+            if not entry.text_preview:
+                continue
+            score = _cosine(qvec, entry.vector)
+            if score >= min_score:
+                scored.append((score, entry.text_preview))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored[: int(k)]
+
     def all(self) -> list[VectorEntry]:
         """Every entry — for admin tooling. Don't call from a
         hot path."""

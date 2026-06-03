@@ -284,6 +284,54 @@ class AgentRuntime:
         )
         return True
 
+    def _maybe_inject_recall(self, user_input: str) -> None:
+        """Auto-recall (cfg.recall_auto): inject the most relevant past
+        turns / memory entries for ``user_input`` as an ephemeral
+        "[recalled context]" system note, so the model keeps
+        cross-session continuity despite a small context window.
+
+        The note is NOT persisted (recall is augmentation, not
+        conversation) and is replaced each turn — kept to exactly one so
+        notes never accumulate. No-op when disabled, when there's no
+        active vector store / embeddings backend, or when nothing clears
+        the similarity threshold. record_turn only embeds user/assistant
+        turns, so a system-role note is never re-embedded. A recall-side
+        failure must never break the turn.
+        """
+        # Drop the prior turn's note first so they can't accumulate.
+        prev = getattr(self, "_recall_msg", None)
+        if prev is not None and prev in self.messages:
+            self.messages.remove(prev)
+        self._recall_msg = None
+        if not getattr(self.cfg, "recall_auto", False):
+            return
+        store = getattr(self, "_vector_store", None)
+        if store is None:
+            return
+        try:
+            hits = store.recall(
+                user_input,
+                k=max(1, int(getattr(self.cfg, "recall_auto_k", 3))),
+                min_score=float(getattr(self.cfg, "recall_auto_min_score", 0.6)),
+                workspace=str(self.workspace),
+            )
+        except Exception:  # noqa: BLE001
+            return
+        if not hits:
+            return
+        lines = "\n".join(f"- {text.strip()}" for _score, text in hits)
+        note = {
+            "role": "system",
+            "content": (
+                "[recalled context] Possibly-relevant notes from earlier work, "
+                "retrieved by similarity — use if relevant, ignore if not:\n" + lines
+            ),
+        }
+        # Appended now; the user message follows immediately, so the note
+        # sits just before it. Intentionally NOT _persist_message'd.
+        self.messages.append(note)
+        self._recall_msg = note
+
     def _run_turn_inner(self, user_input: str) -> None:
         # Clear any stale cancel flag so a True left from a previous
         # turn doesn't immediately abort this one.
@@ -321,6 +369,9 @@ class AgentRuntime:
         # model sees in-flight redirects first. Each steer becomes its own
         # synthetic user message; the actual prompt follows.
         self._inject_pending_steers()
+        # Auto-recall: surface relevant prior context for this prompt as
+        # an ephemeral system note just before the user message.
+        self._maybe_inject_recall(user_input)
         user_msg = {"role": "user", "content": user_input}
         self.messages.append(user_msg)
         self._persist_message(user_msg)

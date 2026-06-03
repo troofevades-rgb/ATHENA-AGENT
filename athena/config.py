@@ -206,6 +206,17 @@ class Config:
     # is a no-op even when enabled.
     routing_enabled: bool = False
     routing_escalation_model: str = ""
+    # Auto-recall (OFF by default): at the start of each turn, retrieve
+    # the most semantically-similar past turns / memory entries for the
+    # prompt and inject them as an ephemeral "[recalled context]" system
+    # note — cross-session continuity despite a small context window.
+    # Fully local (on-disk index + local embeddings), so no off-machine
+    # concern; no-op without an embeddings backend. Conservative: only
+    # matches at/above recall_auto_min_score are injected, capped at
+    # recall_auto_k, and the note is replaced each turn (never persisted).
+    recall_auto: bool = False
+    recall_auto_k: int = 3
+    recall_auto_min_score: float = 0.6
     # Phase 18.2 stage 3: max worker threads for parallel tool
     # dispatch. ``1`` (default) keeps the pre-Phase-18.2 serial
     # behaviour -- every tool call in a round runs one after the
