@@ -84,7 +84,7 @@ def project_board(
     return cols
 
 
-def column_counts(cols: dict[str, list[dict]]) -> dict[str, int]:
+def column_counts(cols: dict[str, list[dict[str, Any]]]) -> dict[str, int]:
     """{col: count} convenience for status renders."""
     return {c: len(cols.get(c, [])) for c in _COLUMNS}
 

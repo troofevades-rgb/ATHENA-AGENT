@@ -71,10 +71,10 @@ logger = logging.getLogger(__name__)
 # get_current_agent`` -- many callers) keep working.
 
 
-def _normalize_tool_call(obj: Any) -> list[dict]:
+def _normalize_tool_call(obj: Any) -> list[dict[str, Any]]:
     """Normalize various tool-call shapes into Ollama's wrapped format."""
     if isinstance(obj, list):
-        out: list[dict] = []
+        out: list[dict[str, Any]] = []
         for item in obj:
             out.extend(_normalize_tool_call(item))
         return out
@@ -91,7 +91,7 @@ def _normalize_tool_call(obj: Any) -> list[dict]:
     return []
 
 
-def _extract_text_tool_calls(text: str) -> tuple[str, list[dict]]:
+def _extract_text_tool_calls(text: str) -> tuple[str, list[dict[str, Any]]]:
     """Recover tool calls from content text when the model emits them as JSON
     or as <tool_call>...</tool_call> tags instead of using Ollama's tool_calls
     field. Some Ollama+model combos leak tool calls into content under
@@ -104,7 +104,7 @@ def _extract_text_tool_calls(text: str) -> tuple[str, list[dict]]:
     # Qwen's native <tool_call>...</tool_call> XML tags (sometimes leaked as text)
     tag_matches = _TOOL_CALL_TAG_RE.findall(s)
     if tag_matches:
-        all_calls: list[dict] = []
+        all_calls: list[dict[str, Any]] = []
         bad = 0
         for m in tag_matches:
             try:
@@ -122,7 +122,7 @@ def _extract_text_tool_calls(text: str) -> tuple[str, list[dict]]:
     # Harmony / GPT-OSS style <function=name><parameter=key>val</parameter></function>
     fn_matches = list(_FUNCTION_TAG_RE.finditer(s))
     if fn_matches:
-        all_calls: list[dict] = []
+        all_calls: list[dict[str, Any]] = []
         for fm in fn_matches:
             name = fm.group(1).strip()
             body = fm.group(2)

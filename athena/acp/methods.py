@@ -61,7 +61,7 @@ def register(
     sessions: dict[str, Agent] = {}
 
     @server.method("initialize")
-    async def _initialize(_params: dict) -> dict:
+    async def _initialize(_params: dict[str, Any]) -> dict[str, Any]:
         return {
             "protocol_version": PROTOCOL_VERSION,
             "server_info": SERVER_INFO,
@@ -69,7 +69,7 @@ def register(
         }
 
     @server.method("session/new")
-    async def _session_new(params: dict) -> dict:
+    async def _session_new(params: dict[str, Any]) -> dict[str, Any]:
         sid = str(params.get("session_id") or _generate_session_id())
         if sid in sessions:
             return {"session_id": sid}  # idempotent
@@ -81,7 +81,7 @@ def register(
         return {"session_id": sid}
 
     @server.method("session/end")
-    async def _session_end(params: dict) -> dict:
+    async def _session_end(params: dict[str, Any]) -> dict[str, Any]:
         sid = str(params.get("session_id") or "")
         agent = sessions.pop(sid, None)
         if agent is None:
@@ -95,7 +95,7 @@ def register(
         return {"closed": True}
 
     @server.method("session/send_message")
-    async def _send_message(params: dict) -> dict:
+    async def _send_message(params: dict[str, Any]) -> dict[str, Any]:
         sid = str(params.get("session_id") or "")
         message = params.get("message") or {}
         agent = sessions.get(sid)
@@ -146,7 +146,7 @@ def register(
         return {"completed": True, "reason": reason}
 
     @server.method("session/cancel")
-    async def _cancel(params: dict) -> dict:
+    async def _cancel(params: dict[str, Any]) -> dict[str, Any]:
         sid = str(params.get("session_id") or "")
         agent = sessions.get(sid)
         if agent is None:
@@ -155,11 +155,11 @@ def register(
         return {"cancelled": True}
 
     @server.method("session/slash_command")
-    async def _slash(params: dict) -> dict:
+    async def _slash(params: dict[str, Any]) -> dict[str, Any]:
         return await handle_slash(params, sessions)
 
     @server.method("models/list")
-    async def _models(_params: dict) -> dict:
+    async def _models(_params: dict[str, Any]) -> dict[str, Any]:
         return {"models": _list_available_models()}
 
     return sessions
@@ -210,7 +210,7 @@ def _build_approval_callback(server: ACPServer, session_id: str):
         # Called outside a running loop — fall back to deny.
         return _auto_deny_callback
 
-    def callback(tool_name: str, args: dict) -> str:
+    def callback(tool_name: str, args: dict[str, Any]) -> str:
         sender = StreamingSender(server, session_id)
         cf = asyncio.run_coroutine_threadsafe(
             sender.permission_request(tool_name, args),
@@ -225,7 +225,7 @@ def _build_approval_callback(server: ACPServer, session_id: str):
     return callback
 
 
-def _auto_deny_callback(tool_name: str, args: dict) -> str:
+def _auto_deny_callback(tool_name: str, args: dict[str, Any]) -> str:
     logger.warning(
         "[acp] approval callback fired with no event loop; denying %s",
         tool_name,

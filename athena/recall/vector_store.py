@@ -49,7 +49,7 @@ class VectorEntry:
     workspace: str
     text_preview: str = ""  # short snippet; helps debugging / status
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "doc_id": self.doc_id,
             "vector": list(self.vector),
@@ -59,7 +59,7 @@ class VectorEntry:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> VectorEntry:
+    def from_dict(cls, d: dict[str, Any]) -> VectorEntry:
         return cls(
             doc_id=str(d["doc_id"]),
             vector=[float(x) for x in d.get("vector", [])],

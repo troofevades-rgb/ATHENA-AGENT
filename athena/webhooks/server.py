@@ -61,8 +61,8 @@ DispatchFn = Callable[
 
 async def _noop_dispatch(
     _sub: WebhookSubscription,
-    _payload: dict,
-    _headers: dict,
+    _payload: dict[str, Any],
+    _headers: dict[str, Any],
 ) -> None:
     """Placeholder dispatch used by tests that only care about the
     HTTP-layer behavior. Production wires this to
@@ -266,7 +266,7 @@ class WebhookServer:
     async def _safe_dispatch(
         self,
         sub: WebhookSubscription,
-        payload: dict,
+        payload: dict[str, Any],
         headers: dict[str, str],
     ) -> None:
         try:

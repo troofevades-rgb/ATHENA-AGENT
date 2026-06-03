@@ -25,13 +25,13 @@ from typing import Any
 def write_run(
     agent: Any,
     fork_result: Any,
-    parsed_yaml: dict,
+    parsed_yaml: dict[str, Any],
     *,
     dry_run: bool = False,
     logs_root: Path | None = None,
-    drift: dict | None = None,
-    usage_metrics: dict | None = None,
-) -> dict:
+    drift: dict[str, Any] | None = None,
+    usage_metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Write run.json + REPORT.md and return the run summary dict.
 
     ``drift`` is the dict from
@@ -94,7 +94,7 @@ def write_run(
     return summary
 
 
-def _render_markdown(summary: dict) -> str:
+def _render_markdown(summary: dict[str, Any]) -> str:
     started = summary["started_at"]
     suffix = " (dry-run)" if summary["dry_run"] else ""
     lines: list[str] = [f"# Curator run {started}{suffix}", ""]
