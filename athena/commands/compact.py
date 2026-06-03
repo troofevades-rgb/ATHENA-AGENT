@@ -90,7 +90,7 @@ def cmd_compact(agent: Any, arg: str = "") -> str:
     return ""
 
 
-def _maybe_fire_user_model_ingest(agent: Any, transcript: list[dict]) -> None:
+def _maybe_fire_user_model_ingest(agent: Any, transcript: list[dict[str, Any]]) -> None:
     """Kick off ``ingest_session`` on a detached thread when the
     user-model backend is configured to fire on compaction. Catches
     every exception inside the worker — a misbehaving extractor

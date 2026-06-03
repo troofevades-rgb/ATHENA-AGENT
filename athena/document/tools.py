@@ -58,7 +58,7 @@ def document_audit_path(profile_dir_path: Path | str) -> Path:
 # tests pass a stub. Returns the same dict shape as
 # OCRResult.to_dict() — so the integration is "give me a path
 # + cfg + languages, get back text + blocks + confidence".
-OCRFn = Callable[[Path], dict]
+OCRFn = Callable[[Path], dict[str, Any]]
 
 # VisionFn — describe a single image bytes/path and return a
 # string. Reuses T4-01's vision_analyze describe shape.
@@ -101,7 +101,7 @@ def _default_ocr_fn(cfg: Any) -> OCRFn | None:
     except Exception:  # noqa: BLE001
         return None
 
-    def _fn(image_path: Path) -> dict:
+    def _fn(image_path: Path) -> dict[str, Any]:
         result = ocr_recognize(image_path, cfg=cfg)
         return result.to_dict(with_boxes=True)
 
@@ -351,7 +351,7 @@ def _write_artifact(
 # ---------------------------------------------------------------
 
 
-def _trim_for_mode(result: dict, mode: str) -> dict:
+def _trim_for_mode(result: dict[str, Any], mode: str) -> dict[str, Any]:
     """The tool result shape stays the same across modes
     (predictable for the model), but modes can omit irrelevant
     fields to keep the payload tight. The returned dict still
