@@ -25,7 +25,7 @@ import React from "react";
 import { Box, Static, Text } from "ink";
 
 import { Banner } from "./Banner.js";
-import { parseInline } from "../stream/inlineMarkdown.js";
+import { Markdown } from "./Markdown.js";
 import type { BannerEvent } from "../transport/protocol.js";
 import type { TranscriptLine } from "../state/types.js";
 
@@ -143,53 +143,43 @@ export function renderLine(
   }
 
   if (line.role === "assistant") {
-    // Inline markdown: **bold**, *italic*, `code`, URLs — split the
-    // line into styled spans without breaking the one-row invariant.
-    // Block-level markdown (headers, fences, lists) is NOT handled
-    // because it would require multi-row layout.
-    const segments = parseInline(line.content);
+    // Full block-level markdown — headings, bullet/ordered lists, fenced
+    // code, blockquotes, **bold**/*italic*/`code`. The reducer keeps the
+    // whole reply in one line, so this renders as a multi-row <Box>,
+    // which is fine under <Static>. Indented to match the other roles.
     return (
-      <Text key={line.key} color="white">
-        {"   "}
-        {segments.map((s, i) => {
-          const segKey = `${line.key}-${i}`;
-          if (s.code) {
-            return (
-              <Text key={segKey} color={palette?.accent_dim ?? "yellow"}>
-                {s.text}
-              </Text>
-            );
-          }
-          if (s.url) {
-            return (
-              <Text key={segKey} color={palette?.accent ?? "cyan"} underline>
-                {s.text}
-              </Text>
-            );
-          }
-          return (
-            <Text
-              key={segKey}
-              bold={s.bold ?? false}
-              italic={s.italic ?? false}
-            >
-              {s.text}
-            </Text>
-          );
-        })}
-      </Text>
+      <Box key={line.key} paddingLeft={3} flexDirection="column">
+        <Markdown
+          text={line.content}
+          baseColor="white"
+          dimColor={palette?.accent_dim}
+          accentColor={palette?.accent}
+        />
+      </Box>
     );
   }
 
   if (line.role === "tool") {
-    // Header lines start with "> ", body lines with "  "
-    const isHeader = line.content.startsWith("> ");
-    // Light-touch file:line accenting on body lines: ripgrep/Grep emit
-    // "path:line:text", and compiler-style output looks the same. Dim the
-    // path, accent the :line so references pop without per-tool coupling.
-    // The path-likeness guard (must contain "/", "\", or ".") keeps
-    // timestamps ("12:30") and "str | None:" from matching.
-    const fileLine = !isHeader ? line.content.match(FILE_LINE_RE) : null;
+    // Header: "⏺ Tool(args)  dur" — green status dot + dim tool/args.
+    if (line.content.startsWith("⏺ ")) {
+      const rest = line.content.slice(2);
+      return (
+        <Text key={line.key}>
+          {"   "}
+          <Text color={palette?.primary ?? "green"}>⏺</Text>
+          {" "}
+          <Text color={palette?.accent_dim ?? "yellow"}>{rest}</Text>
+        </Text>
+      );
+    }
+    // Body line. Light-touch file:line accenting: ripgrep/Grep emit
+    // "path:line:text" (compiler-style output too). Dim the path, accent
+    // the :line so references pop — without per-tool coupling. The
+    // path-likeness guard (must contain "/", "\", or ".") keeps
+    // timestamps ("12:30") and "str | None:" from matching. The "⎿ "
+    // branch gutter on the first body line falls inside the dim path
+    // span, which is fine.
+    const fileLine = line.content.match(FILE_LINE_RE);
     if (fileLine && /[/\\.]/.test(fileLine[2]!)) {
       const [, lead, path, lineNo, rest] = fileLine;
       return (
@@ -202,11 +192,7 @@ export function renderLine(
       );
     }
     return (
-      <Text
-        key={line.key}
-        color={isHeader ? (palette?.accent_dim ?? "yellow") : (palette?.primary_dim ?? "gray")}
-        bold={isHeader}
-      >
+      <Text key={line.key} color={palette?.primary_dim ?? "gray"}>
         {"   "}{line.content}
       </Text>
     );
