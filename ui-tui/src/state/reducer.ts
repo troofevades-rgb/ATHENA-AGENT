@@ -242,6 +242,20 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
 
     case "message.append": {
       const e = event as MessageAppendEvent;
+      // Assistant text is held as ONE line carrying the full content and
+      // rendered as a multi-row markdown block (renderLine → <Markdown>:
+      // headings, lists, fenced code, emphasis). Other roles stay
+      // one-row-per-line (user gets the ▸▸ prefix, system the dot).
+      if (e.role === "assistant") {
+        const k = nextKey(state);
+        return withProgress({
+          ...state,
+          lines: appendLine(state.lines, {
+            key: k.key, role: "assistant", content: e.content,
+          }),
+          _nextKey: k._nextKey,
+        });
+      }
       const { rows, nextKey: nk } = splitToRows(
         e.content, e.role, state._nextKey,
       );
@@ -295,11 +309,12 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
       let newLines = state.lines;
       let nk = state._nextKey;
       if (hasContent) {
-        const { rows, nextKey: nk2 } = splitToRows(
-          finalText, "assistant", state._nextKey,
-        );
-        newLines = appendLines(state.lines, rows);
-        nk = nk2;
+        // One line holding the full reply; renderLine renders it as a
+        // multi-row markdown block. (See message.append above.)
+        newLines = appendLine(state.lines, {
+          key: state._nextKey, role: "assistant", content: finalText,
+        });
+        nk = state._nextKey + 1;
       }
       return withProgress({
         ...state,
@@ -329,9 +344,10 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
 
     case "tool.complete": {
       const e = event as ToolCompleteEvent;
-      // Split tool result into individual rows:
-      //   row 0:  "> toolName"  (header)
-      //   row 1+: "  line"     (body, capped at 12 lines)
+      // Split tool result into individual rows, Claude-Code-tree style:
+      //   row 0:  "⏺ Tool(args)  dur"  (header, ⏺ = status dot)
+      //   row 1:  "⎿ line"             (first output line, branch glyph)
+      //   row 2+: "  line"             (continuation, capped at 12 lines)
       const bodyText = truncate(e.result_preview, 2000);
       const bodyLines = bodyText.split("\n");
       const MAX_BODY = 12;
@@ -340,18 +356,24 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
 
       const rows: TranscriptLine[] = [];
       let key = state._nextKey;
-      // Header — append a dim duration suffix when the backend timed
-      // the dispatch (sub-second → "123ms", else "1.2s").
+      // Header — "⏺ Tool(args)  dur". Args come from the matching
+      // tool.start lane entry (removed from the lane just below); the ⏺
+      // marker is colored as a status dot by renderLine. A dim duration
+      // suffix is appended when the backend timed the dispatch.
+      const laneEntry = state.toolLane.find(
+        (t) => t.id === e.call_id || t.tool === e.tool,
+      );
+      const argsRaw = laneEntry?.args ?? "";
+      const args = argsRaw.length > 40 ? argsRaw.slice(0, 39) + "…" : argsRaw;
       const durSuffix = formatToolDuration(e.duration_ms);
-      rows.push({
-        key: key++,
-        role: "tool",
-        content: durSuffix ? `> ${e.tool}  ${durSuffix}` : `> ${e.tool}`,
-      });
+      const header = `⏺ ${e.tool}${args ? `(${args})` : ""}`
+        + (durSuffix ? `  ${durSuffix}` : "");
+      rows.push({ key: key++, role: "tool", content: header });
       // Body lines — if this is a diff (tool name starts with
       // "diff " — see athena/ui.py:show_diff), classify each line
       // with the appropriate diff-* role so it renders with the
-      // proper +/- color and hunk header treatment.
+      // proper +/- color and hunk header treatment. Otherwise hang the
+      // output off the header with a "⎿" branch on the first line.
       const isDiff = e.tool.startsWith("diff ");
       if (isDiff) {
         const diffRows = splitDiffContent(shown.join("\n"), key);
@@ -360,9 +382,10 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
         }
         key = diffRows.nextKey;
       } else {
-        for (const line of shown) {
-          rows.push({ key: key++, role: "tool", content: `  ${line}` });
-        }
+        shown.forEach((line, i) => {
+          const gutter = i === 0 ? "⎿ " : "  ";
+          rows.push({ key: key++, role: "tool", content: `${gutter}${line}` });
+        });
       }
       if (overflow > 0) {
         rows.push({ key: key++, role: "tool", content: `  ... (${overflow} more lines)` });

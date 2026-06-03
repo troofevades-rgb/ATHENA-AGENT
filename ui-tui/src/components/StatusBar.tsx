@@ -49,6 +49,7 @@ export function StatusBar({
   const showTheme = termCols >= 100;
   const showSparkline = termCols >= 90;
   const showTools = termCols >= 80;
+  const showContext = termCols >= 72;
   const showProfile = termCols >= 70;
   const showTokens = termCols >= 60;
   const leftSegments: React.JSX.Element[] = [];
@@ -103,6 +104,39 @@ export function StatusBar({
       </Text>,
     );
   }
+  // Context-window gauge — "ctx ████░░░░ 45%". Tracks live context
+  // occupancy against the model window; color escalates as usage nears
+  // the auto-compact watermark (comfortable → approaching → imminent),
+  // so the user can see a compaction coming.
+  if (
+    showContext &&
+    status.context_used != null &&
+    status.context_limit != null &&
+    status.context_limit > 0
+  ) {
+    const pct = Math.min(1, Math.max(0, status.context_used / status.context_limit));
+    const compactAt = status.context_compact_ratio ?? null;
+    const WIDTH = 8;
+    const filled = Math.max(0, Math.min(WIDTH, Math.round(pct * WIDTH)));
+    const bar = "█".repeat(filled) + "░".repeat(WIDTH - filled);
+    const color =
+      compactAt != null && pct >= compactAt
+        ? palette.accent
+        : compactAt != null && pct >= compactAt * 0.9
+          ? palette.accent_dim
+          : palette.primary_dim;
+    rightSegments.push(
+      <Text key="ctx">
+        <Text color={palette.primary_faint}>
+          {rightSegments.length > 0 ? " · " : ""}ctx{" "}
+        </Text>
+        <Text color={color}>
+          {bar} {Math.round(pct * 100)}%
+        </Text>
+      </Text>,
+    );
+  }
+
   // TPS sparkline + current rate.
   //
   // Show as soon as we've seen ANY activity ever (any nonzero sample

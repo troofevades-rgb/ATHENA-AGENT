@@ -128,6 +128,23 @@ def run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
                 in_plan = _plan.is_plan_mode()
             except Exception:  # noqa: BLE001
                 in_plan = False
+            # Live context-window occupancy → the auto-compact gauge.
+            # Uses the same total_tokens() the compressor uses to decide
+            # when to compact, so the bar tracks reality. Nested guard:
+            # a token-estimate hiccup must not drop the whole status.
+            ctx_used: int | None = None
+            ctx_limit: int | None = None
+            ctx_ratio: float | None = None
+            try:
+                from ..agent.context_compressor import total_tokens
+
+                msgs = getattr(agent, "messages", None)
+                if msgs is not None:
+                    ctx_used = total_tokens(msgs)
+                    ctx_limit = int(getattr(cfg, "context_window", 0)) or None
+                    ctx_ratio = float(getattr(cfg, "context_compress_watermark", 0.0)) or None
+            except Exception:  # noqa: BLE001
+                ctx_used = ctx_limit = ctx_ratio = None
             gateway.send_event(
                 StatusUpdateEvent(
                     model=agent.model,
@@ -136,6 +153,9 @@ def run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
                     tokens_up=up,
                     tokens_down=down,
                     tool_summary=tool_summary,
+                    context_used=ctx_used,
+                    context_limit=ctx_limit,
+                    context_compact_ratio=ctx_ratio,
                     plan_mode=in_plan,
                 )
             )

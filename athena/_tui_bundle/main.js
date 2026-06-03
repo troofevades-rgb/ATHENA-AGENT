@@ -15171,6 +15171,7 @@ function StatusBar({
   const showTheme = termCols >= 100;
   const showSparkline = termCols >= 90;
   const showTools = termCols >= 80;
+  const showContext = termCols >= 72;
   const showProfile = termCols >= 70;
   const showTokens = termCols >= 60;
   const leftSegments = [];
@@ -15224,6 +15225,35 @@ function StatusBar({
         (status.tokens_down ?? 0).toLocaleString()
       ]
     }, "tokens"));
+  }
+  if (showContext && status.context_used != null && status.context_limit != null && status.context_limit > 0) {
+    const pct = Math.min(1, Math.max(0, status.context_used / status.context_limit));
+    const compactAt = status.context_compact_ratio ?? null;
+    const WIDTH = 8;
+    const filled = Math.max(0, Math.min(WIDTH, Math.round(pct * WIDTH)));
+    const bar = "█".repeat(filled) + "░".repeat(WIDTH - filled);
+    const color = compactAt != null && pct >= compactAt ? palette.accent : compactAt != null && pct >= compactAt * 0.9 ? palette.accent_dim : palette.primary_dim;
+    rightSegments.push(/* @__PURE__ */ jsx_runtime4.jsxs(Text, {
+      children: [
+        /* @__PURE__ */ jsx_runtime4.jsxs(Text, {
+          color: palette.primary_faint,
+          children: [
+            rightSegments.length > 0 ? " · " : "",
+            "ctx",
+            " "
+          ]
+        }),
+        /* @__PURE__ */ jsx_runtime4.jsxs(Text, {
+          color,
+          children: [
+            bar,
+            " ",
+            Math.round(pct * 100),
+            "%"
+          ]
+        })
+      ]
+    }, "ctx"));
   }
   const hasEverHadActivity = tpsHistory.length > 0 && tpsHistory.some((v) => v > 0);
   if (hasEverHadActivity && showSparkline) {
@@ -16177,75 +16207,396 @@ function defaultPalette() {
 }
 var Banner = import_react25.default.memo(_Banner);
 
-// src/stream/inlineMarkdown.ts
-function parseInline(text) {
-  if (!text)
-    return [];
-  const out = [];
+// src/stream/syntaxHighlight.ts
+var KEYWORDS = new Set([
+  "def",
+  "class",
+  "return",
+  "if",
+  "elif",
+  "else",
+  "for",
+  "while",
+  "import",
+  "from",
+  "as",
+  "try",
+  "except",
+  "finally",
+  "with",
+  "lambda",
+  "pass",
+  "break",
+  "continue",
+  "raise",
+  "yield",
+  "global",
+  "nonlocal",
+  "assert",
+  "del",
+  "in",
+  "is",
+  "not",
+  "and",
+  "or",
+  "None",
+  "True",
+  "False",
+  "const",
+  "let",
+  "var",
+  "function",
+  "async",
+  "await",
+  "new",
+  "typeof",
+  "instanceof",
+  "of",
+  "this",
+  "null",
+  "undefined",
+  "true",
+  "false",
+  "export",
+  "default",
+  "extends",
+  "implements",
+  "interface",
+  "type",
+  "enum",
+  "public",
+  "private",
+  "protected",
+  "static",
+  "readonly",
+  "void",
+  "abstract",
+  "super",
+  "func",
+  "package",
+  "go",
+  "defer",
+  "chan",
+  "map",
+  "range",
+  "select",
+  "struct",
+  "switch",
+  "case",
+  "fallthrough",
+  "goto",
+  "fn",
+  "pub",
+  "impl",
+  "trait",
+  "mut",
+  "match",
+  "use",
+  "mod",
+  "crate",
+  "self",
+  "Self",
+  "where",
+  "dyn",
+  "unsafe",
+  "move",
+  "ref",
+  "echo",
+  "then",
+  "fi",
+  "do",
+  "done",
+  "esac",
+  "local",
+  "set",
+  "exit"
+]);
+var COMMENT_RE = /^(#.*|\/\/.*)/;
+var STRING_RE = /^("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/;
+var NUMBER_RE = /^\d+(?:\.\d+)?/;
+var IDENT_RE = /^[A-Za-z_$][\w$]*/;
+function tokenizeCode(line) {
+  const tokens = [];
+  let plain = "";
+  const flushPlain = () => {
+    if (plain) {
+      tokens.push({ kind: "plain", text: plain });
+      plain = "";
+    }
+  };
   let i = 0;
-  let buf = "";
-  const flush = () => {
-    if (buf) {
-      out.push({ text: buf });
-      buf = "";
+  while (i < line.length) {
+    const rest2 = line.slice(i);
+    const c = rest2.match(COMMENT_RE);
+    if (c) {
+      flushPlain();
+      tokens.push({ kind: "comment", text: c[0] });
+      break;
     }
-  };
-  const push = (seg) => {
-    if (seg.text)
-      out.push(seg);
-  };
-  while (i < text.length) {
-    const ch = text[i];
-    if (ch === "`") {
-      const end = text.indexOf("`", i + 1);
-      if (end > i) {
-        flush();
-        push({ text: text.slice(i + 1, end), code: true });
-        i = end + 1;
-        continue;
-      }
-    }
-    if (ch === "*" && text[i + 1] === "*") {
-      const end = text.indexOf("**", i + 2);
-      if (end > i + 1) {
-        flush();
-        push({ text: text.slice(i + 2, end), bold: true });
-        i = end + 2;
-        continue;
-      }
-      buf += "**";
-      i += 2;
+    const s = rest2.match(STRING_RE);
+    if (s) {
+      flushPlain();
+      tokens.push({ kind: "string", text: s[0] });
+      i += s[0].length;
       continue;
     }
-    if (ch === "*") {
-      const end = text.indexOf("*", i + 1);
-      if (end > i && text[end + 1] !== "*" && text[end - 1] !== "*") {
-        flush();
-        push({ text: text.slice(i + 1, end), italic: true });
-        i = end + 1;
+    const prev = i > 0 ? line[i - 1] : "";
+    if (!/[\w$]/.test(prev)) {
+      const n = rest2.match(NUMBER_RE);
+      if (n) {
+        flushPlain();
+        tokens.push({ kind: "number", text: n[0] });
+        i += n[0].length;
         continue;
       }
     }
-    if (text.startsWith("http://", i) || text.startsWith("https://", i)) {
-      let end = i;
-      while (end < text.length && !/\s/.test(text[end]))
-        end++;
-      while (end > i + 8 && /[.,);:?!]$/.test(text[end - 1]))
-        end--;
-      flush();
-      push({ text: text.slice(i, end), url: true });
-      i = end;
+    const id = rest2.match(IDENT_RE);
+    if (id) {
+      flushPlain();
+      const word = id[0];
+      const after2 = line[i + word.length];
+      if (KEYWORDS.has(word)) {
+        tokens.push({ kind: "keyword", text: word });
+      } else if (after2 === "(") {
+        tokens.push({ kind: "function", text: word });
+      } else {
+        tokens.push({ kind: "plain", text: word });
+      }
+      i += word.length;
       continue;
     }
-    buf += ch;
-    i++;
+    plain += line[i];
+    i += 1;
   }
-  flush();
-  return out;
+  flushPlain();
+  return tokens;
+}
+
+// src/components/Markdown.tsx
+var jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+function codeColor(kind, palette) {
+  switch (kind) {
+    case "keyword":
+      return palette.accent;
+    case "string":
+      return palette.primary;
+    case "comment":
+      return palette.primary_faint;
+    case "number":
+      return palette.accent_dim;
+    case "function":
+      return palette.primary_dim;
+    default:
+      return;
+  }
+}
+function parseBlocks(src) {
+  const lines = src.split(`
+`);
+  const blocks = [];
+  let inCode = false;
+  let codeAccum = [];
+  for (const raw of lines) {
+    if (raw.trimStart().startsWith("```")) {
+      if (inCode) {
+        blocks.push({ kind: "code", text: codeAccum.join(`
+`) });
+        codeAccum = [];
+        inCode = false;
+      } else {
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      codeAccum.push(raw);
+      continue;
+    }
+    if (raw.trim() === "") {
+      blocks.push({ kind: "blank", text: "" });
+      continue;
+    }
+    const h = raw.match(/^(#{1,3})\s+(.+)$/);
+    if (h) {
+      const hashes = h[1] ?? "";
+      const body = h[2] ?? "";
+      blocks.push({ kind: "heading", level: hashes.length, text: body });
+      continue;
+    }
+    if (raw.startsWith("> ")) {
+      blocks.push({ kind: "quote", text: raw.slice(2) });
+      continue;
+    }
+    const ul = raw.match(/^[ ]{0,3}[-*]\s+(.+)$/);
+    if (ul) {
+      blocks.push({ kind: "list", text: ul[1] ?? "", ordered: false });
+      continue;
+    }
+    const ol = raw.match(/^[ ]{0,3}(\d+)\.\s+(.+)$/);
+    if (ol) {
+      const idxStr = ol[1] ?? "0";
+      const body = ol[2] ?? "";
+      blocks.push({
+        kind: "list",
+        text: body,
+        ordered: true,
+        index: parseInt(idxStr, 10)
+      });
+      continue;
+    }
+    blocks.push({ kind: "text", text: raw });
+  }
+  if (inCode && codeAccum.length > 0) {
+    blocks.push({ kind: "code", text: codeAccum.join(`
+`) });
+  }
+  return blocks;
+}
+function parseInline(src) {
+  const spans = [];
+  let rest2 = src;
+  const patterns = [
+    ["code", /^\`([^\`]+)\`/],
+    ["bold", /^\*\*([^*]+)\*\*/],
+    ["italic", /^\*([^*]+)\*/]
+  ];
+  while (rest2.length > 0) {
+    let matched = false;
+    for (const [kind, re] of patterns) {
+      const m = rest2.match(re);
+      if (m) {
+        spans.push({ kind, text: m[1] ?? "" });
+        rest2 = rest2.slice(m[0].length);
+        matched = true;
+        break;
+      }
+    }
+    if (matched)
+      continue;
+    const nextSpecial = findNextSpecial(rest2);
+    if (nextSpecial === -1) {
+      spans.push({ kind: "plain", text: rest2 });
+      break;
+    }
+    spans.push({ kind: "plain", text: rest2.slice(0, nextSpecial) });
+    rest2 = rest2.slice(nextSpecial);
+  }
+  return spans;
+}
+function findNextSpecial(s) {
+  const idxs = [
+    s.indexOf("`"),
+    s.indexOf("**"),
+    s.indexOf("*")
+  ].filter((i) => i !== -1);
+  if (idxs.length === 0)
+    return -1;
+  return Math.min(...idxs);
+}
+function renderSpans(spans, keyPrefix, opts) {
+  return spans.map((s, i) => {
+    const key = `${keyPrefix}-${i}`;
+    if (s.kind === "bold")
+      return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+        bold: true,
+        color: opts.accentColor,
+        children: s.text
+      }, key);
+    if (s.kind === "italic")
+      return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+        italic: true,
+        children: s.text
+      }, key);
+    if (s.kind === "code")
+      return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+        color: opts.dimColor ?? "cyan",
+        children: s.text
+      }, key);
+    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+      children: s.text
+    }, key);
+  });
+}
+function Markdown({
+  text,
+  baseColor,
+  dimColor,
+  accentColor,
+  palette
+}) {
+  const blocks = parseBlocks(text);
+  return /* @__PURE__ */ jsx_runtime14.jsx(Box_default, {
+    flexDirection: "column",
+    children: blocks.map((b, i) => {
+      const k = `b${i}`;
+      if (b.kind === "blank") {
+        return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+          children: " "
+        }, k);
+      }
+      if (b.kind === "heading") {
+        const sizeMark = "#".repeat(b.level ?? 1);
+        return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+          bold: true,
+          color: accentColor,
+          children: [
+            sizeMark,
+            " ",
+            b.text
+          ]
+        }, k);
+      }
+      if (b.kind === "code") {
+        return /* @__PURE__ */ jsx_runtime14.jsx(Box_default, {
+          flexDirection: "column",
+          marginY: 0,
+          children: b.text.split(`
+`).map((ln, j) => /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+            color: dimColor ?? "cyan",
+            children: [
+              "  ",
+              palette ? tokenizeCode(ln).map((t, ti) => /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+                color: codeColor(t.kind, palette),
+                bold: t.kind === "keyword",
+                children: t.text
+              }, ti)) : ln
+            ]
+          }, `${k}-${j}`))
+        }, k);
+      }
+      if (b.kind === "quote") {
+        return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+          dimColor: true,
+          italic: true,
+          color: dimColor,
+          children: [
+            "│ ",
+            b.text
+          ]
+        }, k);
+      }
+      if (b.kind === "list") {
+        const bullet = b.ordered ? `${b.index}.` : "•";
+        return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+          color: baseColor,
+          children: [
+            "  ",
+            bullet,
+            " ",
+            renderSpans(parseInline(b.text), k, { dimColor, accentColor })
+          ]
+        }, k);
+      }
+      return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+        color: baseColor,
+        children: renderSpans(parseInline(b.text), k, { dimColor, accentColor })
+      }, k);
+    })
+  });
 }
 
 // src/components/Transcript.tsx
-var jsx_runtime14 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
 var FILE_LINE_RE = /^(\s*)([^\s:][^:]*?):(\d+)(.*)$/;
 function isWelcome(i) {
   return i.welcome === true;
@@ -16259,9 +16610,9 @@ function Transcript({
   const palette = banner?.palette ?? undefined;
   const promptColor = palette?.primary ?? "green";
   const items = banner ? [{ key: -1, welcome: true }, ...lines] : lines;
-  return /* @__PURE__ */ jsx_runtime14.jsx(Static, {
+  return /* @__PURE__ */ jsx_runtime15.jsx(Static, {
     items,
-    children: (item) => isWelcome(item) ? /* @__PURE__ */ jsx_runtime14.jsx(Welcome, {
+    children: (item) => isWelcome(item) ? /* @__PURE__ */ jsx_runtime15.jsx(Welcome, {
       banner,
       termCols,
       termRows
@@ -16274,50 +16625,50 @@ function Welcome({
   termRows
 }) {
   const palette = banner.palette;
-  return /* @__PURE__ */ jsx_runtime14.jsxs(Box_default, {
+  return /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
     flexDirection: "column",
     children: [
-      /* @__PURE__ */ jsx_runtime14.jsx(Banner, {
+      /* @__PURE__ */ jsx_runtime15.jsx(Banner, {
         event: banner,
         termCols,
         termRows: Math.max(15, termRows - 12)
       }),
-      /* @__PURE__ */ jsx_runtime14.jsxs(Box_default, {
+      /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
         flexDirection: "column",
         marginTop: 1,
         marginBottom: 1,
         paddingX: 2,
         children: [
-          /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+          /* @__PURE__ */ jsx_runtime15.jsx(Text, {
             color: palette.primary_dim,
             children: "try one of these to get started:"
           }),
-          /* @__PURE__ */ jsx_runtime14.jsxs(Box_default, {
+          /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
             marginTop: 1,
             flexDirection: "column",
             children: [
-              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+              /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                 color: palette.accent_dim,
                 children: [
                   "  ",
                   "explain what this project does"
                 ]
               }),
-              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+              /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                 color: palette.accent_dim,
                 children: [
                   "  ",
                   "@ATHENA.md what should I know before touching the agent loop?"
                 ]
               }),
-              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+              /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                 color: palette.accent_dim,
                 children: [
                   "  ",
                   "/plan refactor the X module"
                 ]
               }),
-              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+              /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                 color: palette.accent_dim,
                 children: [
                   "  ",
@@ -16326,11 +16677,11 @@ function Welcome({
               })
             ]
           }),
-          /* @__PURE__ */ jsx_runtime14.jsxs(Box_default, {
+          /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
             marginTop: 1,
             flexDirection: "column",
             children: [
-              /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+              /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
                 color: palette.primary_faint,
                 children: [
                   "Enter sends · Shift+Enter newline · Tab completes",
@@ -16338,7 +16689,7 @@ function Welcome({
                   "↑↓ history · Ctrl+R search"
                 ]
               }),
-              /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+              /* @__PURE__ */ jsx_runtime15.jsx(Text, {
                 color: palette.primary_faint,
                 children: "Mouse wheel / terminal scrollback to scroll · Esc interrupt · Ctrl+C exit"
               })
@@ -16351,71 +16702,69 @@ function Welcome({
 }
 function renderLine(line, palette, promptColor) {
   if (line.role === "separator") {
-    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: palette?.primary_faint ?? "gray",
       children: line.content
     }, line.key);
   }
   if (line.role === "assistant") {
-    const segments = parseInline(line.content);
-    return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
-      color: "white",
-      children: [
-        "   ",
-        segments.map((s, i) => {
-          const segKey = `${line.key}-${i}`;
-          if (s.code) {
-            return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
-              color: palette?.accent_dim ?? "yellow",
-              children: s.text
-            }, segKey);
-          }
-          if (s.url) {
-            return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
-              color: palette?.accent ?? "cyan",
-              underline: true,
-              children: s.text
-            }, segKey);
-          }
-          return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
-            bold: s.bold ?? false,
-            italic: s.italic ?? false,
-            children: s.text
-          }, segKey);
-        })
-      ]
+    return /* @__PURE__ */ jsx_runtime15.jsx(Box_default, {
+      paddingLeft: 3,
+      flexDirection: "column",
+      children: /* @__PURE__ */ jsx_runtime15.jsx(Markdown, {
+        text: line.content,
+        baseColor: "white",
+        dimColor: palette?.accent_dim,
+        accentColor: palette?.accent,
+        palette
+      })
     }, line.key);
   }
   if (line.role === "tool") {
-    const isHeader = line.content.startsWith("> ");
-    const fileLine = !isHeader ? line.content.match(FILE_LINE_RE) : null;
+    if (line.content.startsWith("⏺ ")) {
+      const rest2 = line.content.slice(2);
+      return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+        children: [
+          "   ",
+          /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+            color: palette?.primary ?? "green",
+            children: "⏺"
+          }),
+          " ",
+          /* @__PURE__ */ jsx_runtime15.jsx(Text, {
+            color: palette?.accent_dim ?? "yellow",
+            children: rest2
+          })
+        ]
+      }, line.key);
+    }
+    const fileLine = line.content.match(FILE_LINE_RE);
     if (fileLine && /[/\\.]/.test(fileLine[2])) {
       const [, lead, path, lineNo, rest2] = fileLine;
-      return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+      return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
         children: [
           "   ",
           lead,
-          /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+          /* @__PURE__ */ jsx_runtime15.jsx(Text, {
             color: palette?.primary_faint ?? "gray",
             children: path
           }),
-          /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+          /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
             color: palette?.accent_dim ?? "yellow",
             children: [
               ":",
               lineNo
             ]
           }),
-          /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+          /* @__PURE__ */ jsx_runtime15.jsx(Text, {
             color: palette?.primary_dim ?? "gray",
             children: rest2
           })
         ]
       }, line.key);
     }
-    return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
-      color: isHeader ? palette?.accent_dim ?? "yellow" : palette?.primary_dim ?? "gray",
-      bold: isHeader,
+    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+      color: palette?.primary_dim ?? "gray",
       children: [
         "   ",
         line.content
@@ -16423,13 +16772,13 @@ function renderLine(line, palette, promptColor) {
     }, line.key);
   }
   if (line.role === "code") {
-    return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
       children: [
-        /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+        /* @__PURE__ */ jsx_runtime15.jsx(Text, {
           color: palette?.accent_dim ?? "yellow",
           children: "   │ "
         }),
-        /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+        /* @__PURE__ */ jsx_runtime15.jsx(Text, {
           color: palette?.accent ?? "cyan",
           children: line.content
         })
@@ -16437,33 +16786,33 @@ function renderLine(line, palette, promptColor) {
     }, line.key);
   }
   if (line.role === "diff-add") {
-    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: "green",
       children: line.content
     }, line.key);
   }
   if (line.role === "diff-del") {
-    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: "red",
       children: line.content
     }, line.key);
   }
   if (line.role === "diff-hunk") {
-    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: palette?.accent_dim ?? "yellow",
       bold: true,
       children: line.content
     }, line.key);
   }
   if (line.role === "diff-file") {
-    return /* @__PURE__ */ jsx_runtime14.jsx(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsx(Text, {
       color: palette?.primary_faint ?? "gray",
       bold: true,
       children: line.content
     }, line.key);
   }
   if (line.role === "user") {
-    return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+    return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
       color: promptColor,
       children: [
         "▸▸ ",
@@ -16471,7 +16820,7 @@ function renderLine(line, palette, promptColor) {
       ]
     }, line.key);
   }
-  return /* @__PURE__ */ jsx_runtime14.jsxs(Text, {
+  return /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
     color: palette?.primary_dim ?? "gray",
     children: [
       ".  ",
@@ -17125,6 +17474,18 @@ function reduceEvent(state, event) {
       return state.banner ? { ...state, banner: { ...state.banner, palette: event.palette } } : state;
     case "message.append": {
       const e = event;
+      if (e.role === "assistant") {
+        const k = nextKey(state);
+        return withProgress({
+          ...state,
+          lines: appendLine(state.lines, {
+            key: k.key,
+            role: "assistant",
+            content: e.content
+          }),
+          _nextKey: k._nextKey
+        });
+      }
       const { rows, nextKey: nk } = splitToRows(e.content, e.role, state._nextKey);
       return withProgress({
         ...state,
@@ -17164,9 +17525,12 @@ function reduceEvent(state, event) {
       let newLines = state.lines;
       let nk = state._nextKey;
       if (hasContent) {
-        const { rows, nextKey: nk2 } = splitToRows(finalText, "assistant", state._nextKey);
-        newLines = appendLines(state.lines, rows);
-        nk = nk2;
+        newLines = appendLine(state.lines, {
+          key: state._nextKey,
+          role: "assistant",
+          content: finalText
+        });
+        nk = state._nextKey + 1;
       }
       return withProgress({
         ...state,
@@ -17202,12 +17566,12 @@ function reduceEvent(state, event) {
       const overflow = bodyLines.length - MAX_BODY;
       const rows = [];
       let key = state._nextKey;
+      const laneEntry = state.toolLane.find((t) => t.id === e.call_id || t.tool === e.tool);
+      const argsRaw = laneEntry?.args ?? "";
+      const args = argsRaw.length > 40 ? argsRaw.slice(0, 39) + "…" : argsRaw;
       const durSuffix = formatToolDuration(e.duration_ms);
-      rows.push({
-        key: key++,
-        role: "tool",
-        content: durSuffix ? `> ${e.tool}  ${durSuffix}` : `> ${e.tool}`
-      });
+      const header = `⏺ ${e.tool}${args ? `(${args})` : ""}` + (durSuffix ? `  ${durSuffix}` : "");
+      rows.push({ key: key++, role: "tool", content: header });
       const isDiff = e.tool.startsWith("diff ");
       if (isDiff) {
         const diffRows = splitDiffContent(shown.join(`
@@ -17217,9 +17581,10 @@ function reduceEvent(state, event) {
         }
         key = diffRows.nextKey;
       } else {
-        for (const line of shown) {
-          rows.push({ key: key++, role: "tool", content: `  ${line}` });
-        }
+        shown.forEach((line, i) => {
+          const gutter = i === 0 ? "⎿ " : "  ";
+          rows.push({ key: key++, role: "tool", content: `${gutter}${line}` });
+        });
       }
       if (overflow > 0) {
         rows.push({ key: key++, role: "tool", content: `  ... (${overflow} more lines)` });
@@ -17435,7 +17800,7 @@ function connectGateway() {
 }
 
 // src/main.tsx
-var jsx_runtime15 = __toESM(require_jsx_runtime(), 1);
+var jsx_runtime16 = __toESM(require_jsx_runtime(), 1);
 function App2() {
   const { exit } = use_app_default();
   const { cols, rows } = useStdoutSize();
@@ -17826,19 +18191,19 @@ function App2() {
       end--;
     return r.slice(0, end).slice(-Math.max(3, rows - 8));
   })();
-  return /* @__PURE__ */ jsx_runtime15.jsxs(Box_default, {
+  return /* @__PURE__ */ jsx_runtime16.jsxs(Box_default, {
     flexDirection: "column",
     paddingX: 1,
     children: [
-      /* @__PURE__ */ jsx_runtime15.jsx(Transcript, {
+      /* @__PURE__ */ jsx_runtime16.jsx(Transcript, {
         banner: state.banner,
         lines: state.lines,
         termCols: cols,
         termRows: rows
       }),
-      streamRows.length > 0 && /* @__PURE__ */ jsx_runtime15.jsx(Box_default, {
+      streamRows.length > 0 && /* @__PURE__ */ jsx_runtime16.jsx(Box_default, {
         flexDirection: "column",
-        children: streamRows.map((row, i) => /* @__PURE__ */ jsx_runtime15.jsxs(Text, {
+        children: streamRows.map((row, i) => /* @__PURE__ */ jsx_runtime16.jsxs(Text, {
           color: "white",
           children: [
             i === 0 ? "" : "   ",
@@ -17846,11 +18211,11 @@ function App2() {
           ]
         }, `s${i}`))
       }),
-      state.streamId !== null && /* @__PURE__ */ jsx_runtime15.jsx(PulsingCursor, {
+      state.streamId !== null && /* @__PURE__ */ jsx_runtime16.jsx(PulsingCursor, {
         lastDeltaAtMs: lastDeltaAt.current,
         color: "white"
       }),
-      /* @__PURE__ */ jsx_runtime15.jsx(Composer, {
+      /* @__PURE__ */ jsx_runtime16.jsx(Composer, {
         banner: state.banner,
         status: state.status,
         toolLane: state.toolLane,
@@ -17879,4 +18244,4 @@ function turnSeparator() {
   const ss = String(now2.getSeconds()).padStart(2, "0");
   return `── ${hh}:${mm}:${ss} ──`;
 }
-render_default(/* @__PURE__ */ jsx_runtime15.jsx(App2, {}));
+render_default(/* @__PURE__ */ jsx_runtime16.jsx(App2, {}));

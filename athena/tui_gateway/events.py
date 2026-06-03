@@ -173,6 +173,14 @@ class StatusUpdateEvent(_Event):
     tokens_up: int | None = None
     tokens_down: int | None = None
     tool_summary: str | None = None
+    # Live context-window occupancy, for the auto-compact gauge:
+    # ``context_used`` tokens of a ``context_limit`` window; the agent
+    # auto-compacts the conversation once usage exceeds
+    # ``context_compact_ratio`` (the watermark, 0..1). All None when
+    # unknown (e.g. before the first turn / if estimation fails).
+    context_used: int | None = None
+    context_limit: int | None = None
+    context_compact_ratio: float | None = None
     # When True the agent is in plan mode (read-only investigation
     # only). The TUI surfaces this prominently — tinted composer
     # border + banner — so the user can't forget the constraint.

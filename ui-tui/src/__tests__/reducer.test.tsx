@@ -47,16 +47,27 @@ describe("reducer", () => {
     expect(s2.lines[1].key).toBeGreaterThan(s2.lines[0].key);
   });
 
-  test("message.append splits multi-line content into individual rows", () => {
+  test("message.append keeps assistant content as one markdown line", () => {
     const e: MessageAppendEvent = {
       type: "message.append", role: "assistant", content: "line1\nline2\nline3",
     };
     const s = reducer(initialTuiState, { type: "EVENT", event: e });
+    // Assistant text is held as one line and rendered as a markdown
+    // block (renderLine → <Markdown>), not split into per-row lines.
+    expect(s.lines).toHaveLength(1);
+    expect(s.lines[0].role).toBe("assistant");
+    expect(s.lines[0].content).toBe("line1\nline2\nline3");
+  });
+
+  test("message.append splits non-assistant multi-line into rows", () => {
+    const e: MessageAppendEvent = {
+      type: "message.append", role: "system", content: "line1\nline2\nline3",
+    };
+    const s = reducer(initialTuiState, { type: "EVENT", event: e });
     expect(s.lines).toHaveLength(3);
     expect(s.lines[0].content).toBe("line1");
-    expect(s.lines[1].content).toBe("line2");
     expect(s.lines[2].content).toBe("line3");
-    expect(s.lines[0].role).toBe("assistant");
+    expect(s.lines[0].role).toBe("system");
   });
 
   test("stream.start/delta/end commits single-line text as one row", () => {
@@ -83,7 +94,7 @@ describe("reducer", () => {
     expect(s.lines[0].content).toBe("hello world");
   });
 
-  test("stream.end splits multi-line text into individual rows", () => {
+  test("stream.end commits multi-line reply as one markdown line", () => {
     const start: StreamStartEvent = {
       type: "stream.start", stream_id: "s1", role: "assistant",
     };
@@ -94,9 +105,10 @@ describe("reducer", () => {
     let s = reducer(initialTuiState, { type: "EVENT", event: start });
     s = reducer(s, { type: "EVENT", event: delta });
     s = reducer(s, { type: "EVENT", event: end });
-    expect(s.lines).toHaveLength(3);
-    expect(s.lines[0].content).toBe("line1");
-    expect(s.lines[2].content).toBe("line3");
+    // One markdown line carrying the full reply (not split per row).
+    expect(s.lines).toHaveLength(1);
+    expect(s.lines[0].role).toBe("assistant");
+    expect(s.lines[0].content).toBe("line1\nline2\nline3");
   });
 
   test("stream.end strips thought markers", () => {
@@ -138,11 +150,12 @@ describe("reducer", () => {
     expect(s.toolLane).toHaveLength(1);
     s = reducer(s, { type: "EVENT", event: done });
     expect(s.toolLane).toHaveLength(0);
-    // Header + 2 body lines = 3 rows
+    // Header + 2 body lines = 3 rows. Header carries the ⏺ dot + args
+    // (from tool.start); first body line gets the ⎿ branch gutter.
     expect(s.lines).toHaveLength(3);
     expect(s.lines[0].role).toBe("tool");
-    expect(s.lines[0].content).toBe("> Read");
-    expect(s.lines[1].content).toBe("  line1");
+    expect(s.lines[0].content).toBe("⏺ Read(x.py)");
+    expect(s.lines[1].content).toBe("⎿ line1");
     expect(s.lines[2].content).toBe("  line2");
   });
 
@@ -153,9 +166,10 @@ describe("reducer", () => {
       ok: true, result_preview: body,
     };
     const s = reducer(initialTuiState, { type: "EVENT", event: done });
-    // Header + 12 shown + 1 overflow marker = 14 rows
+    // Header + 12 shown + 1 overflow marker = 14 rows. No tool.start
+    // fired, so the header has no args — just "⏺ Grep".
     expect(s.lines).toHaveLength(14);
-    expect(s.lines[0].content).toBe("> Grep");
+    expect(s.lines[0].content).toBe("⏺ Grep");
     expect(s.lines[13].content).toContain("8 more lines");
   });
 

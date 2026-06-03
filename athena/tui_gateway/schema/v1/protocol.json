@@ -420,6 +420,39 @@
           ],
           "default": null
         },
+        "context_used": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Estimated tokens currently occupying the context window."
+        },
+        "context_limit": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The model context window size in tokens."
+        },
+        "context_compact_ratio": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Watermark (0..1) of the window at which the agent auto-compacts."
+        },
         "plan_mode": {
           "type": "boolean",
           "default": false,

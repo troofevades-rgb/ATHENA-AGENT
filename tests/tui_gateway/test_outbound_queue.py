@@ -308,21 +308,32 @@ def test_non_stream_events_never_dropped_under_pressure(slow_heartbeats):
             daemon=True,
         )
         ct.start()
+        # Saturate the queue BEFORE draining starts. The writer thread is
+        # not spawned until _drive_gateway sets _conn_ready, so every
+        # event below lands in the maxsize-64 queue with nothing draining
+        # it: the 1000 interleaved deltas overflow it *deterministically*
+        # (oldest delta evicted on each over-full put), so drops always
+        # happen regardless of instrumentation speed — while the
+        # never-dropped status/message events accumulate intact. This
+        # removes the push-vs-drain timing race that made the drop
+        # assertion flaky under coverage instrumentation (the writer
+        # occasionally kept up and nothing dropped).
+        STATUS_COUNT = 50
+        for i in range(STATUS_COUNT):
+            # Interleave 20 deltas across two streams to defeat
+            # coalescing, then one status update.
+            for j in range(20):
+                gw.send_event(
+                    StreamDeltaEvent(
+                        stream_id="A" if j % 2 == 0 else "B",
+                        text=f"d{i}.{j}",
+                    )
+                )
+            gw.send_event(StatusUpdateEvent(tokens_up=i))
+        gw.send_event(MessageAppendEvent(role="system", content="DONE-PRESSURE"))
+        # Drops are already locked in; now connect + drain the survivors.
         conn = _drive_gateway(gw, transport)
         try:
-            STATUS_COUNT = 50
-            for i in range(STATUS_COUNT):
-                # Interleave 20 deltas across two streams to defeat
-                # coalescing, then one status update.
-                for j in range(20):
-                    gw.send_event(
-                        StreamDeltaEvent(
-                            stream_id="A" if j % 2 == 0 else "B",
-                            text=f"d{i}.{j}",
-                        )
-                    )
-                gw.send_event(StatusUpdateEvent(tokens_up=i))
-            gw.send_event(MessageAppendEvent(role="system", content="DONE-PRESSURE"))
             done.wait(timeout=60.0)
             assert state.get("err") is None, state.get("err")
             from collections import Counter
@@ -332,10 +343,10 @@ def test_non_stream_events_never_dropped_under_pressure(slow_heartbeats):
             assert methods.get("status", 0) == STATUS_COUNT, (
                 f"status events dropped! got {methods.get('status', 0)}/{STATUS_COUNT}"
             )
-            # We expect some delta drops (pressure was real).
+            # Pressure was real: the pre-drain overflow dropped deltas.
             final = gw.stats()
             assert final["outbound_dropped"] > 0, (
-                "expected delta drops under pressure but got 0; maxsize may have been too generous"
+                "expected delta drops from pre-drain overflow but got 0"
             )
         finally:
             _teardown(gw, conn, transport)
