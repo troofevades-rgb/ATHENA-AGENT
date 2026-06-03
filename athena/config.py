@@ -197,6 +197,15 @@ class Config:
     # small/local-model failure that otherwise wastes the turn. 0 disables
     # (warn-only, the prior behaviour).
     narrate_reprompt_attempts: int = 1
+    # Struggle-based model escalation (OFF by default). When the local
+    # model gets stuck — the identical-tool-call circuit breaker would
+    # trip — escalate the rest of the turn to ``routing_escalation_model``
+    # instead of halting, then revert to the base model on the next turn
+    # (local-first). Escalating to a hosted model sends context
+    # off-machine, so this is strictly opt-in; an empty escalation model
+    # is a no-op even when enabled.
+    routing_enabled: bool = False
+    routing_escalation_model: str = ""
     # Phase 18.2 stage 3: max worker threads for parallel tool
     # dispatch. ``1`` (default) keeps the pre-Phase-18.2 serial
     # behaviour -- every tool call in a round runs one after the

@@ -243,6 +243,47 @@ class AgentRuntime:
                 set_active_checkpoint_manager(None)
                 _current_agent.reset(token)
 
+    def _maybe_escalate_model(self, reason: str) -> bool:
+        """Struggle-based model escalation (cfg.routing_enabled).
+
+        When the local model is stuck, swap to
+        ``cfg.routing_escalation_model`` for the rest of THIS turn instead
+        of halting; ``_run_turn_inner`` reverts to the base model at the
+        start of the next turn (local-first). Returns True if it
+        escalated. No-op (False) when routing is disabled, no escalation
+        model is configured, the resolve fails, or we already escalated
+        this turn. Escalating to a hosted model sends context off-machine
+        — strictly opt-in.
+        """
+        if getattr(self, "_escalated", False):
+            return False
+        if not getattr(self.cfg, "routing_enabled", False):
+            return False
+        target = (getattr(self.cfg, "routing_escalation_model", "") or "").strip()
+        if not target:
+            return False
+        try:
+            from ..providers.credential_pool import profile_pool
+            from ..providers.runtime_resolver import resolve_provider
+
+            provider, bare = resolve_provider(target, self.cfg, profile_pool(self.cfg.profile))
+        except Exception as e:  # noqa: BLE001
+            ui.warn(f"model escalation to {target!r} failed: {type(e).__name__}: {e}")
+            return False
+        # Capture base so the next turn can revert (we only get here once
+        # per turn; the base is the current local model).
+        self._base_provider = self.provider
+        self._base_model = self.model
+        self.provider = provider
+        self.client = provider  # back-compat alias (mirrors __init__)
+        self.model = bare
+        self._escalated = True
+        ui.warn(
+            f"escalating to {bare} for the rest of this turn ({reason}); "
+            "reverts to the base model next turn"
+        )
+        return True
+
     def _run_turn_inner(self, user_input: str) -> None:
         # Clear any stale cancel flag so a True left from a previous
         # turn doesn't immediately abort this one.
@@ -256,6 +297,14 @@ class AgentRuntime:
         # turn that ended via the interrupt path (which returns
         # without calling _fire_stop).
         self._last_stop_reason = None
+        # Struggle-based model escalation reverts per turn: if a prior
+        # turn escalated to the strong model (see _maybe_escalate_model),
+        # drop back to the base model so every turn starts local-first.
+        if getattr(self, "_escalated", False):
+            self.provider = self._base_provider
+            self.client = self._base_provider
+            self.model = self._base_model
+            self._escalated = False
         # Per-plugin veto on the user prompt. The first plugin to return
         # (False, reason) cancels the turn. The bundled ShellHookPlugin
         # bridges the settings.json UserPromptSubmit hook into this
@@ -478,14 +527,24 @@ class AgentRuntime:
             if last_tool_signature is not None and sig == last_tool_signature:
                 identical_tool_count += 1
                 if max_identical and identical_tool_count >= max_identical:
-                    ui.error(
-                        f"circuit breaker tripped: same tool call(s) "
-                        f"{identical_tool_count} times in a row "
-                        f"(cfg.max_identical_tool_calls={max_identical}). "
-                        "The model is stuck -- halting the turn."
-                    )
-                    self._fire_stop("circuit_breaker:identical_tool_calls")
-                    return
+                    # Struggle signal: the model is looping the same call.
+                    # If routing is on, escalate to the strong model and
+                    # keep going (it takes over from the next stream);
+                    # otherwise halt as before.
+                    if self._maybe_escalate_model(
+                        f"same tool call(s) {identical_tool_count}x in a row"
+                    ):
+                        identical_tool_count = 0
+                        last_tool_signature = None
+                    else:
+                        ui.error(
+                            f"circuit breaker tripped: same tool call(s) "
+                            f"{identical_tool_count} times in a row "
+                            f"(cfg.max_identical_tool_calls={max_identical}). "
+                            "The model is stuck -- halting the turn."
+                        )
+                        self._fire_stop("circuit_breaker:identical_tool_calls")
+                        return
             else:
                 # New shape: start a fresh streak at 1 (this round
                 # counts as one occurrence of the new signature).
