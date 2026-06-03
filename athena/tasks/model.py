@@ -108,7 +108,7 @@ class Task:
         return cls(
             id=str(d["id"]),
             title=str(d.get("title", "")),
-            status=status,  # type: ignore[arg-type]
+            status=status,
             order=int(d.get("order", 0)),
             parent_id=d.get("parent_id") or None,
             goal_id=d.get("goal_id") or None,
@@ -179,7 +179,7 @@ class TaskStore:
             task = Task(
                 id=_new_id(),
                 title=str(title).strip(),
-                status=status,  # type: ignore[arg-type]
+                status=status,
                 order=order,
                 parent_id=parent_id,
                 goal_id=goal_id,
@@ -223,7 +223,7 @@ class TaskStore:
                         workspace=t.workspace,
                         goal_id=t.goal_id,
                     )
-                    t.status = status  # type: ignore[assignment]
+                    t.status = status
                     t.order = new_order
             if title is not None:
                 t.title = str(title).strip()

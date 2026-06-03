@@ -767,7 +767,7 @@ class AgentLifecycle:
         # Optional polling skill-watcher (cfg.skills_autoload).
         # Started by _maybe_start_skill_watcher after history is
         # materialised; stopped in close(). None when autoload is off.
-        self._skill_watcher = None  # type: ignore[var-annotated]
+        self._skill_watcher = None
         # Persistent /goal invariant. Loaded from <profile_dir>/goal.txt at
         # session start and re-injected into the system prompt on every
         # rebuild. Mutated by the /goal slash command via Agent.reload_goal().

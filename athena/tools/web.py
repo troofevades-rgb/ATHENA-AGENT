@@ -43,7 +43,7 @@ def _extract_text(html: str) -> str:
     """Best-available HTML to text. Tries trafilatura, then BeautifulSoup,
     then a regex fallback. Always returns something."""
     try:
-        import trafilatura  # type: ignore
+        import trafilatura
 
         text = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
         if text.strip():
@@ -54,7 +54,7 @@ def _extract_text(html: str) -> str:
         pass
 
     try:
-        from bs4 import BeautifulSoup  # type: ignore
+        from bs4 import BeautifulSoup
 
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["script", "style", "nav", "footer", "aside", "noscript", "iframe"]):
@@ -160,7 +160,7 @@ def _search_duckduckgo(query: str, max_results: int) -> list[dict[str, str]]:
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as c:
         r = c.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers)
     try:
-        from bs4 import BeautifulSoup  # type: ignore
+        from bs4 import BeautifulSoup
     except ImportError:
         return [
             {"error": "duckduckgo backend requires beautifulsoup4 — `pip install beautifulsoup4`"}

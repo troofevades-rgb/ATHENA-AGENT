@@ -151,7 +151,7 @@ class GoalState:
             status = "active"
         return cls(
             text=str(d.get("text", "")),
-            status=status,  # type: ignore[arg-type]
+            status=status,
             turns_taken=int(d.get("turns_taken", 0)),
             max_turns=int(d.get("max_turns", 25)),
             subgoals=[Subgoal.from_dict(sg) for sg in d.get("subgoals", [])],

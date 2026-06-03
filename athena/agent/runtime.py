@@ -1467,7 +1467,7 @@ class AgentRuntime:
         return apply_cache_markers(
             self.messages,
             strategy=strategy,  # type: ignore[arg-type]
-            ttl=getattr(self.cfg, "prompt_cache_ttl", "5m"),  # type: ignore[arg-type]
+            ttl=getattr(self.cfg, "prompt_cache_ttl", "5m"),
             native_anthropic=(provider_name == "anthropic"),
         )
 

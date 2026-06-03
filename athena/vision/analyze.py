@@ -491,7 +491,7 @@ def _run(
                 _handle_crop(
                     Path(path),
                     log,
-                    box=box,  # type: ignore[arg-type]
+                    box=box,
                     out_dir=paths_resolved["crops"],
                     return_b64=return_b64,
                 )
@@ -506,7 +506,7 @@ def _run(
                     Path(path),
                     log,
                     algorithm=algo,
-                    hash_size=hs,  # type: ignore[arg-type]
+                    hash_size=hs,
                 )
             )
         if mode == "compare":
@@ -516,7 +516,7 @@ def _run(
                 _handle_compare(
                     Path(paths[0]),
                     Path(paths[1]),
-                    log,  # type: ignore[index]
+                    log,
                     algorithm=algo,
                     hash_size=hs,
                 )
@@ -527,7 +527,7 @@ def _run(
                 _handle_describe(
                     Path(path),
                     log,
-                    cfg,  # type: ignore[arg-type]
+                    cfg,
                     prompt=prompt,
                     provider_factory=factory,
                 )

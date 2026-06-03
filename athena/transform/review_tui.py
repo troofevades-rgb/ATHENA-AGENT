@@ -151,7 +151,7 @@ def make_app(
 
         # ---- layout ----
 
-        def compose(self) -> ComposeResult:  # type: ignore[override]
+        def compose(self) -> ComposeResult:
             yield Header()
             yield Vertical(
                 Static(id="status"),
