@@ -145,7 +145,7 @@ class AgentLifecycle:
             # PluginsConfig instance.
             plugins_field = getattr(self.cfg, "plugins", None)
             if plugins_field is None:
-                plugins_block: dict = {}
+                plugins_block: dict[str, Any] = {}
             elif hasattr(plugins_field, "as_dict_for_loader"):
                 plugins_block = plugins_field.as_dict_for_loader()
             else:
@@ -757,7 +757,7 @@ class AgentLifecycle:
         # The most recent background-review summary, surfaced to the UI on
         # the next prompt. Populated by athena.review.orchestrator after each
         # review fork completes.
-        self.last_review_summary: dict | None = None
+        self.last_review_summary: dict[str, Any] | None = None
         # Most recently spawned background-review thread. The agent
         # waits for this to finish before starting the next
         # foreground turn's model call so we don't run two

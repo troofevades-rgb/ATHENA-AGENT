@@ -40,7 +40,7 @@ def maybe_run_curator(
     *,
     force: bool = False,
     dry_run: bool = False,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Run the curator if its gates pass; return a summary dict, else None.
 
     Gates (all bypassed when ``force=True``):
@@ -248,7 +248,7 @@ def _format_one_line_summary(summary: Any) -> str | None:
     return None
 
 
-def _gather_usage_metrics_for_report(agent: Any) -> dict | None:
+def _gather_usage_metrics_for_report(agent: Any) -> dict[str, Any] | None:
     """T3-06R: produce the {"top", "never_used", "stale_30"} dict
     that reports.write_run surfaces in REPORT.md / run.json.
 

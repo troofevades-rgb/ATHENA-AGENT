@@ -78,7 +78,7 @@ def fork(
     enabled_toolsets: list[str],
     system_addendum: str,
     user_prompt: str = "",
-    conversation_history: list[dict] | None = None,
+    conversation_history: list[dict[str, Any]] | None = None,
     max_iterations: int = 16,
     write_origin: str = BACKGROUND_REVIEW,
     auxiliary_client: bool = True,

@@ -153,7 +153,7 @@ class MCPStdioClient:
     # ---- low-level send/recv -------------------------------------------
 
     def request(
-        self, method: str, params: dict | None = None, timeout: float | None = None
+        self, method: str, params: dict[str, Any] | None = None, timeout: float | None = None
     ) -> dict[str, Any]:
         # Bail early if the subprocess has already died. Without this, a
         # zombie server's pending futures sit until ``request_timeout``
@@ -199,7 +199,7 @@ class MCPStdioClient:
             raise MCPError(f"{self.name}.{method}: {err.get('code')} {err.get('message')}")
         return response.get("result", {}) or {}
 
-    def notify(self, method: str, params: dict | None = None) -> None:
+    def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
         msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
         if params is not None:
             msg["params"] = params

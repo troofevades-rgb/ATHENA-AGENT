@@ -459,7 +459,7 @@ def build_system_prompt(
     goal: str | None = None,
     goal_state: Any = None,  # T5-07 GoalState; Any to avoid circular import
     board_auto_maintain: bool = False,
-    computer_use_status: dict | None = None,  # T6-04 live state
+    computer_use_status: dict[str, Any] | None = None,  # T6-04 live state
     lean: bool = False,
     disabled_sections: list[str] | None = None,
     tool_result_nonce: str | None = None,
@@ -573,7 +573,7 @@ def build_system_prompt(
     return "\n\n".join(parts)
 
 
-def _render_computer_use_status(status: dict) -> str:
+def _render_computer_use_status(status: dict[str, Any]) -> str:
     """Render the live computer-use feature state as a system-
     prompt section. ``status`` is the dict the Agent passes —
     {"enabled": bool, "mode": str, "allowlist": list, "denylist": list}."""

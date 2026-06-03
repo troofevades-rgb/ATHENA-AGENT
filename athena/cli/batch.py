@@ -129,7 +129,7 @@ def _run_one(
     workspace_default,
     output_dir,
     force,
-) -> tuple[Any, dict]:
+) -> tuple[Any, dict[str, Any]]:
     """Run one batch entry — used by both the serial path and
     the ThreadPool path. Returns (manifest_entry, envelope_dict).
     Skipped entries return a synthesized manifest_entry +

@@ -14,7 +14,7 @@ _SKILL_TARGETS = {"skill"}
 _MEMORY_TARGETS = {"memory"}
 
 
-def extract_summary(fork_result: Any) -> dict:
+def extract_summary(fork_result: Any) -> dict[str, Any]:
     """Bucket ``fork_result.actions`` into per-target lists.
 
     Returns ``{"memory_writes": [...], "skill_changes": [...]}``. Each list
@@ -33,7 +33,7 @@ def extract_summary(fork_result: Any) -> dict:
     return {"memory_writes": memory_writes, "skill_changes": skill_changes}
 
 
-def format_for_user(summary: dict) -> str:
+def format_for_user(summary: dict[str, Any]) -> str:
     """One-line acknowledgment string. Empty string when nothing happened."""
     mem = summary.get("memory_writes") or []
     skl = summary.get("skill_changes") or []

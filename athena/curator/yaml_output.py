@@ -79,7 +79,7 @@ _ABSORPTION_DECISIONS = frozenset(
 _REQUIRED_KEYS = ("skill", "decision", "rationale")
 
 
-def parse_curator_report(text: str) -> dict | None:
+def parse_curator_report(text: str) -> dict[str, Any] | None:
     """Return the parsed report dict, or None when the input is malformed."""
     if not text:
         logger.warning("curator output is empty")
