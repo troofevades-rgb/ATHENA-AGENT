@@ -203,12 +203,13 @@ function App(): React.JSX.Element {
   }, [cols, rows, client]);
 
   // ----- mouse wheel scrolling ----------------------------------------
-  // Enabled on every platform now (modern Windows Terminal handles SGR
-  // mouse mode fine; the old "ConPTY phantom events" worry predates it).
-  // Turning on mouse mode means the terminal hands click-drag to the app,
-  // so native text selection needs Shift held — set ATHENA_TUI_MOUSE=0 to
-  // disable wheel capture and get plain selection back.
-  const mouseEnabled = process.env.ATHENA_TUI_MOUSE !== "0";
+  // Off on Windows. Enabling SGR mouse mode + patching stdin.read here
+  // interferes with Ink's raw-mode setup under ConPTY and crashes the TUI
+  // at launch ("Raw mode is not supported on process.stdin"). This was
+  // tried (flag flipped on) and confirmed broken on Windows 11 / Windows
+  // Terminal; re-enabling needs a real fix, not just the flag. Works fine
+  // on other platforms.
+  const mouseEnabled = process.platform !== "win32";
   const handleWheel = useCallback((delta: number) => {
     dispatch({ type: "SET_SCROLL", offset: state.scrollOffset + delta });
   }, [state.scrollOffset]);
