@@ -190,6 +190,12 @@ export interface StatusUpdateEvent {
   tokens_up?: number;
   tokens_down?: number;
   tool_summary?: string;
+  /** Estimated tokens currently occupying the context window. */
+  context_used?: number;
+  /** Model context window size in tokens. */
+  context_limit?: number;
+  /** Watermark (0..1) at which the agent auto-compacts the context. */
+  context_compact_ratio?: number;
   /** True when the agent is in plan mode (read-only investigation
    * only). TUI surfaces this prominently so the user can't forget
    * the constraint. */

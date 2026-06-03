@@ -15171,6 +15171,7 @@ function StatusBar({
   const showTheme = termCols >= 100;
   const showSparkline = termCols >= 90;
   const showTools = termCols >= 80;
+  const showContext = termCols >= 72;
   const showProfile = termCols >= 70;
   const showTokens = termCols >= 60;
   const leftSegments = [];
@@ -15224,6 +15225,35 @@ function StatusBar({
         (status.tokens_down ?? 0).toLocaleString()
       ]
     }, "tokens"));
+  }
+  if (showContext && status.context_used != null && status.context_limit != null && status.context_limit > 0) {
+    const pct = Math.min(1, Math.max(0, status.context_used / status.context_limit));
+    const compactAt = status.context_compact_ratio ?? null;
+    const WIDTH = 8;
+    const filled = Math.max(0, Math.min(WIDTH, Math.round(pct * WIDTH)));
+    const bar = "█".repeat(filled) + "░".repeat(WIDTH - filled);
+    const color = compactAt != null && pct >= compactAt ? palette.accent : compactAt != null && pct >= compactAt * 0.9 ? palette.accent_dim : palette.primary_dim;
+    rightSegments.push(/* @__PURE__ */ jsx_runtime4.jsxs(Text, {
+      children: [
+        /* @__PURE__ */ jsx_runtime4.jsxs(Text, {
+          color: palette.primary_faint,
+          children: [
+            rightSegments.length > 0 ? " · " : "",
+            "ctx",
+            " "
+          ]
+        }),
+        /* @__PURE__ */ jsx_runtime4.jsxs(Text, {
+          color,
+          children: [
+            bar,
+            " ",
+            Math.round(pct * 100),
+            "%"
+          ]
+        })
+      ]
+    }, "ctx"));
   }
   const hasEverHadActivity = tpsHistory.length > 0 && tpsHistory.some((v) => v > 0);
   if (hasEverHadActivity && showSparkline) {
