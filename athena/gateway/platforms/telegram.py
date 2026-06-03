@@ -90,7 +90,7 @@ class TelegramAdapter(GatewayAdapter):
         )
         self._bot: Bot | None = None
         self._dp: Dispatcher | None = None
-        self._polling_task: asyncio.Task | None = None
+        self._polling_task: asyncio.Task[Any] | None = None
 
     # ---- lifecycle ----
 

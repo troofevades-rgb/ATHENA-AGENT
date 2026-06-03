@@ -33,7 +33,7 @@ import logging
 import struct
 import sys
 from ctypes import wintypes
-from typing import Optional
+from typing import Any, Optional
 
 from ..contract import Action, ActionType, Screenshot
 
@@ -174,7 +174,7 @@ class WindowsBackend:
             logger.debug("active_app() failed: %s", e)
             return None
 
-    def accessibility_tree(self) -> dict | None:
+    def accessibility_tree(self) -> dict[str, Any] | None:
         """Not implemented on Windows without an optional
         ``uiautomation`` / ``pywin32`` dep. Returning None means
         the classifier (T6-04.1) treats unreadable elements as

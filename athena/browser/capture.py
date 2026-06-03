@@ -37,6 +37,7 @@ import threading
 import time
 import urllib.parse
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +113,7 @@ class CaptureLogger:
         title: str,
         screenshot_path: str = "",
         content: str = "",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Append one capture row. Returns the entry for
         callers that want to inspect what was logged."""
         entry = {
@@ -137,14 +138,14 @@ class CaptureLogger:
         logger.debug("browser capture: %s", line)
         return entry
 
-    def tail(self, limit: int = 100) -> list[dict]:
+    def tail(self, limit: int = 100) -> list[dict[str, Any]]:
         """Read the last ``limit`` entries. [] when the file
         doesn't exist yet."""
         if not self.path.exists():
             return []
         with self._lock:
             lines = self.path.read_text(encoding="utf-8").splitlines()
-        out: list[dict] = []
+        out: list[dict[str, Any]] = []
         for line in lines[-limit:]:
             if not line.strip():
                 continue

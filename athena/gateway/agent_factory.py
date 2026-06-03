@@ -19,7 +19,7 @@ user clicks).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..agent.core import Agent
@@ -116,7 +116,7 @@ def build_gateway_approval_callback(
     plumbing.
     """
 
-    def callback(tool_name: str, args: dict) -> str:
+    def callback(tool_name: str, args: dict[str, Any]) -> str:
         return daemon.approvals.request_sync(
             session_id=session_id,
             tool_name=tool_name,

@@ -11,7 +11,7 @@ and has no side effects.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from ..contract import Action, ActionType, Screenshot
 
@@ -34,7 +34,7 @@ class NoOpBackend:
     def active_app(self) -> str | None:
         return None
 
-    def accessibility_tree(self) -> dict | None:
+    def accessibility_tree(self) -> dict[str, Any] | None:
         return None
 
     def perform(self, action: Action) -> None:

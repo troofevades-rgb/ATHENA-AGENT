@@ -118,7 +118,7 @@ class SSETransport:
 
         # Async-side state — only mutated from the loop thread.
         self._client: httpx.AsyncClient | None = None
-        self._stream_task: asyncio.Task | None = None
+        self._stream_task: asyncio.Task[Any] | None = None
         self._post_endpoint: str = _DEFAULT_POST_ENDPOINT
         self._pending: dict[int | str, asyncio.Future[dict[str, Any]]] = {}
         self._token: oauth_mod.StoredToken | None = None
@@ -168,7 +168,7 @@ class SSETransport:
 
     def _submit_blocking(self, coro, *, timeout: float | None = None) -> Any:
         assert self._loop is not None, "loop not started"
-        cf: Future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        cf: Future[Any] = asyncio.run_coroutine_threadsafe(coro, self._loop)
         try:
             return cf.result(timeout=timeout)
         except FutTimeout as e:

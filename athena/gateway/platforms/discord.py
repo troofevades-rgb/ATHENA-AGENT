@@ -493,7 +493,7 @@ def _build_approval_view(
         async def allow_button(
             self,
             interaction: discord.Interaction,
-            button: discord.ui.Button,
+            button: discord.ui.Button[Any],
         ) -> None:
             await self._resolve(interaction, "allow")
 
@@ -501,7 +501,7 @@ def _build_approval_view(
         async def deny_button(
             self,
             interaction: discord.Interaction,
-            button: discord.ui.Button,
+            button: discord.ui.Button[Any],
         ) -> None:
             await self._resolve(interaction, "deny")
 

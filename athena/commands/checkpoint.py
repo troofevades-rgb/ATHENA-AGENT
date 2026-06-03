@@ -13,6 +13,8 @@ because that would feed checkpoint chatter into the model.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from ..agent.checkpoints import CheckpointNotFound, InFlightToolCallError
 from . import command
@@ -113,7 +115,7 @@ def _reload_agent_messages(agent) -> None:
     if not log_path.exists():
         return
     try:
-        new_messages: list[dict] = []
+        new_messages: list[dict[str, Any]] = []
         for line in log_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:

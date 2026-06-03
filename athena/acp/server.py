@@ -73,7 +73,7 @@ class ACPServer:
         self._pending_client_responses: dict[int | str, asyncio.Future[Any]] = {}
         self._client_request_id = 0
         # Tasks spawned by dispatch; cancelled at shutdown.
-        self._tasks: set[asyncio.Task] = set()
+        self._tasks: set[asyncio.Task[Any]] = set()
         self._running = False
         # Latched True the moment shutdown begins. A request arriving
         # in the next few microseconds would otherwise spawn a task

@@ -149,7 +149,7 @@ class GatewayDaemon:
         self.continuity = ContinuityManager(self.router)
         self._dispatch_command = command_dispatcher or _make_default_dispatcher(self)
         self.adapters: list[GatewayAdapter] = []
-        self._adapter_tasks: list[asyncio.Task] = []
+        self._adapter_tasks: list[asyncio.Task[Any]] = []
         self._started = False
         # Webhook listener (Phase 15) — constructed lazily in start()
         # so daemons running with [gateway.webhooks].enabled=false
@@ -198,7 +198,7 @@ class GatewayDaemon:
             # await stop_event.wait() with the platform in offline
             # limbo. Log the exception loudly so the operator sees
             # it instead of guessing why the bot never appears.
-            def _on_done(t: asyncio.Task, _name: str = adapter.name) -> None:
+            def _on_done(t: asyncio.Task[Any], _name: str = adapter.name) -> None:
                 if t.cancelled():
                     return
                 exc = t.exception()
@@ -275,7 +275,7 @@ class GatewayDaemon:
         # underneath them produced "Cannot operate on a closed
         # database" sqlite warnings during stress shutdown. We give
         # them a bounded grace period, then proceed regardless.
-        pending: list[asyncio.Task] = []
+        pending: list[asyncio.Task[Any]] = []
         for adapter in self.adapters:
             for task in getattr(adapter, "_session_tasks", {}).values():
                 if not task.done():

@@ -35,6 +35,7 @@ import json
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -77,10 +78,10 @@ class HashLogEntry:
     path: str
     sha256: str
     bytes: int
-    extra: dict | None = None
+    extra: dict[str, Any] | None = None
 
-    def to_dict(self) -> dict:
-        d: dict = {
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
             "ts": self.ts,
             "mode": self.mode,
             "path": self.path,
@@ -116,7 +117,7 @@ class HashLogger:
         path: Path | str,
         sha256: str,
         size_bytes: int,
-        extra: dict | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> HashLogEntry:
         """Append one row. Returns the entry so callers can echo
         it back to the model (the ``vision_analyze`` tool surfaces

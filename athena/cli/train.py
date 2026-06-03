@@ -27,6 +27,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from ..config import CONFIG_DIR
 from ..config import profile_dir as _profile_dir
@@ -60,7 +61,7 @@ TRAINING_STATE_PATH = CONFIG_DIR / "training_state.json"
 # ---- State helpers -----------------------------------------------------
 
 
-def _load_state() -> dict:
+def _load_state() -> dict[str, Any]:
     if not TRAINING_STATE_PATH.exists():
         return {"runs": []}
     try:
@@ -72,7 +73,7 @@ def _load_state() -> dict:
     return data
 
 
-def _save_state(state: dict) -> None:
+def _save_state(state: dict[str, Any]) -> None:
     TRAINING_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     TRAINING_STATE_PATH.write_text(
         json.dumps(state, indent=2, sort_keys=True) + "\n",
@@ -465,7 +466,7 @@ def _load_or_create_state(
     return fresh
 
 
-def _args_to_state_dict(args) -> dict:
+def _args_to_state_dict(args) -> dict[str, Any]:
     """Capture the subset of CLI args that ``athena train resume`` needs
     to re-invoke the run. Stored in the state file so the user doesn't
     have to remember every flag from the original invocation.
