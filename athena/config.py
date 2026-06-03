@@ -190,6 +190,13 @@ class Config:
     # so /status and the on-disk snapshot surface the trip.
     max_consecutive_provider_errors: int = 3
     max_identical_tool_calls: int = 3
+    # Narrate-without-act recovery: when a turn makes ZERO tool calls and
+    # the model signs off on a future-tense intent ("I'll run the tests")
+    # instead of doing it, nudge it this many times to emit the actual
+    # tool call before accepting the turn as complete. A common
+    # small/local-model failure that otherwise wastes the turn. 0 disables
+    # (warn-only, the prior behaviour).
+    narrate_reprompt_attempts: int = 1
     # Phase 18.2 stage 3: max worker threads for parallel tool
     # dispatch. ``1`` (default) keeps the pre-Phase-18.2 serial
     # behaviour -- every tool call in a round runs one after the

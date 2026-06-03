@@ -297,6 +297,12 @@ class AgentRuntime:
         # guard (below) can tell "described a next step but never acted"
         # from a normal closing summary after real work.
         turn_tool_calls = 0
+        # Narrate-without-act recovery: how many times we've nudged the
+        # model this turn to actually emit the tool call it described
+        # instead of just talking about it. Bounded by
+        # cfg.narrate_reprompt_attempts (0 disables → old warn-only).
+        narrate_reprompts = 0
+        narrate_reprompt_max = max(0, int(getattr(self.cfg, "narrate_reprompt_attempts", 1) or 0))
 
         for step in range(max_steps):
             # T2-04: check token watermark before each provider call.
@@ -415,11 +421,33 @@ class AgentRuntime:
                 # only (intermediate tool-calling rounds aren't surfaced).
                 if assistant_text:
                     self.plugin_hooks.on_assistant_message(assistant_text)
-                # Narrate-without-act guard: the turn made ZERO tool calls
-                # and the model signed off on a future-tense intent ("I'll
-                # run the tests") instead of doing it. One-line nudge, not
-                # a re-prompt — the operator decides whether to push it.
+                # Narrate-without-act recovery: the turn made ZERO tool
+                # calls and the model signed off on a future-tense intent
+                # ("I'll run the tests") instead of doing it — a common
+                # small-model failure that wastes the turn. Nudge it (up to
+                # cfg.narrate_reprompt_attempts times) to emit the actual
+                # call, then re-stream; only accept the turn as complete
+                # once it stops narrating or we run out of nudges.
                 if turn_tool_calls == 0 and detect_narrated_intent(clean_text):
+                    if narrate_reprompts < narrate_reprompt_max:
+                        narrate_reprompts += 1
+                        ui.warn(
+                            "model narrated a next step without calling a tool"
+                            f" — nudging it to act ({narrate_reprompts}/"
+                            f"{narrate_reprompt_max})"
+                        )
+                        nudge = {
+                            "role": "user",
+                            "content": (
+                                "[athena] You described an action but did not "
+                                "call a tool. If you intend to act, emit the "
+                                "tool call now. If you are actually finished, "
+                                "say so plainly without describing further steps."
+                            ),
+                        }
+                        self.messages.append(nudge)
+                        self._persist_message(nudge)
+                        continue
                     ui.warn(
                         "model described a next step but took no action this "
                         "turn (narrated intent without a tool call)"
