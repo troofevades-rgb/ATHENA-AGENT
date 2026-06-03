@@ -388,10 +388,37 @@ def gateway() -> Any | None:
     return _active_gateway
 
 
+def _emit_gateway() -> Any | None:
+    """The gateway for *foreground* live rendering, or None.
+
+    Returns None when called from inside a background fork — the 7-day
+    curator pass or the per-turn review fork — so the fork's own
+    tool-call and stream events don't leak into the user's foreground
+    transcript. Forks bind their write origin via
+    ``non_foreground_thread``; we key off that.
+
+    The ``console.print`` bridge is already fork-safe: its
+    ``_bridge_context`` ContextVar defaults to False and doesn't
+    propagate to the fork's thread, so console output falls through to
+    the fork's captured stdout. But the live tool-call / stream
+    emitters call ``send_event`` on the process-global
+    ``_active_gateway`` directly, bypassing that gate — without this
+    helper a curator pass renders its ``skill_view`` spree straight
+    into the user's transcript. Foreground turns (and startup ``system``
+    output) are unaffected: ``is_background()`` is False there.
+    """
+    if _active_gateway is not None:
+        from .provenance import is_background
+
+        if is_background():
+            return None
+    return _active_gateway
+
+
 def _emit_message(role: str, content: str) -> bool:
     """If a gateway is set, send a MessageAppendEvent and return
     True. Caller falls back to Rich on False."""
-    gw = _active_gateway
+    gw = _emit_gateway()
     if gw is None:
         return False
     try:
@@ -415,7 +442,7 @@ def _emit_flash(level: str, text: str) -> bool:
     decays without polluting the transcript. Used for ``info``
     and ``warn`` so internal agent logging doesn't interleave
     with the streaming assistant text."""
-    gw = _active_gateway
+    gw = _emit_gateway()
     if gw is None:
         return False
     try:
@@ -506,7 +533,7 @@ def tool_round_header() -> None:
 def tool_call_summary(name: str, args: dict[str, Any]) -> None:
     # Compact one-liner so the user sees what the model is doing
     args_str = ", ".join(f"{k}={_short(v)}" for k, v in args.items())
-    gw = _active_gateway
+    gw = _emit_gateway()
     if gw is not None:
         try:
             from .tui_gateway.events import ToolStartEvent
@@ -693,7 +720,7 @@ def tool_result(
     if len(lines) > max_lines:
         body_truncated += f"\n… ({len(lines) - max_lines} more lines)"
 
-    gw = _active_gateway
+    gw = _emit_gateway()
     if gw is not None:
         try:
             from .tui_gateway.events import ToolCompleteEvent
@@ -736,7 +763,7 @@ def show_diff(path: str, old: str, new: str) -> None:
         # Surface "no changes" as a user-visible message —
         # this is tool feedback the user wants, regardless of
         # whether the bridge context is active.
-        gw = _active_gateway
+        gw = _emit_gateway()
         if gw is not None:
             try:
                 from .tui_gateway.events import MessageAppendEvent
@@ -747,7 +774,7 @@ def show_diff(path: str, old: str, new: str) -> None:
                 pass
         console.print(f"[dim](no changes to {path})[/]")
         return
-    gw = _active_gateway
+    gw = _emit_gateway()
     if gw is not None:
         # Ship the diff as a tool-style transcript entry so the
         # user sees what changed when an Edit/Write tool runs.
@@ -892,7 +919,7 @@ class TypewriterStream:
         if self._live is not None or self._stream_id is not None or self._closed:
             return
         # Gateway path: emit a StreamStartEvent. Rich.Live stays off.
-        gw = _active_gateway
+        gw = _emit_gateway()
         if gw is not None:
             self._gateway = gw
             import uuid as _uuid
