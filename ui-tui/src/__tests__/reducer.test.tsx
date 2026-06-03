@@ -210,38 +210,4 @@ describe("reducer", () => {
     s = reducer(s, { type: "DISMISS_CONFIRM" });
     expect(s.confirmReq).toBeNull();
   });
-
-  test("confirm.request snaps scroll to bottom", () => {
-    const scrolledUp = { ...initialTuiState, scrollOffset: 42 };
-    const req: ConfirmRequestEvent = {
-      type: "confirm.request", request_id: "r2",
-      prompt: "allow?", default: true,
-    };
-    const s = reducer(scrolledUp, { type: "EVENT", event: req });
-    expect(s.scrollOffset).toBe(0);
-    expect(s.confirmReq?.request_id).toBe("r2");
-  });
-
-  test("SET_SCROLL clamps negative offsets to 0", () => {
-    const s = reducer(initialTuiState, { type: "SET_SCROLL", offset: -5 });
-    expect(s.scrollOffset).toBe(0);
-  });
-
-  test("auto-scrolls to bottom on new line when already at bottom", () => {
-    let s = { ...initialTuiState, scrollOffset: 0 };
-    s = reducer(s, {
-      type: "EVENT",
-      event: { type: "message.append", role: "system", content: "x" },
-    });
-    expect(s.scrollOffset).toBe(0);
-  });
-
-  test("preserves scroll position on new line when scrolled up", () => {
-    let s = { ...initialTuiState, scrollOffset: 5 };
-    s = reducer(s, {
-      type: "EVENT",
-      event: { type: "message.append", role: "system", content: "x" },
-    });
-    expect(s.scrollOffset).toBe(5);
-  });
 });

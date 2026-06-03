@@ -5,13 +5,13 @@
  *   - One `EVENT` action for every gateway → TUI frame (the transport
  *     layer wraps the gateway event)
  *   - A handful of UI-local actions for keyboard-driven state changes
- *     (scroll, append separator, dismiss flash, dismiss confirm)
+ *     (append separator, dismiss flash, dismiss confirm)
  *
- * IMPORTANT: Every TranscriptLine = exactly one terminal row.
- * Multi-line content is split at commit time so the windowing
- * math (visibleBudget = terminal rows available) is trivially
- * correct. renderLine() in Transcript.tsx can rely on this
- * invariant and never return multi-row elements.
+ * The transcript renders through Ink's <Static> (see Transcript.tsx),
+ * so `lines` is APPEND-ONLY and there is no app-managed scroll — the
+ * terminal owns scrollback. Multi-line content is still split into one
+ * TranscriptLine per row at commit time (keeps the per-row diff/code/
+ * file:line classification simple).
  */
 
 import type {
@@ -31,21 +31,23 @@ import type {
 } from "../transport/protocol.js";
 import { appendFilter, initialThinkFilterState } from "../stream/thinkBlocks.js";
 import type { TuiState, TranscriptLine } from "./types.js";
-import { LINES_CAP } from "./types.js";
 
 /**
- * Append a single transcript line while keeping the array bounded.
+ * Append a single transcript line. APPEND-ONLY: the transcript renders
+ * via Ink's <Static>, which prints each line once into terminal
+ * scrollback and tracks how many it has emitted by array index —
+ * front-trimming would shift that index and silently drop output. See
+ * LINES_CAP in types.ts.
  */
 function appendLine(
   lines: TuiState["lines"],
   newLine: TranscriptLine,
 ): TuiState["lines"] {
-  if (lines.length < LINES_CAP) return [...lines, newLine];
-  return [...lines.slice(lines.length - LINES_CAP + 1), newLine];
+  return [...lines, newLine];
 }
 
 /**
- * Append multiple transcript lines while keeping the array bounded.
+ * Append multiple transcript lines. Append-only (see appendLine).
  * Each entry = one terminal row.
  */
 function appendLines(
@@ -53,9 +55,7 @@ function appendLines(
   newLines: TranscriptLine[],
 ): TuiState["lines"] {
   if (newLines.length === 0) return lines;
-  const combined = [...lines, ...newLines];
-  if (combined.length <= LINES_CAP) return combined;
-  return combined.slice(combined.length - LINES_CAP);
+  return [...lines, ...newLines];
 }
 
 /**
@@ -165,7 +165,6 @@ export type Action =
   | { type: "DISMISS_FLASH" }
   | { type: "DISMISS_CONFIRM" }
   | { type: "DISMISS_ASK" }
-  | { type: "SET_SCROLL"; offset: number }
   | { type: "USER_INPUT_SENT" };
 
 function nextKey(state: TuiState): {key: number, _nextKey: number} {
@@ -188,7 +187,6 @@ export function reducer(state: TuiState, action: Action): TuiState {
           key: k.key, role: "separator", content: action.content,
         }),
         _nextKey: k._nextKey,
-        scrollOffset: 0,
       };
     }
 
@@ -200,18 +198,6 @@ export function reducer(state: TuiState, action: Action): TuiState {
 
     case "DISMISS_ASK":
       return { ...state, askReq: null };
-
-    case "SET_SCROLL": {
-      // Clamp both ends:
-      //   - lower bound 0 (can't scroll BELOW the bottom)
-      //   - upper bound lines.length (can't scroll PAST the oldest
-      //     committed line — otherwise repeated Shift+↑ or PageUp
-      //     accumulates offset and a single PageDown can't get back
-      //     to the bottom; the user has to PageDown N times)
-      const maxOffset = Math.max(0, state.lines.length);
-      const clamped = Math.min(maxOffset, Math.max(0, action.offset));
-      return { ...state, scrollOffset: clamped };
-    }
 
     case "USER_INPUT_SENT":
       // Begin tracking a pending response from this moment. Stuck
@@ -256,7 +242,6 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
 
     case "message.append": {
       const e = event as MessageAppendEvent;
-      const wasAtBottom = state.scrollOffset === 0;
       const { rows, nextKey: nk } = splitToRows(
         e.content, e.role, state._nextKey,
       );
@@ -264,7 +249,6 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
         ...state,
         lines: appendLines(state.lines, rows),
         _nextKey: nk,
-        scrollOffset: wasAtBottom ? 0 : state.scrollOffset,
       });
     }
 
@@ -308,7 +292,6 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
       const fallbackText = rawText.replace(/·\s*\(thought\)\s*/g, "").trim();
       const finalText = (e.final_text ?? fallbackText).trim();
       const hasContent = finalText.length > 0;
-      const wasAtBottom = state.scrollOffset === 0;
       let newLines = state.lines;
       let nk = state._nextKey;
       if (hasContent) {
@@ -325,7 +308,6 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
         streaming: "",
         _streamFilter: initialThinkFilterState,
         streamId: null,
-        scrollOffset: wasAtBottom ? 0 : state.scrollOffset,
       });
     }
 
@@ -347,7 +329,6 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
 
     case "tool.complete": {
       const e = event as ToolCompleteEvent;
-      const wasAtBottom = state.scrollOffset === 0;
       // Split tool result into individual rows:
       //   row 0:  "> toolName"  (header)
       //   row 1+: "  line"     (body, capped at 12 lines)
@@ -394,7 +375,6 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
         ),
         lines: appendLines(state.lines, rows),
         _nextKey: key,
-        scrollOffset: wasAtBottom ? 0 : state.scrollOffset,
       });
     }
 
@@ -404,13 +384,12 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
       return withProgress(state);
 
     case "confirm.request":
-      return { ...state, confirmReq: event as ConfirmRequestEvent, scrollOffset: 0 };
+      return { ...state, confirmReq: event as ConfirmRequestEvent };
 
     case "ask_question.request":
       return {
         ...state,
         askReq: event as import("../transport/protocol.js").AskQuestionRequestEvent,
-        scrollOffset: 0,
       };
 
     case "exit":
