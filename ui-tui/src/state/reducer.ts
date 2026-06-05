@@ -423,10 +423,15 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
         rows.push({ key: key++, role: "tool", content: `  ... (${overflow} more lines)` });
       }
 
+      // Sub-agent tool calls render nested + dimmed (see renderLine).
+      // Tag every row of this completion so the gutter + dim apply to the
+      // header, body, and overflow line uniformly.
+      const finalRows = e.nested ? rows.map((r) => ({ ...r, nested: true })) : rows;
+
       return withProgress({
         ...state,
         toolLane: state.toolLane.filter((t) => t.id !== e.call_id),
-        lines: appendLines(state.lines, rows),
+        lines: appendLines(state.lines, finalRows),
         _nextKey: key,
       });
     }

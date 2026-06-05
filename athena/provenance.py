@@ -2,8 +2,9 @@
 
 Every tool call in athena runs under a known "write origin": foreground (user
 asked for it directly), background_review (per-turn review fork), curator
-(skill-curator fork), migration (one-shot import), system (internal lifecycle
-machinery).
+(skill-curator fork), subagent (user-invoked Agent-tool fork — visible but
+nested in the TUI, unlike the silent background passes), migration (one-shot
+import), system (internal lifecycle machinery).
 
 Provenance is the foundation for: autonomous-mutation logging, snapshot
 attribution, fork sandboxing, and observability. Set it at the boundary that
@@ -20,8 +21,21 @@ CURATOR: Final = "curator"
 MIGRATION: Final = "migration"
 SYSTEM: Final = "system"
 CRON: Final = "cron"
+# User-invoked sub-agent (the Agent tool's fork). Distinct from the silent
+# background passes: its TOOL CALLS surface in the parent TUI, rendered
+# nested + dimmed, while its streaming prose stays suppressed. NOT in
+# is_background() — that gates full silence (curator / review).
+SUBAGENT: Final = "subagent"
 
-_WRITE_ORIGINS: Final = {FOREGROUND, BACKGROUND_REVIEW, CURATOR, MIGRATION, SYSTEM, CRON}
+_WRITE_ORIGINS: Final = {
+    FOREGROUND,
+    BACKGROUND_REVIEW,
+    CURATOR,
+    MIGRATION,
+    SYSTEM,
+    CRON,
+    SUBAGENT,
+}
 
 _write_origin: contextvars.ContextVar[str] = contextvars.ContextVar(
     "athena_write_origin", default=FOREGROUND

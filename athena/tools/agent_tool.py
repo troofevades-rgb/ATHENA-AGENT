@@ -154,12 +154,19 @@ def Agent(
 
     ui.info(f"spawning sub-agent: {subagent_type} — {description}")
     try:
+        from ..provenance import SUBAGENT
+
         result = parent.fork(
             enabled_toolsets=enabled,
             disabled_tools=disabled,
             system_addendum=spec["system_addendum"],
             user_prompt=prompt,
             quiet=False,  # surface tool calls in the parent's terminal
+            # Distinct origin so the TUI surfaces the sub-agent's tool
+            # calls (nested + dimmed) instead of suppressing them like the
+            # silent curator / review forks. Its streaming prose stays
+            # suppressed — only the tool activity shows.
+            write_origin=SUBAGENT,
         )
     except Exception as e:
         return f"ERROR running sub-agent: {e}"
