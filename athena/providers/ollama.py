@@ -197,9 +197,7 @@ class OllamaProvider(Provider):
         # (list_models / show_model) end-to-end, so a host that accepts
         # the TCP connection but never answers can't hang on read either.
         self._probe_timeout = min(connect_timeout, timeout)
-        self._client = httpx.Client(
-            timeout=httpx.Timeout(timeout, connect=self._probe_timeout)
-        )
+        self._client = httpx.Client(timeout=httpx.Timeout(timeout, connect=self._probe_timeout))
         # T2-03: retry budget. Ollama has no credential rotation
         # (single local daemon, no API key pool), but 5xx and network
         # errors against a local daemon are typically transient

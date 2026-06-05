@@ -357,9 +357,7 @@ def test_metadata_probes_use_short_timeout(provider: OllamaProvider):
 
         def post(self, url, **kwargs):
             captured["post_timeout"] = kwargs.get("timeout")
-            return httpx.Response(
-                200, json={"system": "s"}, request=httpx.Request("POST", url)
-            )
+            return httpx.Response(200, json={"system": "s"}, request=httpx.Request("POST", url))
 
     provider._client = _StubClient()  # type: ignore[assignment]
     provider.list_models()
