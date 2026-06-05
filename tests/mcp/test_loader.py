@@ -124,9 +124,7 @@ def test_unresponsive_server_skipped_others_still_load(tmp_path, monkeypatch) ->
 
     # Feedback: announced before connecting, and a clear skip warning.
     assert any("connecting" in msg for _, msg in logs)
-    assert any(
-        lvl == "warn" and "hung" in msg and "did not start" in msg for lvl, msg in logs
-    )
+    assert any(lvl == "warn" and "hung" in msg and "did not start" in msg for lvl, msg in logs)
 
 
 def test_connecting_message_emitted_per_server(tmp_path, monkeypatch) -> None:
