@@ -339,6 +339,9 @@
               "type": "null"
             }
           ]
+        },
+        "nested": {
+          "type": "boolean"
         }
       },
       "required": [

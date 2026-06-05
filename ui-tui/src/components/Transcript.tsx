@@ -173,40 +173,50 @@ export function renderLine(
   }
 
   if (line.role === "tool") {
+    // Sub-agent tool rows: a "│" gutter + uniform dim so the whole block
+    // reads as nested under the sub-agent rather than the main thread.
+    const nested = !!line.nested;
+    const indent = nested ? "   │ " : "   ";
     // Header: "⏺ Tool(args)  dur" — green status dot + dim tool/args.
+    // Nested → the dot dims too so it doesn't pull focus.
     if (line.content.startsWith("⏺ ")) {
       const rest = line.content.slice(2);
       return (
         <Text key={line.key}>
-          {"   "}
-          <Text color={palette?.primary ?? "green"}>⏺</Text>
+          {indent}
+          <Text color={nested ? (palette?.primary_faint ?? "gray") : (palette?.primary ?? "green")}>⏺</Text>
           {" "}
-          <Text color={palette?.accent_dim ?? "yellow"}>{rest}</Text>
+          <Text color={nested ? (palette?.primary_faint ?? "gray") : (palette?.accent_dim ?? "yellow")}>{rest}</Text>
         </Text>
       );
     }
-    // Body line. Light-touch file:line accenting: ripgrep/Grep emit
-    // "path:line:text" (compiler-style output too). Dim the path, accent
-    // the :line so references pop — without per-tool coupling. The
-    // path-likeness guard (must contain "/", "\", or ".") keeps
-    // timestamps ("12:30") and "str | None:" from matching. The "⎿ "
-    // branch gutter on the first body line falls inside the dim path
-    // span, which is fine.
-    const fileLine = line.content.match(FILE_LINE_RE);
-    if (fileLine && /[/\\.]/.test(fileLine[2]!)) {
-      const [, lead, path, lineNo, rest] = fileLine;
-      return (
-        <Text key={line.key}>
-          {"   "}{lead}
-          <Text color={palette?.primary_faint ?? "gray"}>{path}</Text>
-          <Text color={palette?.accent_dim ?? "yellow"}>:{lineNo}</Text>
-          <Text color={palette?.primary_dim ?? "gray"}>{rest}</Text>
-        </Text>
-      );
+    // Nested body rows skip the file:line accent and just dim uniformly —
+    // keeps nested output quiet rather than competing with main-thread
+    // references for attention.
+    if (!nested) {
+      // Body line. Light-touch file:line accenting: ripgrep/Grep emit
+      // "path:line:text" (compiler-style output too). Dim the path, accent
+      // the :line so references pop — without per-tool coupling. The
+      // path-likeness guard (must contain "/", "\", or ".") keeps
+      // timestamps ("12:30") and "str | None:" from matching. The "⎿ "
+      // branch gutter on the first body line falls inside the dim path
+      // span, which is fine.
+      const fileLine = line.content.match(FILE_LINE_RE);
+      if (fileLine && /[/\\.]/.test(fileLine[2]!)) {
+        const [, lead, path, lineNo, rest] = fileLine;
+        return (
+          <Text key={line.key}>
+            {indent}{lead}
+            <Text color={palette?.primary_faint ?? "gray"}>{path}</Text>
+            <Text color={palette?.accent_dim ?? "yellow"}>:{lineNo}</Text>
+            <Text color={palette?.primary_dim ?? "gray"}>{rest}</Text>
+          </Text>
+        );
+      }
     }
     return (
-      <Text key={line.key} color={palette?.primary_dim ?? "gray"}>
-        {"   "}{line.content}
+      <Text key={line.key} color={(nested ? palette?.primary_faint : palette?.primary_dim) ?? "gray"}>
+        {indent}{line.content}
       </Text>
     );
   }
