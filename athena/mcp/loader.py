@@ -38,15 +38,32 @@ _ACTIVE_CLIENTS: list[MCPTransport] = []
 _HIDDEN_SERVERS: set[str] = set()
 
 
+def _coerce_timeout(raw: Any, default: float) -> float:
+    """Per-server ``startup_timeout`` override → float, falling back to
+    ``default`` on absent / non-numeric / non-positive values."""
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return val if val > 0 else default
+
+
 def load_mcp_servers(
     config_paths: list[Path],
     on_message: Callable[[str, str], None] | None = None,
+    *,
+    default_timeout: float = 10.0,
 ) -> list[MCPTransport]:
     """Read configs, spawn each server, register its tools.
 
     config_paths: list of files to read in order; later overrides earlier.
     on_message: optional callback(level, msg) for status output (level in
                 {"info", "warn", "error"}). If None, falls back to print.
+    default_timeout: seconds to wait for each server's startup handshake
+                before skipping it. A per-server ``startup_timeout`` key
+                in the entry overrides this. A non-responsive server is
+                isolated and skipped — it never blocks the others or the
+                caller indefinitely.
 
     Returns the list of started clients. Failures on individual servers are
     logged but don't abort startup of the others.
@@ -80,9 +97,14 @@ def load_mcp_servers(
             log("info", f"mcp server '{name}': disabled, skipping")
             continue
 
+        timeout = _coerce_timeout(scfg.get("startup_timeout"), default_timeout)
+        # Announce BEFORE the blocking handshake so a slow/hung server
+        # shows as "connecting…" rather than a frozen prompt.
+        log("info", f"mcp server '{name}': connecting (timeout {timeout:g}s)…")
+
         client: MCPTransport | None = None
         try:
-            client = open_transport(name, scfg)
+            client = open_transport(name, scfg, startup_timeout=timeout)
             client.initialize()
             tools = client.list_tools()
         except ValueError as e:
@@ -90,7 +112,12 @@ def load_mcp_servers(
             log("error", f"mcp server '{name}': {e}")
             continue
         except MCPError as e:
-            log("error", f"mcp server '{name}' failed to start: {e}")
+            # Includes the startup-handshake timeout: a non-responsive
+            # server is skipped here, never bricking the launch.
+            log(
+                "warn",
+                f"mcp server '{name}' did not start within {timeout:g}s (skipping its tools): {e}",
+            )
             if client is not None:
                 client.close()
             continue
