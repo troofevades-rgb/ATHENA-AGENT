@@ -265,7 +265,21 @@ def make_transcribe(stt_backend: Any, *, sample_rate: int = 48_000) -> Transcrib
                 wf.writeframes(utterance.pcm)
             result = await asyncio.to_thread(stt_backend.transcribe, path)
             text = " ".join(seg.text for seg in result.segments).strip()
-            logger.info("discord voice: heard %r (%.1fs audio)", text[:200], utterance.duration_s)
+            # Diagnostic: signal level (silence vs speech vs garbage) + keep
+            # the last utterance on disk so it can be played back to hear
+            # exactly what was captured.
+            samples = array.array("h")
+            samples.frombytes(utterance.pcm[: len(utterance.pcm) - (len(utterance.pcm) % 2)])
+            rms = int((sum(s * s for s in samples) / len(samples)) ** 0.5) if samples else 0
+            try:
+                import shutil
+
+                shutil.copy(path, Path.home() / ".athena" / "voices" / "last_utterance.wav")
+            except Exception:  # noqa: BLE001
+                pass
+            logger.info(
+                "discord voice: heard %r (%.1fs, rms=%d)", text[:200], utterance.duration_s, rms
+            )
             return text
         except Exception as e:  # noqa: BLE001
             logger.warning("discord voice: transcription failed: %s", e)
