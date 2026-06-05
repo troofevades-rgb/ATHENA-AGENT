@@ -324,7 +324,11 @@ def main() -> int:
 
     _cp("pre_mcp_load")
     try:
-        load_mcp_servers(mcp_config_paths(workspace), on_message=_mcp_log)
+        load_mcp_servers(
+            mcp_config_paths(workspace),
+            on_message=_mcp_log,
+            default_timeout=float(getattr(cfg, "mcp_startup_timeout", 10.0)),
+        )
     except Exception as e:
         ui.error(f"MCP load failed: {e}")
         _cp("mcp_load_exception", exc=f"{type(e).__name__}: {e}")
