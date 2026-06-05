@@ -194,6 +194,9 @@ Everything below runs **locally by default** — your own Ollama models, on-disk
 - Session transcripts in `~/.athena/profiles/<profile>/sessions/` with SQLite FTS5 search
 - Mutation audit log, approval gating, provenance tracking, air-gapped-by-default posture
 
+**Godmode** (opt-in, `ATHENA_ALLOW_GODMODE=1`)
+- Red-teaming / jailbreak toolkit for **your own local models** — system-prompt strategies, prefill injection, multi-model race, and parseltongue obfuscation. Off by default; every invocation warns. See the section below.
+
 </details>
 
 <details>
@@ -227,6 +230,28 @@ Per-server config supports the standard fields (`command`, `args`, `env`, `cwd`,
 **Writing your own.** `athena/mcp/demo_server.py` is a complete ~120-line stdlib-only MCP server (exposes `echo`, `add`, `current_time`) — copy it as a starting point.
 
 **Limitations.** Only `tools/list` + `tools/call` are wired through (no prompts/resources/sampling yet). MCP-bridged tools run without confirmation; gate a destructive one via `disabled_tools`.
+
+</details>
+
+<details>
+<summary><b>Godmode — opt-in red-teaming toolkit</b></summary>
+
+`/godmode` is a jailbreaking toolkit for **your own local models** — the intended use is red-teaming a model you deploy and safety research, not coercing a hosted provider's model. It is **off by default**: the command appears in `/help`, but does nothing until you set `ATHENA_ALLOW_GODMODE=1` (in `~/.athena/.env` or the environment), and every invocation while the gate is open prints a one-line warning so you never forget you're inside the opt-in.
+
+Strategies are applied through the existing `/steer` queue (they show up in history as synthetic user messages), with an optional ephemeral system-prompt append and a prefill-messages layer that are never persisted to disk or `/save` transcripts.
+
+```
+/godmode list                 list strategies; marks the active one
+/godmode apply <strategy>     push a strategy as a steer; mark it active
+/godmode clear                push a counter-steer; drop the active marker
+/godmode test <query>         preview every strategy's payload for a query
+/godmode race <query>         race the query across model tiers
+/godmode prefill {set|clear|status}   manage the ephemeral prefill layer
+/godmode parseltongue <q>     obfuscate a query (--tier light|standard|heavy)
+/godmode save|load <name>     persist / restore a strategy config
+```
+
+Related config knobs: `agent_system_prompt_append` (text appended after the `/goal` block) and `agent_prefill_messages_file` (a JSON file of ephemeral prefill messages). The `ATHENA_EPHEMERAL_SYSTEM_PROMPT` env var overrides the append on the fly.
 
 </details>
 
