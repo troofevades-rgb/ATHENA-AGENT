@@ -318,6 +318,58 @@ def test_host_stripped_of_trailing_slash():
         p.close()
 
 
+def test_connect_timeout_bounded_while_read_stays_generous():
+    """Connect must fail fast (so an unreachable host can't hang launch),
+    but the read/write budget stays large for long generations."""
+    p = OllamaProvider(host="http://x.invalid:11434", timeout=600.0, connect_timeout=10.0)
+    try:
+        assert p._client.timeout.connect == 10.0
+        assert p._client.timeout.read == 600.0
+        assert p._client.timeout.write == 600.0
+    finally:
+        p.close()
+
+
+def test_connect_timeout_clamped_to_total_timeout():
+    """A custom timeout smaller than the connect default still behaves —
+    connect can't exceed the overall budget."""
+    p = OllamaProvider(host="http://x.invalid:11434", timeout=2.0, connect_timeout=10.0)
+    try:
+        assert p._client.timeout.connect == 2.0
+        assert p._probe_timeout == 2.0
+    finally:
+        p.close()
+
+
+def test_metadata_probes_use_short_timeout(provider: OllamaProvider):
+    """list_models / show_model must pass the short probe timeout
+    per-request, NOT inherit the 600s generation read timeout — that was
+    the launch-brick: the startup reachability probe could hang 10 min
+    on a blackholed host."""
+    captured: dict[str, object] = {}
+
+    class _StubClient:
+        def get(self, url, **kwargs):
+            captured["get_timeout"] = kwargs.get("timeout")
+            return httpx.Response(
+                200, json={"models": [{"name": "m"}]}, request=httpx.Request("GET", url)
+            )
+
+        def post(self, url, **kwargs):
+            captured["post_timeout"] = kwargs.get("timeout")
+            return httpx.Response(
+                200, json={"system": "s"}, request=httpx.Request("POST", url)
+            )
+
+    provider._client = _StubClient()  # type: ignore[assignment]
+    provider.list_models()
+    provider.show_model("m")
+
+    assert captured["get_timeout"] == provider._probe_timeout
+    assert captured["post_timeout"] == provider._probe_timeout
+    assert provider._probe_timeout < 600.0
+
+
 def test_count_tokens_default_heuristic(provider: OllamaProvider):
     """Inherited from base — sanity check it still works on the provider."""
     assert provider.count_tokens("hello world today") == 4
