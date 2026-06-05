@@ -62,9 +62,16 @@ class VoiceSessionConfig:
     sample_rate: int = 48_000
     frame_ms: int = 20
     min_utterance_ms: int = 400
-    max_utterance_ms: int = 30_000
+    # Hard cap on a single utterance. Bounds worst-case latency when
+    # end-of-speech isn't detected (e.g. continuous background noise that
+    # the VAD flags as speech) — the turn fires at the cap rather than
+    # making the speaker wait. 10s comfortably fits a spoken sentence.
+    max_utterance_ms: int = 10_000
     silence_hangover_ms: int = 800
-    vad_aggressiveness: int = 2
+    # webrtcvad 0 (permissive) – 3 (aggressive non-speech rejection).
+    # 3 is the most robust at detecting the *end* of speech over a noisy
+    # mic — the failure mode that otherwise runs an utterance to the cap.
+    vad_aggressiveness: int = 3
 
 
 @dataclasses.dataclass
