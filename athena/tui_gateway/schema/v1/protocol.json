@@ -244,7 +244,7 @@
     },
     "StreamEndEvent": {
       "type": "object",
-      "description": "Mark a streaming assistant response complete. Optional final_text carries the polished view (think blocks stripped, etc.) that the TUI swaps in for the accumulated stream buffer.",
+      "description": "Mark a streaming assistant response complete. Optional final_text carries the polished view (think blocks stripped, etc.) that the TUI swaps in for the accumulated stream buffer. Optional thinking carries the extracted reasoning, rendered only while the reader toggles 'show reasoning' on.",
       "properties": {
         "type": {
           "const": "stream.end"
@@ -253,6 +253,9 @@
           "type": "string"
         },
         "final_text": {
+          "type": ["string", "null"]
+        },
+        "thinking": {
           "type": ["string", "null"]
         }
       },

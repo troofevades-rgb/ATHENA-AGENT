@@ -111,6 +111,68 @@ describe("reducer", () => {
     expect(s.lines[0].content).toBe("line1\nline2\nline3");
   });
 
+  test("TOGGLE_REASONING flips the flag and flashes", () => {
+    expect(initialTuiState.showReasoning).toBe(false);
+    const on = reducer(initialTuiState, { type: "TOGGLE_REASONING" });
+    expect(on.showReasoning).toBe(true);
+    expect(on.flash?.text).toBe("reasoning shown");
+    const off = reducer(on, { type: "TOGGLE_REASONING" });
+    expect(off.showReasoning).toBe(false);
+    expect(off.flash?.text).toBe("reasoning hidden");
+  });
+
+  test("stream.end hides reasoning by default", () => {
+    const end: StreamEndEvent = {
+      type: "stream.end", stream_id: "s1",
+      final_text: "the answer", thinking: "step one\nstep two",
+    };
+    const start: StreamStartEvent = {
+      type: "stream.start", stream_id: "s1", role: "assistant",
+    };
+    let s = reducer(initialTuiState, { type: "EVENT", event: start });
+    s = reducer(s, { type: "EVENT", event: end });
+    // showReasoning is off → only the answer commits, no thinking rows.
+    expect(s.lines).toHaveLength(1);
+    expect(s.lines[0].role).toBe("assistant");
+    expect(s.lines.some((l) => l.role === "thinking")).toBe(false);
+  });
+
+  test("stream.end commits reasoning when toggled on", () => {
+    const start: StreamStartEvent = {
+      type: "stream.start", stream_id: "s1", role: "assistant",
+    };
+    const end: StreamEndEvent = {
+      type: "stream.end", stream_id: "s1",
+      final_text: "the answer", thinking: "step one\nstep two",
+    };
+    let s = reducer(initialTuiState, { type: "TOGGLE_REASONING" });
+    s = reducer(s, { type: "EVENT", event: start });
+    s = reducer(s, { type: "EVENT", event: end });
+    // Header + 2 body rows (role "thinking"), then the answer.
+    const thinking = s.lines.filter((l) => l.role === "thinking");
+    expect(thinking).toHaveLength(3);
+    expect(thinking[0].content).toContain("▾ thinking (2 lines)");
+    expect(thinking[1].content).toContain("step one");
+    const last = s.lines[s.lines.length - 1];
+    expect(last.role).toBe("assistant");
+    expect(last.content).toBe("the answer");
+  });
+
+  test("stream.end with reasoning on but no thinking commits only the answer", () => {
+    const start: StreamStartEvent = {
+      type: "stream.start", stream_id: "s1", role: "assistant",
+    };
+    const end: StreamEndEvent = {
+      type: "stream.end", stream_id: "s1", final_text: "answer only",
+    };
+    let s = reducer(initialTuiState, { type: "TOGGLE_REASONING" });
+    s = reducer(s, { type: "EVENT", event: start });
+    s = reducer(s, { type: "EVENT", event: end });
+    expect(s.lines.some((l) => l.role === "thinking")).toBe(false);
+    expect(s.lines).toHaveLength(1);
+    expect(s.lines[0].content).toBe("answer only");
+  });
+
   test("stream.end strips thought markers", () => {
     const start: StreamStartEvent = {
       type: "stream.start", stream_id: "s1", role: "assistant",

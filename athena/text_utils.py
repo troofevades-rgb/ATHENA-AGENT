@@ -11,7 +11,9 @@ from __future__ import annotations
 import re
 
 _THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", flags=re.DOTALL)
+_THINK_CONTENT = re.compile(r"<think>(.*?)</think>", flags=re.DOTALL)
 _OPEN_THINK = "<think>"
+_CLOSE_THINK = "</think>"
 
 
 def strip_think_blocks(
@@ -36,6 +38,33 @@ def strip_think_blocks(
     if idx != -1:
         out = out[:idx] + open_replacement
     return out
+
+
+def extract_think_content(text: str) -> str:
+    """Return the reasoning hidden inside ``<think>...</think>`` blocks.
+
+    The inverse of :func:`strip_think_blocks`: where that drops the
+    chain-of-thought, this collects it. Closed blocks contribute their
+    body; a trailing *unclosed* ``<think>`` (model cut off mid-thought)
+    contributes whatever followed the opener. Blocks are joined by a
+    blank line, each stripped of surrounding whitespace. Returns ``""``
+    when there is no thinking — callers treat that as "no reasoning to
+    show".
+
+    Used to surface reasoning in the TUI when the reader toggles
+    "show reasoning" on; the wire still carries the clean answer in
+    ``final_text`` and the raw reasoning separately so the display side
+    decides whether to render it.
+    """
+    blocks = [m.strip() for m in _THINK_CONTENT.findall(text)]
+    # A trailing <think> with no matching </think> after it: the model
+    # was interrupted mid-thought. Capture the partial body.
+    open_idx = text.rfind(_OPEN_THINK)
+    if open_idx != -1 and text.rfind(_CLOSE_THINK) < open_idx:
+        tail = text[open_idx + len(_OPEN_THINK) :].strip()
+        if tail:
+            blocks.append(tail)
+    return "\n\n".join(b for b in blocks if b)
 
 
 # First-person, future-tense "I'm about to act" lead-ins. The model's

@@ -165,6 +165,7 @@ export type Action =
   | { type: "DISMISS_FLASH" }
   | { type: "DISMISS_CONFIRM" }
   | { type: "DISMISS_ASK" }
+  | { type: "TOGGLE_REASONING" }
   | { type: "USER_INPUT_SENT" };
 
 function nextKey(state: TuiState): {key: number, _nextKey: number} {
@@ -198,6 +199,21 @@ export function reducer(state: TuiState, action: Action): TuiState {
 
     case "DISMISS_ASK":
       return { ...state, askReq: null };
+
+    case "TOGGLE_REASONING": {
+      // Forward-looking: flips the flag and confirms via a flash, since
+      // the change only affects thoughts that commit after this point
+      // (committed <Static> lines can't re-render). Reuses the existing
+      // flash channel so feedback is immediate and self-dismissing.
+      const next = !state.showReasoning;
+      const flash: StatusFlashEvent = {
+        type: "status.flash",
+        level: "info",
+        text: next ? "reasoning shown" : "reasoning hidden",
+        ttl_seconds: 2,
+      };
+      return { ...state, showReasoning: next, flash };
+    }
 
     case "USER_INPUT_SENT":
       // Begin tracking a pending response from this moment. Stuck
@@ -306,19 +322,31 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
       const fallbackText = rawText.replace(/·\s*\(thought\)\s*/g, "").trim();
       const finalText = (e.final_text ?? fallbackText).trim();
       const hasContent = finalText.length > 0;
-      let newLines = state.lines;
+      const rows: TranscriptLine[] = [];
       let nk = state._nextKey;
+      // Reasoning, when toggled on: a "▾ thinking (N lines)" header
+      // plus the dim body, committed BEFORE the answer. Forward-looking
+      // by construction — we only have e.thinking for thoughts that
+      // commit while the flag is on.
+      const thinking = (e.thinking ?? "").trim();
+      if (state.showReasoning && thinking.length > 0) {
+        const tlines = thinking.split("\n");
+        rows.push({
+          key: nk++, role: "thinking",
+          content: `▾ thinking (${tlines.length} line${tlines.length === 1 ? "" : "s"})`,
+        });
+        for (const tl of tlines) {
+          rows.push({ key: nk++, role: "thinking", content: `  ${tl}` });
+        }
+      }
       if (hasContent) {
         // One line holding the full reply; renderLine renders it as a
         // multi-row markdown block. (See message.append above.)
-        newLines = appendLine(state.lines, {
-          key: state._nextKey, role: "assistant", content: finalText,
-        });
-        nk = state._nextKey + 1;
+        rows.push({ key: nk++, role: "assistant", content: finalText });
       }
       return withProgress({
         ...state,
-        lines: newLines,
+        lines: appendLines(state.lines, rows),
         _nextKey: nk,
         streaming: "",
         _streamFilter: initialThinkFilterState,

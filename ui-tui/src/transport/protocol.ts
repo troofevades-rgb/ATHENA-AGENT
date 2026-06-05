@@ -157,6 +157,10 @@ export interface StreamEndEvent {
   // this string so the transcript shows the clean version.
   // When absent (legacy producer), the buffer is kept as-is.
   final_text?: string;
+  // Optional reasoning extracted from the <think> blocks that
+  // final_text stripped. Rendered inline only while the reader has
+  // "show reasoning" toggled on (Ctrl+O); otherwise held collapsed.
+  thinking?: string | null;
 }
 
 export interface ToolStartEvent {
