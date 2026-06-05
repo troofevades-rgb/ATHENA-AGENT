@@ -44,13 +44,12 @@ athena gives you a full agentic coding loop in your terminal — native tool cal
 - **Autonomy & memory.** Sub-agent forks, per-turn background review, a 7-day curator pass, file-based skills, and semantic recall across sessions.
 - **Connects everywhere.** Messaging gateways (Discord, Slack, Telegram, Signal, Matrix, iMessage, email), cron, webhooks, ACP, and an OpenAI-compatible proxy.
 - **Polished TUI.** Native terminal scrolling, a `⏺ Tool(args)` / `⎿ output` call tree, syntax-highlighted markdown, a live context-window gauge, `Ctrl+O` reasoning toggle, and switchable themes.
-- **Safe by default.** Air-gapped posture, snapshot + audit on every mutation, approval gating, and provenance tracking.
 
 ## Quickstart
 
 ```bash
 pip install athena-coder
-ollama pull qwen2.5-coder:14b
+ollama pull qwen2.5-coder:14b 
 athena                                # interactive REPL in the current directory
 ```
 
@@ -187,12 +186,9 @@ Everything below runs **locally by default** — your own Ollama models, on-disk
 - APScheduler cron (agent + watchdog modes), webhook server, OpenAI-compatible proxy (`athena proxy`)
 - ACP (Agent Client Protocol), headless one-shot + batch runs, an eval battery, and a plugin system with lifecycle hooks
 
-**Terminal UI**
-- Ink-rendered: native scrolling (mouse wheel + text selection), `⏺ Tool(args)` / `⎿ output` call tree, syntax-highlighted markdown, live context-window gauge, `Ctrl+O` reasoning toggle, switchable themes
-
 **Sessions & safety**
 - Session transcripts in `~/.athena/profiles/<profile>/sessions/` with SQLite FTS5 search
-- Mutation audit log, approval gating, provenance tracking, air-gapped-by-default posture
+- Mutation audit log, approval gating, provenance tracking
 
 </details>
 
