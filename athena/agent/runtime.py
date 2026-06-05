@@ -1213,6 +1213,17 @@ class AgentRuntime:
         else:
             args = args_raw or {}
 
+        # Stable per-call id for the TUI activity lane. Pairs the
+        # ToolStart (tool_call_summary) with its ToolComplete
+        # (tool_result) even when several calls of the SAME tool run
+        # concurrently under parallel dispatch -- the tool name alone is
+        # NOT unique, so the lane would mass-evict every same-named call
+        # on the first completion. Prefer the provider's tool-call id
+        # (Anthropic / OpenAI); fall back to the call dict's object id
+        # when the provider omits one (Ollama native). Same `call`
+        # object reaches both emit sites below, so the id is consistent.
+        call_id = str(call.get("id") or f"{name}#{id(call)}")
+
         # Stages 3 + 4: locks around the per-call non-atomic
         # mutations. ``getattr`` with a nullcontext fallback covers
         # SimpleNamespace stubs that bypass Agent.__init__.
@@ -1225,7 +1236,7 @@ class AgentRuntime:
         ui_lock = getattr(self, "_ui_lock", None) or contextlib.nullcontext()
         stats_lock = getattr(self, "_stats_lock", None) or contextlib.nullcontext()
         with ui_lock:
-            ui.tool_call_summary(name, args)
+            ui.tool_call_summary(name, args, call_id=call_id)
         with stats_lock:
             self.stats.record_tool_call(name)
 
@@ -1306,7 +1317,7 @@ class AgentRuntime:
             _tool_dur = _time.perf_counter() - _tool_start
             self.stats.record_tool_duration(name, _tool_dur)
         with ui_lock:
-            ui.tool_result(name, result, duration_s=_tool_dur)
+            ui.tool_result(name, result, duration_s=_tool_dur, call_id=call_id)
 
         # Relay the result to a gateway chat if this tool opted in
         # (gateway_relay=True) -- e.g. skills_list, whose output is itself

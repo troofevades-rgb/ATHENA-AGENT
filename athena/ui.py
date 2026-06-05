@@ -530,7 +530,7 @@ def tool_round_header() -> None:
     console.print(f"[{LIME_FAINT}]{content}[/]")
 
 
-def tool_call_summary(name: str, args: dict[str, Any]) -> None:
+def tool_call_summary(name: str, args: dict[str, Any], *, call_id: str | None = None) -> None:
     # Compact one-liner so the user sees what the model is doing
     args_str = ", ".join(f"{k}={_short(v)}" for k, v in args.items())
     gw = _emit_gateway()
@@ -538,17 +538,15 @@ def tool_call_summary(name: str, args: dict[str, Any]) -> None:
         try:
             from .tui_gateway.events import ToolStartEvent
 
-            # Bug fix (post-sprint): use tool name as call_id so the
-            # matching ToolCompleteEvent (also keyed by name) can be
-            # paired by the TUI's reducer. Previously we used
-            # f"{name}-{id(args)}" here and f"{name}-result" there,
-            # which never matched — the spinner stayed on screen
-            # forever. Trade-off: same-tool concurrent calls will
-            # share a lane row. athena's agent loop runs tools
-            # sequentially, so this is fine in practice.
+            # call_id pairs this ToolStart with its ToolComplete in the
+            # TUI lane. The dispatch layer passes a per-call id that is
+            # unique even when several calls of the SAME tool run
+            # concurrently (parallel dispatch); when absent (terminal /
+            # legacy callers that don't fan out) we fall back to the
+            # tool name, which is fine since those paths are serial.
             gw.send_event(
                 ToolStartEvent(
-                    call_id=name,
+                    call_id=call_id or name,
                     tool=name,
                     args_preview=args_str,
                 )
@@ -692,7 +690,12 @@ def _format_duration(duration_s: float | None) -> str | None:
 
 
 def tool_result(
-    name: str, output: str, max_lines: int = 12, duration_s: float | None = None
+    name: str,
+    output: str,
+    max_lines: int = 12,
+    duration_s: float | None = None,
+    *,
+    call_id: str | None = None,
 ) -> None:
     # Escape rich markup in the tool output — arbitrary tool text may
     # contain characters like ``[/]``, ``[bold]``, or ``[red]`` that
@@ -727,9 +730,9 @@ def tool_result(
 
             gw.send_event(
                 ToolCompleteEvent(
-                    # Matches the call_id ToolStartEvent used — see
-                    # comment in tool_call_summary above.
-                    call_id=name,
+                    # Must match the call_id its ToolStartEvent used so
+                    # the TUI lane pairs them — see tool_call_summary.
+                    call_id=call_id or name,
                     tool=name,
                     ok=True,
                     result_preview=body_truncated,

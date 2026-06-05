@@ -118,6 +118,29 @@ def test_tool_result_ships_tool_complete(gw):
     assert "file1" in completes[0].result_preview
 
 
+def test_tool_events_honor_call_id_for_pairing(gw):
+    """The dispatch layer threads a unique per-call id so the TUI can
+    pair start↔complete even for concurrent same-named calls. The ui
+    functions must carry it through to both events verbatim."""
+    ui.tool_call_summary("skill_view", {"name": "debugging"}, call_id="skill_view#1")
+    ui.tool_result("skill_view", "body", call_id="skill_view#1")
+    start = next(e for e in gw.events if isinstance(e, ToolStartEvent))
+    done = next(e for e in gw.events if isinstance(e, ToolCompleteEvent))
+    assert start.call_id == "skill_view#1"
+    assert done.call_id == "skill_view#1"
+    assert start.tool == "skill_view" and done.tool == "skill_view"
+
+
+def test_tool_events_fall_back_to_name_without_call_id(gw):
+    """Terminal / legacy callers that don't pass call_id still pair —
+    they're serial, so the tool name is a sufficient id."""
+    ui.tool_call_summary("Bash", {"command": "ls"})
+    ui.tool_result("Bash", "out")
+    start = next(e for e in gw.events if isinstance(e, ToolStartEvent))
+    done = next(e for e in gw.events if isinstance(e, ToolCompleteEvent))
+    assert start.call_id == "Bash" == done.call_id
+
+
 # ----- console.print bridge (the big one) ------------------------
 
 

@@ -388,9 +388,13 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
       // tool.start lane entry (removed from the lane just below); the ⏺
       // marker is colored as a status dot by renderLine. A dim duration
       // suffix is appended when the backend timed the dispatch.
-      const laneEntry = state.toolLane.find(
-        (t) => t.id === e.call_id || t.tool === e.tool,
-      );
+      // Pair strictly by call_id. The dispatch layer assigns a unique
+      // id per call, so several concurrent calls of the SAME tool each
+      // keep their own lane row. (A `t.tool === e.tool` fallback used to
+      // live here from when start/complete ids didn't match; under
+      // parallel dispatch it mass-evicted every same-named call on the
+      // first completion, so it's gone.)
+      const laneEntry = state.toolLane.find((t) => t.id === e.call_id);
       const argsRaw = laneEntry?.args ?? "";
       const args = argsRaw.length > 40 ? argsRaw.slice(0, 39) + "…" : argsRaw;
       const durSuffix = formatToolDuration(e.duration_ms);
@@ -421,9 +425,7 @@ function reduceEvent(state: TuiState, event: Event): TuiState {
 
       return withProgress({
         ...state,
-        toolLane: state.toolLane.filter(
-          (t) => t.id !== e.call_id && t.tool !== e.tool,
-        ),
+        toolLane: state.toolLane.filter((t) => t.id !== e.call_id),
         lines: appendLines(state.lines, rows),
         _nextKey: key,
       });
