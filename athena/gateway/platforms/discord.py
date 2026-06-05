@@ -67,6 +67,13 @@ class DiscordAdapter(GatewayAdapter):
         )
         self._client: discord.Client | None = None
         self._tree: Any = None  # discord.app_commands.CommandTree
+        # Voice (Discord-voice Phase 3): one session per bot connection,
+        # driven by the /voice slash command. The controller's discord +
+        # voice-recv imports are lazy, so constructing it here is safe even
+        # without the [gateway-voice] extra installed.
+        from .discord_voice import DiscordVoiceController
+
+        self._voice = DiscordVoiceController(self)
         # Approval timeout for the ui.View; matches ApprovalRouter
         # default. Phase 10.8 will pass a tighter timeout when
         # per-request timeouts land.
@@ -101,6 +108,13 @@ class DiscordAdapter(GatewayAdapter):
         async def _athena_cmd(interaction: discord.Interaction, prompt: str) -> None:
             await self._on_slash_command(interaction, prompt)
 
+        @self._tree.command(
+            name="voice",
+            description="Voice chat with Athena: join | leave | consent.",
+        )
+        async def _voice_cmd(interaction: discord.Interaction, action: str) -> None:
+            await self._on_voice_command(interaction, action)
+
         self.daemon.approvals.register_platform_renderer(
             self.name,
             self._render_approval,
@@ -132,7 +146,38 @@ class DiscordAdapter(GatewayAdapter):
                 exc_info=True,
             )
 
+    async def _on_voice_command(self, interaction: Any, action: str) -> None:
+        """Handle ``/voice <join|leave|consent>``."""
+        verb = (action or "").strip().lower()
+        try:
+            await interaction.response.defer(thinking=False, ephemeral=True)
+        except Exception:  # noqa: BLE001
+            logger.debug("[%s] voice defer failed", self.name, exc_info=True)
+
+        if verb == "join":
+            channel = getattr(getattr(interaction.user, "voice", None), "channel", None)
+            if channel is None:
+                msg = "Join a voice channel first, then run `/voice join`."
+            else:
+                chat_id = str(interaction.channel.id) if interaction.channel else ""
+                msg = await self._voice.join(channel, chat_id, self.daemon.cfg)
+        elif verb == "leave":
+            msg = await self._voice.leave()
+        elif verb == "consent":
+            msg = "Listening now." if self._voice.grant_consent() else "No active voice session."
+        else:
+            msg = "Usage: `/voice join` · `/voice leave` · `/voice consent`"
+
+        try:
+            await interaction.followup.send(msg, ephemeral=True)
+        except Exception:  # noqa: BLE001
+            logger.debug("[%s] voice followup failed", self.name, exc_info=True)
+
     async def stop(self) -> None:
+        try:
+            await self._voice.leave()
+        except Exception:  # noqa: BLE001
+            logger.debug("[%s] voice leave on stop raised", self.name, exc_info=True)
         self.daemon.approvals.register_platform_renderer(self.name, None)
         if self._client is not None:
             try:
