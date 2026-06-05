@@ -167,6 +167,10 @@ class ToolCompleteEvent(_Event):
     # Wall-clock duration of the tool dispatch, in milliseconds. None when
     # the caller didn't time the call (older paths / non-runtime emitters).
     duration_ms: float | None = None
+    # True when this call was made inside a user-invoked sub-agent (Agent
+    # tool fork). The TUI renders it nested + dimmed so it reads as the
+    # sub-agent's work, not the main thread's.
+    nested: bool = False
     type: Literal["tool.complete"] = "tool.complete"
 
 

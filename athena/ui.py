@@ -388,30 +388,41 @@ def gateway() -> Any | None:
     return _active_gateway
 
 
-def _emit_gateway() -> Any | None:
-    """The gateway for *foreground* live rendering, or None.
+def _emit_gateway(kind: str = "all") -> Any | None:
+    """The gateway for live rendering, or None when the current context
+    must not surface to the foreground transcript.
 
-    Returns None when called from inside a background fork — the 7-day
-    curator pass or the per-turn review fork — so the fork's own
-    tool-call and stream events don't leak into the user's foreground
-    transcript. Forks bind their write origin via
-    ``non_foreground_thread``; we key off that.
+    ``kind`` distinguishes tool-activity emits (``"tool"`` — tool_call_
+    summary / tool_result) from everything else (``"all"`` — streaming
+    prose, info/warn flashes, separators). It only matters for the
+    sub-agent origin; for foreground and the silent background passes the
+    answer is the same regardless of kind.
 
-    The ``console.print`` bridge is already fork-safe: its
-    ``_bridge_context`` ContextVar defaults to False and doesn't
-    propagate to the fork's thread, so console output falls through to
-    the fork's captured stdout. But the live tool-call / stream
-    emitters call ``send_event`` on the process-global
-    ``_active_gateway`` directly, bypassing that gate — without this
-    helper a curator pass renders its ``skill_view`` spree straight
-    into the user's transcript. Foreground turns (and startup ``system``
-    output) are unaffected: ``is_background()`` is False there.
+    Origin policy:
+      * **foreground** (and startup ``system``): emit everything.
+      * **curator / background_review** (``is_background()``): emit
+        nothing — the 7-day pass and the per-turn review run silently;
+        without this a curator's ``skill_view`` spree would render
+        straight into the user's transcript.
+      * **subagent** (the user-invoked Agent-tool fork): emit only
+        ``"tool"`` activity, which the reducer renders nested + dimmed.
+        Its streaming prose / chatter stays suppressed so the parent
+        transcript isn't flooded — only the sub-agent's tool work shows.
+
+    Forks bind their write origin via ``non_foreground_thread``; we key
+    off that. The ``console.print`` bridge is separately fork-safe (its
+    ``_bridge_context`` ContextVar doesn't propagate to fork threads);
+    this helper gates the explicit ``send_event`` path.
     """
-    if _active_gateway is not None:
-        from .provenance import is_background
+    if _active_gateway is None:
+        return None
+    from .provenance import SUBAGENT, get_current_write_origin, is_background
 
-        if is_background():
-            return None
+    origin = get_current_write_origin()
+    if origin == SUBAGENT:
+        return _active_gateway if kind == "tool" else None
+    if is_background():
+        return None
     return _active_gateway
 
 
@@ -533,7 +544,7 @@ def tool_round_header() -> None:
 def tool_call_summary(name: str, args: dict[str, Any], *, call_id: str | None = None) -> None:
     # Compact one-liner so the user sees what the model is doing
     args_str = ", ".join(f"{k}={_short(v)}" for k, v in args.items())
-    gw = _emit_gateway()
+    gw = _emit_gateway("tool")
     if gw is not None:
         try:
             from .tui_gateway.events import ToolStartEvent
@@ -723,11 +734,17 @@ def tool_result(
     if len(lines) > max_lines:
         body_truncated += f"\n… ({len(lines) - max_lines} more lines)"
 
-    gw = _emit_gateway()
+    gw = _emit_gateway("tool")
     if gw is not None:
         try:
+            from .provenance import SUBAGENT, get_current_write_origin
             from .tui_gateway.events import ToolCompleteEvent
 
+            # Tool calls made inside a sub-agent fork render nested +
+            # dimmed in the parent transcript, so the reader can see the
+            # sub-agent working without mistaking its calls for the main
+            # thread's.
+            nested = get_current_write_origin() == SUBAGENT
             gw.send_event(
                 ToolCompleteEvent(
                     # Must match the call_id its ToolStartEvent used so
@@ -737,6 +754,7 @@ def tool_result(
                     ok=True,
                     result_preview=body_truncated,
                     duration_ms=(duration_s * 1000.0 if duration_s is not None else None),
+                    nested=nested,
                 )
             )
             return
