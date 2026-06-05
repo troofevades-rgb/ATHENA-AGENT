@@ -132,7 +132,11 @@ tts = [
 gateway-voice = [
     "discord.py[voice]>=2.4",
     "discord-ext-voice-recv>=0.4",
-    "webrtcvad>=2.0",
+    # Prebuilt-wheel fork of webrtcvad (the original is a C extension that
+    # needs a compiler on Windows). Provides the same `import webrtcvad`.
+    # Optional anyway — the voice core falls back to a dependency-free
+    # energy-based VAD when it's absent.
+    "webrtcvad-wheels>=2.0",
     "piper-tts>=1.2",        # local TTS (speak)
     "faster-whisper>=1.0",   # local STT (listen) — the audio-transcription backend
 ]
