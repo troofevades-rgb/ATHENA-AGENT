@@ -233,5 +233,11 @@ disallow_untyped_defs = false
 # ``[tts]`` / ``[gateway-voice]`` extras. No type stubs ship with them;
 # the in-tree code guards every use with is_available()/try-except.
 [[tool.mypy.overrides]]
-module = ["webrtcvad", "piper", "piper.*"]
+module = [
+    "webrtcvad",
+    "piper",
+    "piper.*",
+    "discord.ext.voice_recv",
+    "discord.ext.voice_recv.*",
+]
 ignore_missing_imports = true

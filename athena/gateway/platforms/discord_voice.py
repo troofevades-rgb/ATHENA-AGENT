@@ -42,6 +42,58 @@ logger = logging.getLogger(__name__)
 
 PlayFn = Callable[[Path], Awaitable[None]]
 
+# Prepended to every voice turn so the model knows it's a *spoken*
+# conversation (transcribed input, spoken-aloud output) and replies
+# accordingly — short, plain, conversational.
+VOICE_TURN_PREAMBLE = (
+    "[You are in a live VOICE conversation. The message below was transcribed "
+    "from the user's speech and may contain recognition errors — infer intent "
+    "charitably. Your reply will be read aloud by text-to-speech, so answer in "
+    "one or two short, natural spoken sentences: no markdown, no lists, no code "
+    "blocks, no emoji. If you truly need a tool, use it, but keep talking like a "
+    "person.]"
+)
+
+# Set once we've patched discord-ext-voice-recv's fatal Opus handling.
+_opus_resilience_installed = False
+
+
+def install_opus_resilience() -> None:
+    """Make ``discord-ext-voice-recv`` survive a corrupted Opus packet.
+
+    Its ``PacketRouter`` loop has **no per-packet error handling**: a single
+    ``OpusError: corrupted stream`` (Discord sends odd/comfort-noise packets)
+    escapes the loop and the router's ``finally`` calls ``stop_listening()``,
+    permanently deafening the session. We wrap the decoder's ``pop_data`` to
+    swallow ``OpusError`` and skip the bad packet (return ``None``) so the
+    loop keeps running. Idempotent; a no-op if the library's shape changes
+    (logged, never fatal). Targeted workaround for the 0.5.x alpha.
+    """
+    global _opus_resilience_installed
+    if _opus_resilience_installed:
+        return
+    try:
+        from discord.ext.voice_recv import opus as _vr_opus
+        from discord.opus import OpusError
+
+        _orig_pop = _vr_opus.PacketDecoder.pop_data
+
+        def _safe_pop_data(self: Any, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return _orig_pop(self, *args, **kwargs)
+            except OpusError:
+                logger.debug("discord voice: skipped a corrupted Opus packet")
+                return None
+
+        # Direct assignment (mypy flags method-assign only when voice_recv
+        # is installed locally; CI sees it as Any → clean. ruff rejects
+        # setattr-with-constant, so this is the lint-clean form).
+        _vr_opus.PacketDecoder.pop_data = _safe_pop_data  # type: ignore[method-assign,unused-ignore]
+        _opus_resilience_installed = True
+        logger.info("discord voice: installed Opus decode resilience")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("discord voice: could not install Opus resilience: %s", e)
+
 
 # ---- pure audio helpers (no discord) -------------------------------------
 
@@ -136,11 +188,12 @@ class DiscordVoiceReceiver(VoiceReceiver):
         self._capturing = on
 
     async def start(self) -> None:
-        from discord.ext import voice_recv  # type: ignore[attr-defined]  # optional dep
+        from discord.ext import voice_recv  # optional dep
 
+        install_opus_resilience()  # one bad packet must not deafen the session
         receiver = self
 
-        class _Sink(voice_recv.AudioSink):  # type: ignore[misc]
+        class _Sink(voice_recv.AudioSink):  # type: ignore[misc,unused-ignore]
             def wants_opus(self) -> bool:
                 return False  # we want decoded PCM
 
@@ -211,7 +264,9 @@ def make_transcribe(stt_backend: Any, *, sample_rate: int = 48_000) -> Transcrib
                 wf.setframerate(sample_rate)
                 wf.writeframes(utterance.pcm)
             result = await asyncio.to_thread(stt_backend.transcribe, path)
-            return " ".join(seg.text for seg in result.segments).strip()
+            text = " ".join(seg.text for seg in result.segments).strip()
+            logger.info("discord voice: heard %r (%.1fs audio)", text[:200], utterance.duration_s)
+            return text
         except Exception as e:  # noqa: BLE001
             logger.warning("discord voice: transcription failed: %s", e)
             return ""
@@ -225,10 +280,15 @@ def make_speak(play: PlayFn, tts_backend: Any, *, voice: str | None = None) -> S
     """Build the ``speak`` collaborator: text → synthesize → play → cleanup."""
 
     async def speak(text: str) -> None:
+        logger.info("discord voice: speaking %r", text[:200])
         result = await asyncio.to_thread(tts_backend.synthesize, text)
         out = Path(result.path)
         try:
             await play(out)
+            logger.info("discord voice: playback done (%.1fs)", result.duration_s)
+        except Exception:
+            logger.exception("discord voice: playback failed")
+            raise
         finally:
             out.unlink(missing_ok=True)
 
@@ -264,12 +324,19 @@ def make_voice_run_turn(daemon: Any, *, approval_timeout: float = 300.0) -> RunT
                 token = set_approval_callback(cb)
             except Exception as e:  # noqa: BLE001
                 logger.debug("discord voice: approval bridge unavailable: %s", e)
+            # The model is in a SPOKEN conversation: the user message was
+            # transcribed (may have errors) and the reply will be read
+            # aloud. Without this it answers like a CLI text query — long,
+            # markdown-formatted, easily derailed by a noisy transcript.
+            user_text = f"{VOICE_TURN_PREAMBLE}\n\n{event.text}"
             try:
-                await asyncio.to_thread(agent.run_until_done, event.text)
+                await asyncio.to_thread(agent.run_until_done, user_text)
             finally:
                 if token is not None:
                     reset_approval_callback(token)
-            return strip_think_blocks(agent.last_assistant_message()).strip()
+            reply = strip_think_blocks(agent.last_assistant_message()).strip()
+            logger.info("discord voice: reply %r", reply[:200])
+            return reply
 
     return run_turn
 
@@ -339,7 +406,7 @@ class DiscordVoiceController:
             )
 
         try:
-            from discord.ext import voice_recv  # type: ignore[attr-defined]  # optional dep
+            from discord.ext import voice_recv  # optional dep
 
             self._vc = await voice_channel.connect(cls=voice_recv.VoiceRecvClient)
         except Exception as e:  # noqa: BLE001

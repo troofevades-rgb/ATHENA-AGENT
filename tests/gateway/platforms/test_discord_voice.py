@@ -163,4 +163,7 @@ def test_run_turn_routes_runs_and_returns_reply() -> None:
     event = MessageEvent(platform="discord", chat_id="c1", user_id="u1", text="what's up")
     reply = asyncio.run(run_turn(event))
     assert reply == "the answer"
-    assert agent.seen == "what's up"  # the turn actually ran with the transcript
+    # The turn ran with the transcript (wrapped in the spoken-conversation
+    # preamble so the model replies briefly + conversationally).
+    assert agent.seen is not None and "what's up" in agent.seen
+    assert "VOICE conversation" in agent.seen
