@@ -500,6 +500,14 @@ function App(): React.JSX.Element {
       exit();
       return;
     }
+    // Ctrl+O — toggle inline model reasoning (the <think> trace).
+    // Forward-looking: reveals reasoning for thoughts that commit
+    // after the toggle (committed scrollback can't re-render). Matches
+    // Claude Code's expand convention; Tab is reserved for completion.
+    if (key.ctrl && typedChar === "o") {
+      dispatch({ type: "TOGGLE_REASONING" });
+      return;
+    }
 
     // Cursor / editing dispatched via useLineEditor.
     if (key.leftArrow) return editor.moveLeft();

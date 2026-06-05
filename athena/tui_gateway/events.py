@@ -122,10 +122,17 @@ class StreamEndEvent(_Event):
     whatever it accumulated. Streaming chunks are still raw so
     the in-flight typing feel is preserved; only the FINAL frame
     is swapped.
+
+    ``thinking`` (optional) carries the reasoning extracted from the
+    ``<think>`` blocks that ``final_text`` stripped out. The TUI keeps
+    it collapsed by default and renders it inline only while the reader
+    has "show reasoning" toggled on (Ctrl+O). None / empty means there
+    was no reasoning to surface.
     """
 
     stream_id: str
     final_text: str | None = None
+    thinking: str | None = None
     type: Literal["stream.end"] = "stream.end"
 
 
