@@ -13,11 +13,13 @@
 ⠀⠀⠀⠀⠀⠀⠈⣿⣿⡏⠉⠉⠉⠋
 </pre>
 
-# athena
+# Athena
+*Wisdom in your terminal.*
 
 **A local-first, terminal-native agentic coding assistant.**
 
-Claude-Code-style — running on your own Ollama models by default, hosted providers when you want them.
+
+Run on your own Ollama models by default, hosted providers when you want them.
 
 [![tests](https://github.com/troofevades-rgb/ATHENA-AGENT/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/troofevades-rgb/ATHENA-AGENT/actions/workflows/tests.yml)
 [![coverage](https://github.com/troofevades-rgb/ATHENA-AGENT/actions/workflows/coverage.yml/badge.svg?branch=master)](https://github.com/troofevades-rgb/ATHENA-AGENT/actions/workflows/coverage.yml)
