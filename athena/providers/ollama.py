@@ -180,11 +180,24 @@ class OllamaProvider(Provider):
         host: str = "http://127.0.0.1:11434",
         *,
         timeout: float = 600.0,
+        connect_timeout: float = 10.0,
         **kwargs: Any,
     ):
         super().__init__(api_key=None, **kwargs)
         self.host = host.rstrip("/")
-        self._client = httpx.Client(timeout=timeout)
+        # Bound the CONNECT phase short so an unreachable or blackholed
+        # OLLAMA_HOST fails fast instead of hanging the whole CLI launch
+        # — the startup reachability probe (list_models) runs through
+        # this client, and a single flat 600s timeout meant a host that
+        # silently drops packets stalled launch for 10 minutes (same
+        # class as the MCP startup brick). Read/write stay at the
+        # generous `timeout` so long generations aren't cut off. Clamp
+        # the connect bound to `timeout` so a tiny custom timeout still
+        # behaves. ``_probe_timeout`` bounds the quick metadata calls
+        # (list_models / show_model) end-to-end, so a host that accepts
+        # the TCP connection but never answers can't hang on read either.
+        self._probe_timeout = min(connect_timeout, timeout)
+        self._client = httpx.Client(timeout=httpx.Timeout(timeout, connect=self._probe_timeout))
         # T2-03: retry budget. Ollama has no credential rotation
         # (single local daemon, no API key pool), but 5xx and network
         # errors against a local daemon are typically transient
@@ -390,7 +403,9 @@ class OllamaProvider(Provider):
     # ---- Discovery ----
 
     def list_models(self) -> list[str]:
-        r = self._client.get(f"{self.host}/api/tags")
+        # Short per-request timeout: this is the startup reachability
+        # probe; it must not inherit the 600s generation read timeout.
+        r = self._client.get(f"{self.host}/api/tags", timeout=self._probe_timeout)
         r.raise_for_status()
         return [m["name"] for m in r.json().get("models", [])]
 
@@ -402,7 +417,9 @@ class OllamaProvider(Provider):
         the Modelfile SYSTEM directive — Phase 8's agent prompt builder
         prepends it to the assembled system message.
         """
-        r = self._client.post(f"{self.host}/api/show", json={"name": model})
+        r = self._client.post(
+            f"{self.host}/api/show", json={"name": model}, timeout=self._probe_timeout
+        )
         r.raise_for_status()
         data: dict[str, Any] = r.json()
         return data
