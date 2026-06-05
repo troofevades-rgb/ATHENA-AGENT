@@ -190,6 +190,14 @@ class Config:
     # so /status and the on-disk snapshot surface the trip.
     max_consecutive_provider_errors: int = 3
     max_identical_tool_calls: int = 3
+    # Seconds to wait for each MCP server's startup handshake before
+    # giving up and proceeding WITHOUT it. A non-responsive server must
+    # never brick the whole CLI launch (it used to: the connect was
+    # synchronous with a 30s-per-server stall and no feedback). Each
+    # server is isolated and skipped on timeout; a per-server
+    # ``startup_timeout`` key in mcp.json overrides this default for a
+    # server that legitimately boots slowly.
+    mcp_startup_timeout: float = 10.0
     # Narrate-without-act recovery: when a turn makes ZERO tool calls and
     # the model signs off on a future-tense intent ("I'll run the tests")
     # instead of doing it, nudge it this many times to emit the actual

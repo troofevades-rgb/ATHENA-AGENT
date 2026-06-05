@@ -45,6 +45,8 @@ _SSE_LIKE = frozenset({"sse", "http", "http+sse"})
 def open_transport(
     server_id: str,
     config: dict[str, Any],
+    *,
+    startup_timeout: float | None = None,
 ) -> MCPTransport:
     """Construct and return the transport for one mcp.json server entry.
 
@@ -53,6 +55,13 @@ def open_transport(
     caller is responsible for ``.initialize()``, ``.list_tools()``, and
     eventually ``.close()``.
 
+    ``startup_timeout`` (seconds), when given, bounds how long the
+    handshake may take before the transport gives up — stdio maps it to
+    the client's ``startup_timeout``, sse to the connection ``open_timeout``.
+    None keeps each transport's own default. The loader passes an
+    effective value (per-server override or global default) so a
+    non-responsive server can't stall startup indefinitely.
+
     Raises:
       ValueError: for malformed config (unknown transport, missing
         required fields).
@@ -60,29 +69,37 @@ def open_transport(
     """
     transport = (config.get("transport") or "stdio").lower()
     if transport == "stdio":
-        return _open_stdio(server_id, config)
+        return _open_stdio(server_id, config, startup_timeout)
     if transport in _SSE_LIKE:
-        return _open_sse(server_id, config)
+        return _open_sse(server_id, config, startup_timeout)
     raise ValueError(
         f"mcp server {server_id!r}: unknown transport {transport!r} (expected stdio, sse, or http)"
     )
 
 
-def _open_stdio(server_id: str, config: dict[str, Any]) -> MCPStdioClient:
+def _open_stdio(
+    server_id: str, config: dict[str, Any], startup_timeout: float | None = None
+) -> MCPStdioClient:
     from .client import MCPStdioClient
 
     if "command" not in config:
         raise ValueError(f"mcp server {server_id!r}: stdio transport requires 'command'")
+    kwargs: dict[str, Any] = {}
+    if startup_timeout is not None:
+        kwargs["startup_timeout"] = startup_timeout
     return MCPStdioClient(
         name=server_id,
         command=config["command"],
         args=config.get("args") or [],
         env=config.get("env"),
         cwd=config.get("cwd"),
+        **kwargs,
     )
 
 
-def _open_sse(server_id: str, config: dict[str, Any]) -> SSETransport:
+def _open_sse(
+    server_id: str, config: dict[str, Any], startup_timeout: float | None = None
+) -> SSETransport:
     from .oauth import OAuthConfig
     from .sse_transport import SSETransport
 
@@ -97,10 +114,14 @@ def _open_sse(server_id: str, config: dict[str, Any]) -> SSETransport:
             raise ValueError(f"mcp server {server_id!r}: 'oauth' must be a table")
         oauth_cfg = _parse_oauth(server_id, oauth_raw)
 
+    kwargs: dict[str, Any] = {}
+    if startup_timeout is not None:
+        kwargs["open_timeout"] = startup_timeout
     return SSETransport(
         server_id,
         base_url=url,
         oauth_cfg=oauth_cfg,
+        **kwargs,
     )
 
 
