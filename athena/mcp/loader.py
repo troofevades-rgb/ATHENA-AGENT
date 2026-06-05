@@ -116,8 +116,7 @@ def load_mcp_servers(
             # server is skipped here, never bricking the launch.
             log(
                 "warn",
-                f"mcp server '{name}' did not start within {timeout:g}s "
-                f"(skipping its tools): {e}",
+                f"mcp server '{name}' did not start within {timeout:g}s (skipping its tools): {e}",
             )
             if client is not None:
                 client.close()
