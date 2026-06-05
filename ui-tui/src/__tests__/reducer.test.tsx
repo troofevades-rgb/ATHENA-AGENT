@@ -221,6 +221,44 @@ describe("reducer", () => {
     expect(s.lines[2].content).toBe("  line2");
   });
 
+  test("concurrent same-tool calls keep distinct lanes and pair by call_id", () => {
+    // Two skill_view calls in flight at once (parallel dispatch), each
+    // with its own call_id. Regression: a name-only pairing made the
+    // first completion evict BOTH lane rows and mis-attribute args.
+    const startA: ToolStartEvent = {
+      type: "tool.start", call_id: "skill_view#1", tool: "skill_view",
+      args_preview: "name='debugging'",
+    };
+    const startB: ToolStartEvent = {
+      type: "tool.start", call_id: "skill_view#2", tool: "skill_view",
+      args_preview: "name='dogfood'",
+    };
+    let s = reducer(initialTuiState, { type: "EVENT", event: startA });
+    s = reducer(s, { type: "EVENT", event: startB });
+    expect(s.toolLane).toHaveLength(2);
+
+    // First completion removes ONLY its own lane row...
+    const doneA: ToolCompleteEvent = {
+      type: "tool.complete", call_id: "skill_view#1", tool: "skill_view",
+      ok: true, result_preview: "debugging body",
+    };
+    s = reducer(s, { type: "EVENT", event: doneA });
+    expect(s.toolLane).toHaveLength(1);
+    expect(s.toolLane[0].id).toBe("skill_view#2");
+    // ...and uses ITS OWN args, not the other call's.
+    expect(s.lines[0].content).toBe("⏺ skill_view(name='debugging')");
+
+    // Second completion clears the lane and uses its own args.
+    const doneB: ToolCompleteEvent = {
+      type: "tool.complete", call_id: "skill_view#2", tool: "skill_view",
+      ok: true, result_preview: "dogfood body",
+    };
+    s = reducer(s, { type: "EVENT", event: doneB });
+    expect(s.toolLane).toHaveLength(0);
+    const headerB = s.lines.find((l) => l.content.startsWith("⏺ skill_view(name='dogfood'"));
+    expect(headerB).toBeDefined();
+  });
+
   test("tool.complete caps body at 12 lines", () => {
     const body = Array.from({ length: 20 }, (_, i) => `line${i}`).join("\n");
     const done: ToolCompleteEvent = {
