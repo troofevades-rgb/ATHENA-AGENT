@@ -673,6 +673,15 @@ class Config:
     audio_whisper_device: str = "auto"  # auto | cpu | cuda
     audio_whisper_compute_type: str = "auto"  # auto | int8 | float16 | float32
     audio_output_dir: str | None = None  # default <profile_dir>/audio
+    # Text-to-speech (Discord-voice design, Phase 1). ``tts_backend``
+    # pins a registered TTS backend by name (e.g. "tts_piper_local",
+    # "tts_stub"); "" lets the resolver pick the first available local
+    # backend. ``tts_voice`` is the backend-specific voice — for
+    # tts_piper_local it's the path to a Piper ``.onnx`` voice model.
+    # Both empty by default → TTS is "unavailable" until a voice is set,
+    # and the synthesis path degrades gracefully.
+    tts_backend: str = ""
+    tts_voice: str = ""
     # T-MIG (hermes migration): tirith pre-Bash security scanner.
     # Wraps the external `tirith` binary (Linux / macOS) which
     # inspects shell commands for content-level threats

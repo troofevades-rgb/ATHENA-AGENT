@@ -118,6 +118,13 @@ vision = [
     "Pillow>=10",
     "imagehash>=4.3",
 ]
+# Local text-to-speech (Discord-voice design, Phase 1). Optional: the
+# ``tts_piper_local`` backend reports unavailable without it, and the
+# synthesis path degrades gracefully. The ``tts_stub`` backend needs
+# nothing. Install with ``pip install -e ".[tts]"``.
+tts = [
+    "piper-tts>=1.2",
+]
 # Heavy GPU-only deps for the closed training loop. Install with
 # ``pip install -e ".[train]"`` only on a workstation with CUDA.
 train = [
