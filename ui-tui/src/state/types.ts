@@ -56,6 +56,10 @@ export interface TranscriptLine {
     /** ``- removed line`` in a diff. */
     | "diff-del";
   content: string;
+  /** Tool rows made inside a user-invoked sub-agent (Agent tool). When
+   * set, renderLine draws a ``│`` gutter + dims them so they read as
+   * nested under the sub-agent rather than the main thread. */
+  nested?: boolean;
 }
 
 export interface ToolLaneEntry {

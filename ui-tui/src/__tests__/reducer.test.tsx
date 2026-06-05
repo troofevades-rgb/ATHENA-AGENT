@@ -259,6 +259,27 @@ describe("reducer", () => {
     expect(headerB).toBeDefined();
   });
 
+  test("nested tool.complete flags every row for dimmed sub-agent rendering", () => {
+    const done: ToolCompleteEvent = {
+      type: "tool.complete", call_id: "Grep#1", tool: "Grep",
+      ok: true, result_preview: "4 hits\nin 3 files", nested: true,
+    };
+    const s = reducer(initialTuiState, { type: "EVENT", event: done });
+    // Header + 2 body rows, all carrying nested:true (renderLine draws
+    // the │ gutter + dim from it).
+    expect(s.lines.length).toBe(3);
+    expect(s.lines.every((l) => l.nested === true)).toBe(true);
+  });
+
+  test("non-nested tool.complete leaves rows unflagged", () => {
+    const done: ToolCompleteEvent = {
+      type: "tool.complete", call_id: "r1", tool: "Read",
+      ok: true, result_preview: "x",
+    };
+    const s = reducer(initialTuiState, { type: "EVENT", event: done });
+    expect(s.lines.every((l) => !l.nested)).toBe(true);
+  });
+
   test("tool.complete caps body at 12 lines", () => {
     const body = Array.from({ length: 20 }, (_, i) => `line${i}`).join("\n");
     const done: ToolCompleteEvent = {

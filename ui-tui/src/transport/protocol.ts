@@ -184,6 +184,9 @@ export interface ToolCompleteEvent {
   result_preview: string;
   /** Wall-clock dispatch time in ms; absent on older/non-runtime emitters. */
   duration_ms?: number;
+  /** True when the call was made inside a user-invoked sub-agent (Agent
+   * tool). Rendered nested + dimmed so it reads as the sub-agent's work. */
+  nested?: boolean;
 }
 
 export interface StatusUpdateEvent {
