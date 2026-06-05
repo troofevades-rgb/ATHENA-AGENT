@@ -117,7 +117,7 @@ function Welcome({
             {" · "}↑↓ history · Ctrl+R search
           </Text>
           <Text color={palette.primary_faint}>
-            Mouse wheel / terminal scrollback to scroll · Esc interrupt · Ctrl+C exit
+            Mouse wheel / terminal scrollback to scroll · Ctrl+O reasoning · Esc interrupt · Ctrl+C exit
           </Text>
         </Box>
       </Box>
@@ -157,6 +157,18 @@ export function renderLine(
           palette={palette}
         />
       </Box>
+    );
+  }
+
+  if (line.role === "thinking") {
+    // Model reasoning, shown only while "show reasoning" (Ctrl+O) is on.
+    // Dim + italic so it reads as a sidebar to the answer, not the answer.
+    // The "▾ thinking (N lines)" header and its body share this role; the
+    // reducer already prefixed body rows with a two-space gutter.
+    return (
+      <Text key={line.key} color={palette?.primary_faint ?? "gray"} italic>
+        {"   "}{line.content}
+      </Text>
     );
   }
 

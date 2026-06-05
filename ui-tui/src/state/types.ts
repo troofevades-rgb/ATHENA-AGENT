@@ -41,6 +41,9 @@ export interface TranscriptLine {
   key: number;
   role:
     | "user" | "assistant" | "system" | "tool" | "separator"
+    /** Extracted model reasoning (`<think>` content), shown inline
+     * only while "show reasoning" (Ctrl+O) is on. Rendered dim. */
+    | "thinking"
     /** Line inside a ``` fenced code block in assistant text.
      * Renders with a left gutter + code-style color. */
     | "code"
@@ -100,6 +103,11 @@ export interface TuiState {
   /** AskUserQuestion overlay. Null when no question is pending.
    * Owns the whole keyboard until answered (or Esc cancels). */
   askReq: AskQuestionRequestEvent | null;
+  /** Whether model reasoning (`<think>` content) is shown inline.
+   * Toggled by Ctrl+O. Forward-looking: flipping it on reveals the
+   * reasoning of thoughts that commit AFTER the toggle — committed
+   * lines are frozen in <Static> scrollback and can't re-render. */
+  showReasoning: boolean;
   /** Monotonic counter for line keys. */
   _nextKey: number;
   /** ``performance.now()`` of the last progress event (stream delta,
@@ -128,6 +136,7 @@ export const initialTuiState: TuiState = {
   flash: null,
   confirmReq: null,
   askReq: null,
+  showReasoning: false,
   _nextKey: 1,
   _lastProgressMs: 0,
   _pendingUserInputSince: null,

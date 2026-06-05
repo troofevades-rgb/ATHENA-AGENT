@@ -976,12 +976,18 @@ class TypewriterStream:
         # render layer.
         if self._stream_id is not None and self._gateway is not None:
             try:
+                from .text_utils import extract_think_content, strip_think_blocks
                 from .tui_gateway.events import StreamEndEvent
 
+                # Clean strip for the transcript — no "_(thought collapsed)_"
+                # marker (that's a terminal-only flourish; the TUI renders
+                # reasoning via its own Ctrl+O toggle). The extracted thinking
+                # rides along separately so the TUI can reveal it on demand.
                 self._gateway.send_event(
                     StreamEndEvent(
                         stream_id=self._stream_id,
-                        final_text=_strip_think_blocks(text),
+                        final_text=strip_think_blocks(text),
+                        thinking=extract_think_content(text) or None,
                     )
                 )
             except Exception:  # noqa: BLE001
