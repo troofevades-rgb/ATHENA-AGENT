@@ -128,6 +128,24 @@ def test_skills_catalog_included_when_provided(tmp_path: Path) -> None:
     assert "osint-research" in out
 
 
+def test_elevation_note_gated_by_flag_and_platform(tmp_path: Path) -> None:
+    import sys
+
+    # Off by default — never present.
+    off = build_system_prompt(workspace=tmp_path, model="m", allow_elevation=False)
+    assert "# Elevated commands" not in off
+
+    on = build_system_prompt(workspace=tmp_path, model="m", allow_elevation=True)
+    if sys.platform == "win32":
+        # The opt-in elevation guidance surfaces (the agent learns it may sudo).
+        assert "# Elevated commands" in on
+        assert "sudo" in on
+    else:
+        # Elevation is a Windows-only affordance here — no note off-Windows
+        # even with the flag set.
+        assert "# Elevated commands" not in on
+
+
 def test_board_auto_maintain_adds_board_section(tmp_path: Path) -> None:
     out = build_system_prompt(
         workspace=tmp_path,

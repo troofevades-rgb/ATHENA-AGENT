@@ -293,6 +293,13 @@ class OllamaProvider(Provider):
             "stream": True,
             "options": options,
         }
+        # keep_alive is a TOP-LEVEL field (not an options key): how long Ollama
+        # keeps the model resident after the request. Used to pin the voice
+        # model in VRAM between spoken turns so it doesn't pay a full reload
+        # after the default 5-minute idle unload.
+        keep_alive = kwargs.get("keep_alive")
+        if keep_alive is not None:
+            payload["keep_alive"] = keep_alive
         if tools:
             payload["tools"] = tools
 
