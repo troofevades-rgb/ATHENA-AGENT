@@ -239,5 +239,10 @@ module = [
     "piper.*",
     "discord.ext.voice_recv",
     "discord.ext.voice_recv.*",
+    "davey",
+    "nacl",
+    "nacl.*",
+    "kokoro_onnx",
+    "numpy",
 ]
 ignore_missing_imports = true
