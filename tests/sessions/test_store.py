@@ -218,3 +218,20 @@ def test_children_persists_in_meta_json(store: SessionStore, profile_dir: Path) 
     sidecar = profile_dir / "sessions" / "c.meta.json"
     data = json.loads(sidecar.read_text(encoding="utf-8"))
     assert data["parent_session_id"] == "p"
+
+
+def test_get_session_returns_meta_for_known_id(store: SessionStore) -> None:
+    """get_session backs the gateway /status command — it must round-trip
+    the model / provider / profile for an existing session."""
+    meta = _meta()  # helper defaults: model="qwen2.5", provider="ollama"
+    store.open_session(meta)
+    got = store.get_session(meta.session_id)
+    assert got is not None
+    assert got.session_id == meta.session_id
+    assert got.model == "qwen2.5"
+    assert got.provider == "ollama"
+    assert got.profile == "default"
+
+
+def test_get_session_none_for_unknown_id(store: SessionStore) -> None:
+    assert store.get_session("does-not-exist") is None

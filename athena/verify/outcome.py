@@ -3,7 +3,7 @@
 One :class:`VerificationOutcome` per `verify_write` call. Carries:
 
 - ``outcome`` — one of ``"passed" | "failed_diagnostics" |
-  "failed_run" | "skipped"``.
+  "failed_run" | "blocked_by_policy" | "skipped"``.
 - ``checkpoint_id`` — the T3-03 checkpoint the loop captured
   before the write (None when T3-03 isn't available).
 - ``introduced_errors`` — list of LSP error messages newly
@@ -29,6 +29,7 @@ Outcome = Literal[
     "passed",
     "failed_diagnostics",
     "failed_run",
+    "blocked_by_policy",
     "skipped",
 ]
 
@@ -85,6 +86,9 @@ class VerificationOutcome:
                 f"✗ {self.path}: write introduced "
                 f"{len(self.introduced_errors)} error(s):\n{lines}{extra}"
             )
+        elif self.outcome == "blocked_by_policy":
+            tail = self.run_stderr_tail or "(no details captured)"
+            head = f"✗ {self.path}: run blocked by policy:\n  {tail}"
         else:  # failed_run
             tail = self.run_stderr_tail or "(no stderr captured)"
             head = f"✗ {self.path}: run failed (exit {self.run_exit_code}):\n  {tail}"

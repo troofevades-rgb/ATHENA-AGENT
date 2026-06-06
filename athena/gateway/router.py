@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from .events import MessageEvent
 
 if TYPE_CHECKING:
-    from ..sessions.store import SessionStore
+    from ..sessions.store import SessionMeta, SessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -289,6 +289,13 @@ class SessionRouter:
         )
         self._db.commit()
         return cur.rowcount > 0
+
+    def get_meta(self, session_id: str) -> SessionMeta | None:
+        """Session metadata (model / provider / profile / ...) by id, or
+        ``None`` when the session is unknown. Backs the gateway ``/status``
+        command, which previously called a method that didn't exist and so
+        always reported "(no session metadata)"."""
+        return self.session_store.get_session(session_id)
 
     def close(self) -> None:
         try:
