@@ -14,15 +14,17 @@ file-based skill format introduced later in this phase.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TypeVar
 
 # (agent, arg) -> str | None | bool
 CommandFn = Callable[..., object]
+_F = TypeVar("_F", bound=CommandFn)
 
 _COMMANDS: dict[str, CommandFn] = {}
 
 
-def command(name: str):
-    def deco(fn: CommandFn) -> CommandFn:
+def command(name: str) -> Callable[[_F], _F]:
+    def deco(fn: _F) -> _F:
         _COMMANDS[name] = fn
         return fn
 

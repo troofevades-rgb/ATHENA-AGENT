@@ -63,6 +63,7 @@ dev = [
     "respx>=0.21",
     "ruff>=0.4",
     "mypy>=1.10",
+    "types-PyYAML>=6.0",
 ]
 # Platform SDKs for ``athena gateway run``. Optional so a headless
 # install (CLI-only, no chat exposure) doesn't pull them in.
@@ -229,9 +230,10 @@ files = ["athena"]
 module = "tests.*"
 disallow_untyped_defs = false
 
-# Optional, untyped third-party engines loaded lazily behind the
-# ``[tts]`` / ``[gateway-voice]`` extras. No type stubs ship with them;
-# the in-tree code guards every use with is_available()/try-except.
+# Optional / untyped third-party modules with no usable stubs — loaded
+# lazily behind the ``[vision]`` / ``[tts]`` / ``[gateway-voice]`` /
+# ``[observability]`` extras (so absent in the CI mypy env), or version-gated
+# stdlib. The in-tree code guards every use with is_available()/try-except.
 [[tool.mypy.overrides]]
 module = [
     "webrtcvad",
@@ -239,5 +241,34 @@ module = [
     "piper.*",
     "discord.ext.voice_recv",
     "discord.ext.voice_recv.*",
+    # gateway-voice receive/decrypt + TTS engines
+    "davey",
+    "nacl",
+    "nacl.*",
+    "kokoro_onnx",
+    "numpy",
+    "faster_whisper",
+    # vision
+    "PIL",
+    "PIL.*",
+    "imagehash",
+    "piexif",
+    # observability / matrix-e2e
+    "pythonjsonlogger",
+    "pythonjsonlogger.*",
+    "olm",
+    "nio",
+    "nio.*",
+    # OCR / PDF document extraction
+    "pytesseract",
+    "fitz",
+    # other untyped runtime deps (gateway transports + scheduler)
+    "socketio",
+    "socketio.*",
+    "aioimaplib",
+    "apscheduler",
+    "apscheduler.*",
+    # py3.11+ stdlib, but mypy targets 3.10 (tomli is the 3.10 fallback)
+    "tomllib",
 ]
 ignore_missing_imports = true
