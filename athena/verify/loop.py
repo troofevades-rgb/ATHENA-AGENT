@@ -38,7 +38,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .outcome import VerificationOutcome
+from .outcome import Outcome, VerificationOutcome
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +277,7 @@ class VerifiedExecution:
             except ImportError:
                 BlockedByPolicyError = ()  # type: ignore[assignment]
             blocked = isinstance(e, BlockedByPolicyError) if BlockedByPolicyError else False
-            outcome = "blocked_by_policy" if blocked else "failed_run"
+            outcome: Outcome = "blocked_by_policy" if blocked else "failed_run"
             stderr_msg = (
                 f"verify command blocked by policy: {e}"
                 if blocked
