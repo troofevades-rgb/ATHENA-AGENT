@@ -3,12 +3,9 @@
 Bridges the platform-neutral voice core (``athena.gateway.voice``) to
 Discord's APIs:
 
-  - :class:`DiscordVoiceReceiver` adapts a ``discord-ext-voice-recv`` sink
-    (48 kHz decoded PCM — mono for voice, though it can be stereo; the
-    receiver detects which from the wire and downmixes only if needed,
-    delivered on a capture thread) to the
-    :class:`~athena.gateway.voice.VoiceReceiver` contract (mono frames on
-    an asyncio queue).
+  - the live receiver is :class:`HermesVoiceReceiver` (raw-UDP capture +
+    DAVE decrypt + Opus decode) in ``_hermes_voice_recv``, driven by
+    :class:`HermesVoiceSession`, which polls complete utterances.
   - the collaborator factories (:func:`make_transcribe`, :func:`make_speak`,
     :func:`make_voice_run_turn`) build the ``transcribe`` / ``speak`` /
     ``run_turn`` callables the :class:`VoiceSession` is injected with — the
@@ -16,7 +13,7 @@ Discord's APIs:
     Discord-button approval bridge, so a voice turn is indistinguishable
     from a text turn downstream.
 
-Every ``discord`` / ``voice_recv`` import is lazy (inside the functions
+Every ``discord`` import is lazy (inside the functions
 that need them), so this module imports cleanly without the optional
 ``[gateway-voice]`` deps installed — the pure conversion helpers and the
 collaborator factories are unit-tested with fakes; the live receiver +
@@ -30,14 +27,12 @@ import asyncio
 import logging
 import os
 import tempfile
-import time
 import wave
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from ..events import MessageEvent
-from ..voice import VoiceFrame, VoiceReceiver
+from ..events import MessageEvent, MessageType
 from ..voice.segmenter import Utterance
 from ..voice.session import RunTurnFn, SpeakFn, TranscribeFn
 
@@ -53,80 +48,42 @@ VOICE_TURN_PREAMBLE = (
     "from the user's speech and may contain recognition errors — infer intent "
     "charitably. Your reply will be read aloud by text-to-speech, so answer in "
     "one or two short, natural spoken sentences: no markdown, no lists, no code "
-    "blocks, no emoji. If you truly need a tool, use it, but keep talking like a "
-    "person.]"
+    "blocks, no emoji. If the user asks what you can do, what skills you have, "
+    "or to use/run a skill, call the skills_list or skill_view tool instead of "
+    "guessing (then summarise the result aloud); use other tools too when you "
+    "genuinely need them. Otherwise just keep talking like a person.]"
 )
 
-# Set once we've patched discord-ext-voice-recv's fatal Opus handling.
-_opus_resilience_installed = False
+# Context window for voice turns. Smaller than the coding default (32k) so the
+# voice model's KV cache fits fully on the GPU instead of spilling to CPU —
+# the difference between ~1-2s and multi-minute spoken replies. Holds the
+# system prompt plus a spoken exchange.
+_VOICE_CONTEXT_WINDOW = 16384
 
+# Tool surface for voice turns. Scopes ONLY the dedicated voice agent's cfg
+# (coding keeps all tools). Beyond the conversational set (core/memory/recall/
+# web) and "skills" (on-demand list/invoke — progressive disclosure keeps only
+# the one-line catalog in the prompt, bodies load via skill_view), this
+# includes the TASK surface (file, shell, code) so a spoken "run the tests" /
+# "edit X" actually executes. The user opted into this fuller surface over a
+# lean talk-only set, accepting the trade-off: more tool schemas = larger
+# prompt eval per spoken turn. Confirmation-gated tools (e.g. Bash) route their
+# Approve/Deny prompt to the Discord text channel via the gateway approval
+# bridge. NOTE: athena's shell tool is Bash (Git Bash on Windows); a PowerShell
+# command runs as Bash("powershell -Command '...'").
+_VOICE_TOOLSETS = ["core", "memory", "recall", "web", "skills", "file", "shell", "code"]
 
-def install_opus_resilience() -> None:
-    """Make ``discord-ext-voice-recv`` survive a corrupted Opus packet.
+# Tools removed from the voice surface even though their toolset is enabled.
+# skill_manage mutates skills behind a confirmation gate, and a spoken session
+# has no interactive surface to present that gate (a forked AUTO_DENY callback
+# would just block it) — so keep voice skills read-only: list + view.
+_VOICE_DISABLED_TOOLS = ["skill_manage"]
 
-    Its ``PacketRouter`` loop has **no per-packet error handling**: a single
-    ``OpusError: corrupted stream`` (Discord sends odd/comfort-noise packets)
-    escapes the loop and the router's ``finally`` calls ``stop_listening()``,
-    permanently deafening the session. We wrap the decoder's ``pop_data`` to
-    swallow ``OpusError`` and skip the bad packet (return ``None``) so the
-    loop keeps running. Idempotent; a no-op if the library's shape changes
-    (logged, never fatal). Targeted workaround for the 0.5.x alpha.
-    """
-    global _opus_resilience_installed
-    if _opus_resilience_installed:
-        return
-    try:
-        from discord.ext.voice_recv import opus as _vr_opus
-        from discord.opus import OpusError
-
-        _orig_pop = _vr_opus.PacketDecoder.pop_data
-
-        def _safe_pop_data(self: Any, *args: Any, **kwargs: Any) -> Any:
-            try:
-                return _orig_pop(self, *args, **kwargs)
-            except OpusError:
-                logger.debug("discord voice: skipped a corrupted Opus packet")
-                return None
-
-        # Direct assignment (mypy flags method-assign only when voice_recv
-        # is installed locally; CI sees it as Any → clean. ruff rejects
-        # setattr-with-constant, so this is the lint-clean form).
-        _vr_opus.PacketDecoder.pop_data = _safe_pop_data  # type: ignore[method-assign,unused-ignore]
-        _opus_resilience_installed = True
-        logger.info("discord voice: installed Opus decode resilience")
-    except Exception as e:  # noqa: BLE001
-        logger.warning("discord voice: could not install Opus resilience: %s", e)
-
+# Keep the voice model resident between spoken turns (Ollama unloads after 5
+# min idle by default, which would cost a full reload on the next utterance).
+_VOICE_KEEP_ALIVE = "30m"
 
 # ---- pure audio helpers (no discord) -------------------------------------
-
-
-def stereo_to_mono(pcm_stereo: bytes) -> bytes:
-    """Downmix interleaved 16-bit L/R PCM to mono by averaging each pair.
-
-    Discord delivers 48 kHz stereo; the voice core works in mono. A stray
-    tail that isn't a whole L/R sample pair (4 bytes) is dropped rather
-    than raising.
-    """
-    usable = pcm_stereo[: len(pcm_stereo) - (len(pcm_stereo) % 4)]
-    if not usable:
-        return b""
-    stereo = array.array("h")
-    stereo.frombytes(usable)
-    mono = array.array("h", [(stereo[i] + stereo[i + 1]) // 2 for i in range(0, len(stereo), 2)])
-    return mono.tobytes()
-
-
-# Loudness floor (RMS of s16 mono) for picking the active speaker. Speech
-# sits in the thousands; silence/keepalive near zero — 350 separates them.
-_SPEAKER_LOCK_FLOOR = 350.0
-# Energy above which a frame counts as the locked speaker's *voice* (vs
-# room tone / breath / faint background). Higher than the lock floor: the
-# lock only needs "someone is there", but end-of-speech needs "they are
-# actually talking" so a quiet gap between sentences ends the turn. Tuned
-# for Discord's 48 kHz s16 mono; speech runs ~5000-12000 RMS, room tone
-# well under 1500.
-_SPEECH_FLOOR = 1500.0
 
 
 def _mono_rms(mono: bytes) -> float:
@@ -138,222 +95,17 @@ def _mono_rms(mono: bytes) -> float:
     return (sum(x * x for x in s) / len(s)) ** 0.5
 
 
-class FrameChunker:
-    """Accumulate PCM bytes and emit fixed-size frames.
-
-    Voice backends deliver variable-size buffers; the segmenter needs
-    uniform frames. Per-speaker so concurrent speakers don't interleave
-    into one chunk.
-    """
-
-    def __init__(self, bytes_per_frame: int) -> None:
-        self._n = int(bytes_per_frame)
-        self._buf = bytearray()
-
-    def push(self, pcm: bytes) -> list[bytes]:
-        self._buf += pcm
-        out: list[bytes] = []
-        while self._n > 0 and len(self._buf) >= self._n:
-            out.append(bytes(self._buf[: self._n]))
-            del self._buf[: self._n]
-        return out
-
-
-# ---- receiver ------------------------------------------------------------
-
-
-class DiscordVoiceReceiver(VoiceReceiver):
-    """Adapts a discord-ext-voice-recv sink to :class:`VoiceReceiver`.
-
-    The sink's ``write`` runs on discord.py's capture thread; we downmix +
-    chunk there and hand frames to the asyncio loop via
-    ``call_soon_threadsafe``. ``frames()`` then drains an
-    :class:`asyncio.Queue`. A ``None`` sentinel from :meth:`stop` ends the
-    stream cleanly.
-    """
-
-    sample_rate = 48_000
-    frame_ms = 20
-
-    def __init__(
-        self,
-        voice_client: Any,
-        loop: asyncio.AbstractEventLoop,
-        *,
-        max_queue: int = 512,
-        end_of_speech_s: float = 0.7,
-        eos_poll_s: float = 0.1,
-    ):
-        self._vc = voice_client
-        self._loop = loop
-        self._queue: asyncio.Queue[VoiceFrame | None] = asyncio.Queue(maxsize=max_queue)
-        self._chunkers: dict[str, FrameChunker] = {}
-        self._capturing = True
-        self._sink: Any = None
-        # Single-active-speaker lock. voice-recv delivers a SEPARATE decoded
-        # stream per speaker (including the bot's own silence keepalive).
-        # Interleaving them into one segmenter scrambles the audio timeline
-        # into garbage. We lock onto whoever is actively talking (loudest
-        # first) and ignore everyone else until they fall quiet.
-        self._active_speaker: str | None = None
-        self._silence_bytes = 0
-        # ~1.2s of mono silence releases the lock so a different speaker can
-        # take over. 48000 Hz * 2 bytes.
-        self._release_silence_bytes = int(1.2 * 48_000 * 2)
-        # End-of-speech (wall clock). The segmenter ends an utterance on a
-        # run of VAD-silence, but in an open-mic channel the VAD may never
-        # see silence (continuous background) — so the turn rides to the max
-        # cap. Here we watch the clock instead: once the active speaker's
-        # *voice* (>= _SPEECH_FLOOR) has been absent for end_of_speech_s, a
-        # watcher injects a flush marker that closes the utterance now. Works
-        # even when Discord stops sending packets entirely on silence (no
-        # frames => the frame-counted segmenter would otherwise stall).
-        self._end_of_speech_s = float(end_of_speech_s)
-        self._eos_poll_s = float(eos_poll_s)
-        self._last_voice_ts = 0.0  # monotonic; last frame >= _SPEECH_FLOOR
-        self._eos_armed = False  # True once the active speaker has voiced
-        self._eos_task: asyncio.Task[None] | None = None
-        # Decoded channel count, detected from the wire (see feed_pcm). The
-        # discord.opus.Decoder class advertises stereo, but this voice-recv
-        # build decodes MONO for voice — trusting the constant and averaging
-        # "L/R pairs" lowpassed the audio and doubled its pitch.
-        self._channels: int | None = None
-
-    # Called on the capture thread. Pure-ish: convert + enqueue. Exposed
-    # (not underscored away) so tests can drive it directly with a fake loop.
-    def feed_pcm(self, speaker_id: str, pcm: bytes) -> None:
-        if not self._capturing:
-            return
-        # Discord delivers one 20 ms decoded frame per packet: 1920 bytes =
-        # 48 kHz mono, 3840 = 48 kHz stereo. Detect the layout from the wire
-        # once (the Decoder class lies — it says stereo but emits mono here),
-        # then downmix ONLY when it's genuinely stereo. Treating mono as
-        # stereo averaged adjacent samples → muffled + 2x pitch = garbage.
-        if self._channels is None and len(pcm) in (1920, 3840):
-            self._channels = 2 if len(pcm) == 3840 else 1
-            logger.info("discord voice: decode is %d-channel (%dB/frame)", self._channels, len(pcm))
-        mono = stereo_to_mono(pcm) if self._channels == 2 else pcm
-        if not mono:
-            return
-
-        # Single-active-speaker lock — forward only one speaker's audio so
-        # the segmenter never sees an interleaved mix (the garbage bug).
-        sid = str(speaker_id)
-        rms = _mono_rms(mono)
-        loud = rms >= _SPEAKER_LOCK_FLOOR
-        if self._active_speaker is None:
-            if not loud:
-                return  # nobody talking yet — don't lock onto silence
-            self._active_speaker = sid
-            self._silence_bytes = 0
-            self._eos_armed = False
-        elif sid != self._active_speaker:
-            return  # someone else (or the bot's keepalive) — ignore while locked
-        if loud:
-            self._silence_bytes = 0
-        else:
-            self._silence_bytes += len(mono)
-            if self._silence_bytes >= self._release_silence_bytes:
-                self._active_speaker = None  # released; re-lock on next loud speaker
-        # Track the last moment this speaker was actually *voicing* (not just
-        # above the lock floor) so the wall-clock watcher can find the gap.
-        if rms >= _SPEECH_FLOOR:
-            self._last_voice_ts = time.monotonic()
-            self._eos_armed = True
-
-        chunker = self._chunkers.setdefault(sid, FrameChunker(self.bytes_per_frame))
-        for frame_pcm in chunker.push(mono):
-            frame = VoiceFrame(speaker_id=sid, pcm=frame_pcm)
-            self._loop.call_soon_threadsafe(self._enqueue, frame)
-
-    def _eos_tick(self, now: float) -> bool:
-        """One end-of-speech check at wall-clock ``now`` (monotonic).
-
-        If the active speaker has voiced and then stayed below the speech
-        floor for ``end_of_speech_s``, enqueue a flush marker and release the
-        lock so the next speaker can take over. Returns True iff it flushed.
-        Pure enough to unit-test directly; the watcher loop just feeds it
-        ``time.monotonic()``. Runs on the event loop, so it enqueues directly
-        (no call_soon_threadsafe — that's for the capture thread)."""
-        if self._active_speaker is None or not self._eos_armed:
-            return False
-        if now - self._last_voice_ts < self._end_of_speech_s:
-            return False
-        speaker = self._active_speaker
-        self._eos_armed = False
-        self._active_speaker = None
-        self._silence_bytes = 0
-        logger.info(
-            "discord voice: end-of-speech (%.1fs quiet) — flushing utterance",
-            self._end_of_speech_s,
-        )
-        self._enqueue(VoiceFrame(speaker_id=speaker, pcm=b"", flush=True))
-        return True
-
-    async def _eos_watcher(self) -> None:
-        """Poll :meth:`_eos_tick` until the receiver stops. Cancelled in
-        :meth:`stop`. A watcher fault must not kill capture — it's logged and
-        the loop continues."""
-        while True:
-            await asyncio.sleep(self._eos_poll_s)
-            try:
-                self._eos_tick(time.monotonic())
-            except Exception as e:  # noqa: BLE001 — never let the watcher die silently
-                logger.debug("discord voice: eos watcher tick failed: %s", e)
-
-    def _enqueue(self, frame: VoiceFrame | None) -> None:
-        try:
-            self._queue.put_nowait(frame)
-        except asyncio.QueueFull:
-            # Back-pressure safety valve: drop the oldest frame. A voice
-            # turn cares about recent audio, not a stale backlog.
-            try:
-                self._queue.get_nowait()
-                self._queue.put_nowait(frame)
-            except Exception:  # noqa: BLE001
-                pass
-
-    def set_capturing(self, on: bool) -> None:
-        self._capturing = on
-
-    async def start(self) -> None:
-        from discord.ext import voice_recv  # optional dep
-
-        install_opus_resilience()  # one bad packet must not deafen the session
-        receiver = self
-
-        class _Sink(voice_recv.AudioSink):  # type: ignore[misc,unused-ignore]
-            def wants_opus(self) -> bool:
-                return False  # we want decoded PCM
-
-            def write(self, user: Any, data: Any) -> None:
-                receiver.feed_pcm(getattr(user, "id", "unknown"), data.pcm)
-
-            def cleanup(self) -> None:
-                return None
-
-        self._sink = _Sink()
-        self._vc.listen(self._sink)
-        # Wall-clock end-of-speech watcher (see feed_pcm / _eos_tick).
-        self._eos_task = asyncio.create_task(self._eos_watcher())
-
-    async def stop(self) -> None:
-        if self._eos_task is not None:
-            self._eos_task.cancel()
-            self._eos_task = None
-        try:
-            if self._vc is not None:
-                self._vc.stop_listening()
-        except Exception as e:  # noqa: BLE001
-            logger.debug("discord voice: stop_listening raised: %s", e)
-        self._enqueue(None)  # unblock frames()
-
-    async def frames(self) -> AsyncIterator[VoiceFrame]:
-        while True:
-            frame = await self._queue.get()
-            if frame is None:
-                break
-            yield frame
+def downmix_stereo_to_mono(pcm_stereo: bytes) -> bytes:
+    """Average interleaved 16-bit L/R PCM to mono. The Hermes receiver
+    decodes Discord voice to genuine 48 kHz stereo; whisper wants mono.
+    (Unlike the removed ``stereo_to_mono``, this runs on *real* stereo —
+    the earlier bug was applying a downmix to data that was already mono.)"""
+    a = array.array("h")
+    a.frombytes(pcm_stereo[: len(pcm_stereo) - (len(pcm_stereo) % 4)])
+    if not a:
+        return b""
+    mono = array.array("h", [(a[i] + a[i + 1]) // 2 for i in range(0, len(a), 2)])
+    return mono.tobytes()
 
 
 # ---- playback ------------------------------------------------------------
@@ -378,13 +130,19 @@ async def play_wav_in_vc(
 # ---- collaborator factories ----------------------------------------------
 
 
-def make_transcribe(stt_backend: Any, *, sample_rate: int = 48_000) -> TranscribeFn:
+def make_transcribe(
+    stt_backend: Any, *, sample_rate: int = 48_000, language: str | None = "en"
+) -> TranscribeFn:
     """Build the ``transcribe`` collaborator: utterance PCM → text.
 
     Writes the mono PCM to a temp WAV, runs the (blocking) STT backend
     off-thread, joins its segments, and deletes the temp file. A
     transcription failure returns ``""`` (the session treats that as
     "nothing intelligible" and stays listening) rather than raising.
+
+    ``language`` is pinned ("en" by default) so whisper doesn't re-detect the
+    language on every short utterance — re-detection is both slower and a
+    common source of wrong-language gibberish on brief/quiet clips.
     """
 
     async def transcribe(utterance: Utterance) -> str:
@@ -397,7 +155,7 @@ def make_transcribe(stt_backend: Any, *, sample_rate: int = 48_000) -> Transcrib
                 wf.setsampwidth(2)
                 wf.setframerate(sample_rate)
                 wf.writeframes(utterance.pcm)
-            result = await asyncio.to_thread(stt_backend.transcribe, path)
+            result = await asyncio.to_thread(stt_backend.transcribe, path, language=language)
             text = " ".join(seg.text for seg in result.segments).strip()
             # Operational log: transcript + signal level (silence vs speech)
             # and duration — cheap, and the first thing to check when a turn
@@ -430,28 +188,101 @@ def make_speak(play: PlayFn, tts_backend: Any, *, voice: str | None = None) -> S
             logger.exception("discord voice: playback failed")
             raise
         finally:
-            out.unlink(missing_ok=True)
+            # Best-effort: on Windows FFmpeg can still hold the handle for a
+            # beat after playback ends (WinError 32). Don't let a failed temp
+            # cleanup surface as a "turn failed".
+            try:
+                out.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     return speak
 
 
-def make_voice_run_turn(daemon: Any, *, approval_timeout: float = 300.0) -> RunTurnFn:
+def make_voice_run_turn(
+    daemon: Any, *, session_id: str | None = None, approval_timeout: float = 300.0
+) -> RunTurnFn:
     """Build the ``run_turn`` collaborator: a voice utterance → agent turn
     → reply text, reusing the gateway's own machinery.
 
-    Same path a text turn takes: ``router.resolve`` → ``pool.use`` →
     ``run_until_done`` → ``last_assistant_message``. The Discord-button
     approval bridge is installed for the turn so a tool confirmation routes
     to the text channel exactly as it does for text (best-effort: if the
     bridge can't be built the turn still runs, just without it).
+
+    ``session_id``: pin voice turns to a dedicated session instead of
+    ``router.resolve``-ing the text channel's. Voice should NOT inherit a
+    long-lived text session's history (tens of turns → tens of thousands of
+    tokens → a multi-second context-compression on every spoken reply). A
+    fresh per-join id keeps voice snappy and self-contained; approvals still
+    route to the real ``event.chat_id``.
     """
     from ...safety.approval_callback import reset_approval_callback, set_approval_callback
     from ...text_utils import strip_think_blocks
     from ..agent_factory import build_gateway_approval_callback
 
     async def run_turn(event: MessageEvent) -> str:
-        session_id = await daemon.router.resolve(event)
+        sid = session_id or await daemon.router.resolve(event)
+        return await _run(event, sid)
+
+    async def _run(event: MessageEvent, session_id: str) -> str:
         async with daemon.pool.use(session_id) as agent:
+            # What model will this voice turn actually run? cfg.voice_model
+            # overrides the agent's main model; empty → the main model. Resolve
+            # it BEFORE cfg-tuning to decide whether to shrink the context: a
+            # smaller num_ctx forces Ollama to load a SEPARATE model instance,
+            # so when voice shares the main/coder model we must keep its context
+            # to reuse the already-warm instance — otherwise every voice↔coding
+            # switch reloads a multi-GB model.
+            voice_model = (getattr(daemon.cfg, "voice_model", "") or "").strip()
+            runs_main_model = (not voice_model) or (voice_model == getattr(agent, "model", None))
+
+            # Voice-tune the agent's cfg ONCE (idempotent) via a private copy
+            # (dataclasses.replace) so coding keeps its full context + all tools:
+            #  - enabled_toolsets → a lean conversational set (+ "skills" for
+            #    on-demand list/invoke): the full ~60 tool schemas are ~11.5k
+            #    tokens that dominate prompt eval; a spoken chat rarely needs
+            #    file/shell/code.
+            #  - context_window → 16k ONLY when voice runs a DISTINCT model
+            #    (e.g. a dedicated fast voice model that would spill to CPU at
+            #    32k). When voice shares the main/coder model, leave the context
+            #    untouched so the warm instance is reused (no reload thrash).
+            cfg = getattr(agent, "cfg", None)
+            if cfg is not None:
+                try:
+                    import dataclasses
+
+                    cur_ctx = (
+                        getattr(cfg, "context_window", _VOICE_CONTEXT_WINDOW)
+                        or _VOICE_CONTEXT_WINDOW
+                    )
+                    new_ctx = cur_ctx if runs_main_model else min(cur_ctx, _VOICE_CONTEXT_WINDOW)
+                    disabled = sorted(
+                        set(getattr(cfg, "disabled_tools", None) or []) | set(_VOICE_DISABLED_TOOLS)
+                    )
+                    agent.cfg = dataclasses.replace(
+                        agent.cfg,
+                        context_window=new_ctx,
+                        enabled_toolsets=list(_VOICE_TOOLSETS),
+                        ollama_keep_alive=_VOICE_KEEP_ALIVE,
+                        disabled_tools=disabled,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("discord voice: could not voice-tune cfg: %s", e)
+            # Voice is a CONVERSATION, not autonomous task pursuit. Strip the
+            # persisted /goal so the agent replies to the spoken input instead
+            # of running the goal continuation loop (turn N/10000) toward the
+            # global goal, and rebuild the system prompt against the voice cfg.
+            # Defensive getattr so test fakes without these attrs are unaffected.
+            if getattr(agent, "goal", None) is not None or getattr(agent, "goal_state", None):
+                try:
+                    agent.goal = None
+                    agent.goal_state = None
+                    msgs = getattr(agent, "messages", None)
+                    if msgs and msgs[0].get("role") == "system" and hasattr(agent, "_build_system"):
+                        msgs[0] = {"role": "system", "content": agent._build_system()}
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("discord voice: could not clear goal: %s", e)
             token = None
             try:
                 cb = build_gateway_approval_callback(
@@ -473,7 +304,6 @@ def make_voice_run_turn(daemon: Any, *, approval_timeout: float = 300.0) -> RunT
             # commands/model._switch_model). Restored in finally so a text
             # session sharing this pooled agent never inherits the voice model.
             saved_model = None
-            voice_model = (getattr(daemon.cfg, "voice_model", "") or "").strip()
             if voice_model and voice_model != agent.model:
                 saved_model = agent.model
                 agent.model = voice_model
@@ -515,6 +345,114 @@ def _resolve_stt(cfg: Any) -> Any | None:
         return None
     ok = hasattr(inst, "transcribe") and getattr(inst, "is_available", lambda: True)()
     return inst if ok else None
+
+
+class HermesVoiceSession:
+    """Poll-based voice session over the raw-socket Hermes receiver.
+
+    Replaces the frames()+segmenter path for Discord. The Hermes receiver
+    captures + decrypts + decodes + silence-segments per speaker and hands
+    back complete utterances via ``check_silence()`` (48 kHz stereo PCM). We
+    poll it, then run the SAME transcribe → agent-turn → speak collaborators
+    a text turn uses. Half-duplex: capture is paused while Athena speaks so
+    she can't transcribe her own TTS.
+    """
+
+    def __init__(
+        self,
+        *,
+        receiver: Any,
+        transcribe: TranscribeFn,
+        run_turn: RunTurnFn,
+        speak: SpeakFn,
+        platform: str,
+        chat_id: str,
+        require_consent: bool = True,
+        poll_interval_s: float = 0.2,
+    ) -> None:
+        self.receiver = receiver
+        self._transcribe = transcribe
+        self._run_turn = run_turn
+        self._speak = speak
+        self._platform = platform
+        self._chat_id = chat_id
+        self._consent = not require_consent
+        self._poll_interval_s = poll_interval_s
+        self._stop = False
+
+    def grant_consent(self) -> None:
+        self._consent = True
+        # Capture is paused until consent (see run()); resume it now.
+        try:
+            self.receiver.resume()
+        except Exception as e:  # noqa: BLE001
+            logger.debug("discord voice: resume on consent failed: %s", e)
+
+    def request_stop(self) -> None:
+        self._stop = True
+
+    async def run(self) -> None:
+        try:
+            self.receiver.start()  # sync: installs UDP listener + SPEAKING hook
+        except Exception as e:  # noqa: BLE001
+            logger.warning("discord voice: receiver start failed: %s", e)
+            return
+        # CONSENT GATE: do NOT capture/decrypt/buffer anyone's audio until the
+        # user runs /voice consent. _on_packet early-returns while paused
+        # (before any NaCl/DAVE decrypt), so pausing here means nothing is
+        # recorded pre-consent — matching the "run /voice consent to begin"
+        # notice (previously the receiver decrypted + buffered immediately).
+        if not self._consent:
+            self.receiver.pause()
+        try:
+            while not self._stop:
+                await asyncio.sleep(self._poll_interval_s)
+                if not self._consent:
+                    continue
+                try:
+                    utterances = self.receiver.check_silence()
+                except Exception as e:  # noqa: BLE001
+                    logger.debug("discord voice: check_silence raised: %s", e)
+                    continue
+                for user_id, pcm_stereo in utterances:
+                    await self._handle(str(user_id), pcm_stereo)
+        finally:
+            try:
+                self.receiver.stop()
+            except Exception as e:  # noqa: BLE001
+                logger.debug("discord voice: receiver stop raised: %s", e)
+
+    async def _handle(self, user_id: str, pcm_stereo: bytes) -> None:
+        # Pause capture while transcribing + thinking so we don't pile more
+        # audio onto this turn. RESUME before speaking so the user can barge
+        # in: the receiver's on_voice_activity hook stops playback the instant
+        # they start talking (see the barge callback wired in join()).
+        self.receiver.pause()
+        try:
+            mono = downmix_stereo_to_mono(pcm_stereo)
+            if not mono:
+                return
+            utterance = Utterance(pcm=mono, sample_rate=48_000, speaker_id=user_id)
+            text = (await self._transcribe(utterance)).strip()
+            if not text:
+                return
+            event = MessageEvent(
+                platform=self._platform,
+                chat_id=self._chat_id,
+                user_id=user_id,
+                text=text,
+                message_type=MessageType.AUDIO,
+                is_dm=False,
+                raw={"voice": True, "duration_s": round(len(mono) / (48_000 * 2), 3)},
+            )
+            reply = (await self._run_turn(event) or "").strip()
+            if reply:
+                self.receiver.resume()  # listen during playback → barge-in
+                await self._speak(reply)
+        except Exception as e:  # noqa: BLE001 — a turn fault must not kill the session
+            logger.warning("discord voice: turn failed, continuing: %s", e)
+        finally:
+            self.receiver.resume()
 
 
 class DiscordVoiceController:
@@ -561,38 +499,68 @@ class DiscordVoiceController:
             )
 
         try:
-            from discord.ext import voice_recv  # optional dep
+            import discord  # optional dep
 
-            self._vc = await voice_channel.connect(cls=voice_recv.VoiceRecvClient)
+            # Plain VoiceClient — NOT voice_recv.VoiceRecvClient. The Hermes
+            # receiver attaches to the raw UDP socket itself and does its own
+            # RTP parse / decrypt / DAVE / Opus decode, bypassing voice_recv's
+            # broken path (the "loud static" corruption). See _hermes_voice_recv.
+            self._vc = await voice_channel.connect(cls=discord.VoiceClient)
         except Exception as e:  # noqa: BLE001
             logger.warning("discord voice: connect failed: %s", e)
             return f"Couldn't join voice: {e}"
 
         loop = asyncio.get_running_loop()
-        receiver = DiscordVoiceReceiver(self._vc, loop)
+
+        from ._hermes_voice_recv import HermesVoiceReceiver
+
+        def _on_voice_activity(_ssrc: int) -> None:
+            # Barge-in: the instant a user speaks while Athena is talking, stop
+            # her playback so they can interrupt naturally. Fires on the
+            # receiver's socket thread (per packet) → hop to the loop to call
+            # VoiceClient.stop (not thread-safe). NB: best with headphones; on
+            # open speakers Athena's own echo can self-barge.
+            vc = self._vc
+            if vc is not None and vc.is_playing():
+                loop.call_soon_threadsafe(vc.stop)
+
+        receiver = HermesVoiceReceiver(
+            voice_client=self._vc,
+            silence_threshold_s=0.5,  # end an utterance after 0.5s of silence
+            min_speech_duration_s=0.4,  # drop sub-400ms blips
+            on_voice_activity=_on_voice_activity,
+        )
 
         async def _play(wav: Path) -> None:
             await play_wav_in_vc(self._vc, wav, loop=loop)
 
-        from ..voice import VoiceSession, VoiceSessionConfig
+        # Fresh, dedicated session per join so voice never drags the text
+        # channel's accumulated history (which made every reply pay a
+        # multi-second context compression). Approvals still route to the
+        # real text channel via event.chat_id.
+        import uuid
 
-        config = VoiceSessionConfig(platform=self._adapter.name, chat_id=str(text_chat_id))
-        self._session = VoiceSession(
+        voice_session_id = f"voice-{uuid.uuid4().hex[:12]}"
+
+        require_consent = True
+        self._session = HermesVoiceSession(
             receiver=receiver,
             transcribe=make_transcribe(stt),
-            run_turn=make_voice_run_turn(self._adapter.daemon),
+            run_turn=make_voice_run_turn(self._adapter.daemon, session_id=voice_session_id),
             speak=make_speak(_play, tts),
-            config=config,
+            platform=self._adapter.name,
+            chat_id=str(text_chat_id),
+            require_consent=require_consent,
         )
 
         notice = (
             "🎙️ Athena is in the voice channel and **will transcribe what's said**. "
             "Run `/voice consent` to begin, or `/voice leave` to end."
-            if config.require_consent
+            if require_consent
             else "🎙️ Athena is now listening. `/voice leave` to end."
         )
         await self._adapter.send_text(str(text_chat_id), notice)
-        if not config.require_consent:
+        if not require_consent:
             self._session.grant_consent()
 
         self._task = asyncio.create_task(self._session.run(), name="discord-voice-session")

@@ -376,15 +376,23 @@ class AgentLifecycle:
         except Exception as e:
             ui.info(f"memory load failed: {e}")
 
+        # Only advertise the skill catalog when the "skills" toolset is in
+        # scope — otherwise the model is handed a list of skills plus a "call
+        # skill_view to load one" instruction for a tool it doesn't have
+        # (lean-toolset callers: voice, forks, curator). enabled_toolsets is
+        # None for normal/text sessions → all toolsets → catalog shown.
+        _ets = getattr(self.cfg, "enabled_toolsets", None)
+        _skills_in_scope = _ets is None or "skills" in _ets
         skills_catalog: str | None = None
-        try:
-            from ..skills.progressive_disclosure import build_catalog
+        if _skills_in_scope:
+            try:
+                from ..skills.progressive_disclosure import build_catalog
 
-            skills_catalog = build_catalog(self.workspace) or None
-            if skills_catalog:
-                ui.info(f"loaded skills catalog ({len(skills_catalog)} bytes)")
-        except Exception as e:
-            ui.info(f"skills catalog load failed: {e}")
+                skills_catalog = build_catalog(self.workspace) or None
+                if skills_catalog:
+                    ui.info(f"loaded skills catalog ({len(skills_catalog)} bytes)")
+            except Exception as e:
+                ui.info(f"skills catalog load failed: {e}")
 
         # 0.3.0 godmode: operator-supplied system-prompt append.
         # Precedence: ATHENA_EPHEMERAL_SYSTEM_PROMPT env var (highest,

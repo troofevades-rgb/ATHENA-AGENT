@@ -1,5 +1,5 @@
-"""Discord voice plumbing — pure helpers, the receiver PCM path, and the
-collaborator factories, all with fakes (no discord, no audio hardware).
+"""Discord voice plumbing — the voice tool surface and the collaborator
+factories, all with fakes (no discord, no audio hardware).
 
 The live receiver sink + FFmpeg playback need a real bot (the dogfood
 runbook); everything reachable without discord is covered here.
@@ -7,7 +7,6 @@ runbook); everything reachable without discord is covered here.
 
 from __future__ import annotations
 
-import array
 import asyncio
 import os
 import tempfile
@@ -18,125 +17,61 @@ from athena.audio.job import Segment, TranscribeResult
 from athena.audio.tts import SynthResult
 from athena.gateway.events import MessageEvent
 from athena.gateway.platforms.discord_voice import (
-    DiscordVoiceReceiver,
-    FrameChunker,
+    _VOICE_DISABLED_TOOLS,
+    _VOICE_TOOLSETS,
     make_speak,
     make_transcribe,
     make_voice_run_turn,
-    stereo_to_mono,
 )
 from athena.gateway.voice.segmenter import Utterance
 
-# ---- pure helpers --------------------------------------------------------
+# ---- voice tool surface (progressive-disclosure skills) ------------------
 
 
-def test_stereo_to_mono_averages_pairs() -> None:
-    stereo = array.array("h", [100, 200, 100, 200]).tobytes()  # two L/R pairs
-    mono = array.array("h")
-    mono.frombytes(stereo_to_mono(stereo))
-    assert list(mono) == [150, 150]
+def test_voice_surface_exposes_skills_read_only() -> None:
+    # Voice enables the "skills" toolset so a spoken "list all skills" / "use
+    # skill X" works — but only the READ tools. The mutation tool
+    # (skill_manage) is excluded because a spoken session can't present its
+    # confirmation gate. Full SKILL.md bodies still load on demand via
+    # skill_view, never into the per-turn prompt.
+    import athena.tools  # noqa: F401 — register the built-in tools
+    from athena.tools.registry import all_tools
+
+    assert "skills" in _VOICE_TOOLSETS
+    assert "skill_manage" in _VOICE_DISABLED_TOOLS
+
+    names = {
+        t.name for t in all_tools(enabled_toolsets=_VOICE_TOOLSETS, disabled=_VOICE_DISABLED_TOOLS)
+    }
+    assert "skills_list" in names  # enumerate
+    assert "skill_view" in names  # load one body on demand
+    assert "skill_manage" not in names  # mutation kept off voice
 
 
-def test_stereo_to_mono_drops_partial_pair() -> None:
-    assert stereo_to_mono(b"\x01\x02") == b""  # < one 4-byte L/R sample
+def test_voice_surface_includes_task_tools() -> None:
+    # The user opted into a full task surface: voice can run commands and
+    # touch files. Assert the task toolsets are wired in and the command tool
+    # actually resolves (it routes its approval to the Discord text channel).
+    import athena.tools  # noqa: F401
+    from athena.tools.registry import all_tools
 
+    for ts in ("file", "shell", "code"):
+        assert ts in _VOICE_TOOLSETS
 
-def test_frame_chunker_emits_fixed_size() -> None:
-    c = FrameChunker(4)
-    assert c.push(b"ab") == []
-    assert c.push(b"cdef") == [b"abcd"]
-    assert c.push(b"gh") == [b"efgh"]
-
-
-# ---- receiver PCM path ---------------------------------------------------
-
-
-class _FakeLoop:
-    """Runs call_soon_threadsafe inline so the test stays synchronous."""
-
-    def call_soon_threadsafe(self, fn, *args):
-        fn(*args)
-
-
-def test_feed_pcm_mono_passthrough_not_downmixed() -> None:
-    # discord-ext-voice-recv actually delivers 1920-byte (48k MONO) frames.
-    # These must pass through untouched — averaging them as fake L/R pairs
-    # was the 'muffled and garbled' bug (2:1 lowpass + doubled pitch).
-    rec = DiscordVoiceReceiver(voice_client=None, loop=_FakeLoop())
-    mono20ms = array.array("h", [8000] * 960).tobytes()  # 1920 bytes = mono 20ms
-    rec.feed_pcm("u1", mono20ms)
-    assert rec._channels == 1
-    frame = rec._queue.get_nowait()
-    assert frame.speaker_id == "u1"
-    assert frame.pcm == mono20ms  # samples unchanged, not halved/averaged
-
-
-def test_feed_pcm_stereo_is_downmixed() -> None:
-    # If the decoder ever emits 3840-byte (48k STEREO) frames, downmix them.
-    rec = DiscordVoiceReceiver(voice_client=None, loop=_FakeLoop())
-    stereo20ms = array.array("h", [8000, 4000] * 960).tobytes()  # 3840 bytes = stereo 20ms
-    rec.feed_pcm("u1", stereo20ms)
-    assert rec._channels == 2
-    frame = rec._queue.get_nowait()
-    mono = array.array("h")
-    mono.frombytes(frame.pcm)
-    assert len(frame.pcm) == 1920 and all(s == 6000 for s in mono)  # (8000+4000)//2
-
-
-def test_receiver_drops_while_not_capturing() -> None:
-    rec = DiscordVoiceReceiver(voice_client=None, loop=_FakeLoop())
-    rec.set_capturing(False)
-    rec.feed_pcm("u1", array.array("h", [4096, 4096] * rec.bytes_per_frame).tobytes())
-    assert rec._queue.empty()
-
-
-# ---- wall-clock end-of-speech --------------------------------------------
-
-
-def test_feed_pcm_arms_eos_on_voiced_frame() -> None:
-    rec = DiscordVoiceReceiver(voice_client=None, loop=_FakeLoop())
-    # Amplitude well above _SPEECH_FLOOR (1500): locks AND arms end-of-speech.
-    stereo = array.array("h", [8000, 8000] * rec.bytes_per_frame).tobytes()
-    rec.feed_pcm("u1", stereo)
-    assert rec._active_speaker == "u1"
-    assert rec._eos_armed is True
-
-
-def test_eos_tick_flushes_after_voice_gap() -> None:
-    rec = DiscordVoiceReceiver(voice_client=None, loop=_FakeLoop(), end_of_speech_s=0.7)
-    # Speaker locked + last voiced at monotonic t=100.0.
-    rec._active_speaker = "u1"
-    rec._eos_armed = True
-    rec._last_voice_ts = 100.0
-    # Still within the gap → no flush.
-    assert rec._eos_tick(100.5) is False
-    assert rec._queue.empty()
-    # Gap exceeded → flush marker enqueued, lock released so a new speaker
-    # can take over.
-    assert rec._eos_tick(100.8) is True
-    frame = rec._queue.get_nowait()
-    assert frame.flush is True and frame.speaker_id == "u1" and frame.pcm == b""
-    assert rec._active_speaker is None and rec._eos_armed is False
-
-
-def test_eos_tick_noop_when_unarmed_or_idle() -> None:
-    rec = DiscordVoiceReceiver(voice_client=None, loop=_FakeLoop(), end_of_speech_s=0.5)
-    # No active speaker at all.
-    assert rec._eos_tick(1_000.0) is False
-    # Locked but never voiced (only crossed the lock floor, not speech floor).
-    rec._active_speaker = "u1"
-    rec._eos_armed = False
-    rec._last_voice_ts = 0.0
-    assert rec._eos_tick(1_000.0) is False
-    assert rec._queue.empty()
+    names = {
+        t.name for t in all_tools(enabled_toolsets=_VOICE_TOOLSETS, disabled=_VOICE_DISABLED_TOOLS)
+    }
+    assert "Bash" in names  # run commands (incl. powershell -Command ...)
+    assert "Write" in names or "write_file" in names  # create/edit files
 
 
 # ---- collaborator factories ----------------------------------------------
 
 
 class _FakeSTT:
-    def transcribe(self, path):
+    def transcribe(self, path, **kwargs):
         assert Path(path).is_file()  # a real WAV was written
+        assert kwargs.get("language") == "en"  # voice pins language (M5)
         return TranscribeResult(segments=[Segment(0, 1, "hello"), Segment(1, 2, "world")])
 
 
@@ -148,7 +83,7 @@ def test_make_transcribe_joins_segments() -> None:
 
 def test_make_transcribe_failure_returns_empty() -> None:
     class _Boom:
-        def transcribe(self, path):
+        def transcribe(self, path, **kwargs):
             raise RuntimeError("stt down")
 
     t = make_transcribe(_Boom())
