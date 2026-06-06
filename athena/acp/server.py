@@ -32,13 +32,15 @@ import json
 import logging
 import sys
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
 
 MethodHandler = Callable[[dict[str, Any]], Awaitable[Any]]
 NotificationHandler = Callable[[dict[str, Any]], Awaitable[None]]
+_MH = TypeVar("_MH", bound=MethodHandler)
+_NH = TypeVar("_NH", bound=NotificationHandler)
 
 
 # JSON-RPC error codes (subset; per the spec).
@@ -85,19 +87,19 @@ class ACPServer:
 
     # ---- registration ----
 
-    def method(self, name: str):
+    def method(self, name: str) -> Callable[[_MH], _MH]:
         """Decorator: register an async handler for an inbound request."""
 
-        def deco(fn: MethodHandler) -> MethodHandler:
+        def deco(fn: _MH) -> _MH:
             self._methods[name] = fn
             return fn
 
         return deco
 
-    def notification(self, name: str):
+    def notification(self, name: str) -> Callable[[_NH], _NH]:
         """Decorator: register an async handler for an inbound notification."""
 
-        def deco(fn: NotificationHandler) -> NotificationHandler:
+        def deco(fn: _NH) -> _NH:
             self._notifications[name] = fn
             return fn
 

@@ -304,7 +304,11 @@ class DifferentiatedTools:
         if not query:
             return _error("query required")
         try:
-            from ..sessions.search import search_sessions
+            # FIXME(broken feature): athena.sessions.search was removed; this
+            # import always fails so _recall degrades to "recall unavailable".
+            # Rewiring to the current search API is a behaviour fix tracked
+            # separately, out of scope for the mypy-baseline pass.
+            from ..sessions.search import search_sessions  # type: ignore[import-not-found]
         except Exception as e:  # noqa: BLE001
             return _error(f"recall unavailable: {e}")
         try:
