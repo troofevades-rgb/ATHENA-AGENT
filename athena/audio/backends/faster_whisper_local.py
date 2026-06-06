@@ -83,7 +83,7 @@ def _register_cuda_dll_dirs() -> None:
                 # add_dll_directory covers LoadLibraryEx(user-dirs); PATH
                 # covers plain LoadLibrary, which CTranslate2 uses to pull
                 # cuBLAS lazily at *inference* time. Need both.
-                os.add_dll_directory(d)
+                os.add_dll_directory(d)  # type: ignore[attr-defined,unused-ignore]  # Windows-only
                 os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
                 logger.debug("faster-whisper: registered CUDA DLL dir %s", d)
     except Exception as e:  # noqa: BLE001 — best-effort; CUDA load may still work
