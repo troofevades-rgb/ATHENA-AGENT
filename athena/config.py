@@ -121,6 +121,13 @@ class Config:
     # enabled_toolsets but kept for one transitional release; intersects with
     # enabled_toolsets when both are set.
     disabled_tools: list[str] = field(default_factory=list)
+    # Per-command elevation (Windows). When True, the system prompt tells the
+    # agent it may prefix a single admin-needing command with `sudo` (Windows
+    # 11 inline sudo) — each elevation pops a UAC prompt the user approves at
+    # the machine, and output is captured back. Requires Windows `sudo` to be
+    # enabled separately (Settings → System → For developers → Enable sudo →
+    # Inline). Default off (standard, non-elevated).
+    shell_allow_elevation: bool = False
     # Max bytes to include from a single file read
     max_file_read: int = 256_000
     # Max stdout bytes captured per bash run

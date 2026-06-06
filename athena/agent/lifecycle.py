@@ -427,6 +427,7 @@ class AgentLifecycle:
             disabled_sections=self.cfg.disabled_prompt_sections,
             tool_result_nonce=getattr(self, "_tool_result_nonce", None),
             extra_append=extra_append,
+            allow_elevation=bool(getattr(self.cfg, "shell_allow_elevation", False)),
         )
 
     def _profile_dir(self) -> Path:
