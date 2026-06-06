@@ -268,7 +268,25 @@ module = [
     "aioimaplib",
     "apscheduler",
     "apscheduler.*",
+    # browser (Playwright), training/labeling TUI (textual), banner (pyfiglet),
+    # document extraction (python-docx -> `docx`), web extraction (trafilatura)
+    "playwright",
+    "playwright.*",
+    "textual",
+    "textual.*",
+    "pyfiglet",
+    "docx",
+    "trafilatura",
     # py3.11+ stdlib, but mypy targets 3.10 (tomli is the 3.10 fallback)
     "tomllib",
+    "tomli",
 ]
 ignore_missing_imports = true
+
+# Windows-only desktop backend: ctypes.windll exists only on win32, so the
+# Linux CI mypy run flags every windll access as attr-defined. The module is
+# guarded behind platform detection at runtime (select_backend) and only ever
+# constructed on Windows.
+[[tool.mypy.overrides]]
+module = "athena.computer.backends.windows"
+disable_error_code = ["attr-defined"]

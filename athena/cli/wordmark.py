@@ -208,7 +208,7 @@ def _cmd_list_fonts(args: argparse.Namespace) -> int:
         sys.stderr.write("pyfiglet not installed: pip install pyfiglet\n")
         return 1
     # pyfiglet ships no type stubs; getFonts() is an untyped classmethod.
-    raw_fonts = pyfiglet.FigletFont.getFonts()  # type: ignore[no-untyped-call]
+    raw_fonts = pyfiglet.FigletFont.getFonts()  # type: ignore[no-untyped-call,unused-ignore]
     fonts = sorted(cast("list[str]", raw_fonts))
     sys.stdout.write(f"{len(fonts)} available fonts:\n")
     for f in fonts:
