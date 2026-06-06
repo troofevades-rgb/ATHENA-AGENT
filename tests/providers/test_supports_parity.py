@@ -49,6 +49,12 @@ _CTOR_FACTORIES: dict[str, callable] = {
     # Not chat backends.
     "audio_whisper_local": lambda cls: cls(),
     "ocr_tesseract_local": lambda cls: cls(),
+    # Discord-voice: TTS backends are capability-only (declare
+    # text_to_speech; tool_calls/streaming False). Constructors take no
+    # required args. Not chat backends — excluded from the parity asserts.
+    "tts_stub": lambda cls: cls(),
+    "tts_piper_local": lambda cls: cls(),
+    "tts_kokoro_local": lambda cls: cls(),
 }
 
 # Chat backends — the parity tests below skip non-chat providers.
@@ -59,6 +65,9 @@ _NON_CHAT_PROVIDERS: frozenset[str] = frozenset(
         "xai_video",
         "audio_whisper_local",
         "ocr_tesseract_local",
+        "tts_stub",
+        "tts_piper_local",
+        "tts_kokoro_local",
     }
 )
 
