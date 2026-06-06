@@ -66,7 +66,18 @@ class DiscordAdapter(GatewayAdapter):
             else daemon.profile_dir / "gateway_attachments" / self.name
         )
         self._client: discord.Client | None = None
+        # Bot application owner id (resolved on ready). Used to lock the
+        # Approve/Deny buttons to the operator by default — see
+        # _approval_authorized_ids.
+        self._owner_id: str | None = None
         self._tree: Any = None  # discord.app_commands.CommandTree
+        # Voice (Discord-voice Phase 3): one session per bot connection,
+        # driven by the /voice slash command. The controller's discord +
+        # voice-recv imports are lazy, so constructing it here is safe even
+        # without the [gateway-voice] extra installed.
+        from .discord_voice import DiscordVoiceController
+
+        self._voice = DiscordVoiceController(self)
         # Approval timeout for the ui.View; matches ApprovalRouter
         # default. Phase 10.8 will pass a tighter timeout when
         # per-request timeouts land.
@@ -101,6 +112,13 @@ class DiscordAdapter(GatewayAdapter):
         async def _athena_cmd(interaction: discord.Interaction, prompt: str) -> None:
             await self._on_slash_command(interaction, prompt)
 
+        @self._tree.command(
+            name="voice",
+            description="Voice chat with Athena: join | leave | consent.",
+        )
+        async def _voice_cmd(interaction: discord.Interaction, action: str) -> None:
+            await self._on_voice_command(interaction, action)
+
         self.daemon.approvals.register_platform_renderer(
             self.name,
             self._render_approval,
@@ -109,21 +127,46 @@ class DiscordAdapter(GatewayAdapter):
         await self._client.start(self.bot_token)
 
     async def _on_ready(self) -> None:
-        """Discord's connection-ready event. Sync slash commands to
-        the global command table so ``/athena`` becomes invocable.
+        """Discord's connection-ready event. Sync slash commands so
+        ``/athena`` / ``/voice`` become invocable.
 
-        ``tree.sync()`` can take up to an hour to propagate globally
-        on first run — Discord caches command lists aggressively.
-        Subsequent runs with the same command set are no-ops.
+        **Per-guild** sync is INSTANT; a plain global ``tree.sync()`` can
+        take up to ~an hour for a *newly added* command to appear (Discord
+        caches global command lists aggressively). For a self-hosted bot
+        we mirror the global command set into each connected guild so new
+        commands show up immediately — falling back to a global sync only
+        when the bot isn't in any guild yet.
         """
+        # Resolve the bot owner so approval buttons can lock to the operator
+        # (you) with zero config. Best-effort: team-owned apps may expose no
+        # single user owner → left None → approvals stay open unless the
+        # operator sets approval_user_ids / allowed_user_ids.
+        if self._client is not None and self._owner_id is None:
+            try:
+                app = await self._client.application_info()
+                owner = getattr(app, "owner", None)
+                if owner is not None and getattr(owner, "id", None):
+                    self._owner_id = str(owner.id)
+                    logger.info(
+                        "[%s] approval buttons locked to owner id %s", self.name, self._owner_id
+                    )
+            except Exception:
+                logger.debug("[%s] could not resolve application owner", self.name, exc_info=True)
         if self._tree is None:
             return
         try:
-            await self._tree.sync()
+            guilds = list(getattr(self._client, "guilds", []) or [])
+            if guilds:
+                for guild in guilds:
+                    self._tree.copy_global_to(guild=guild)
+                    await self._tree.sync(guild=guild)
+            else:
+                await self._tree.sync()
             logger.info(
-                "[%s] connected as %s; slash commands synced",
+                "[%s] connected as %s; slash commands synced (%d guild(s))",
                 self.name,
                 getattr(self._client, "user", "?"),
+                len(guilds),
             )
         except Exception:
             logger.warning(
@@ -132,7 +175,38 @@ class DiscordAdapter(GatewayAdapter):
                 exc_info=True,
             )
 
+    async def _on_voice_command(self, interaction: Any, action: str) -> None:
+        """Handle ``/voice <join|leave|consent>``."""
+        verb = (action or "").strip().lower()
+        try:
+            await interaction.response.defer(thinking=False, ephemeral=True)
+        except Exception:  # noqa: BLE001
+            logger.debug("[%s] voice defer failed", self.name, exc_info=True)
+
+        if verb == "join":
+            channel = getattr(getattr(interaction.user, "voice", None), "channel", None)
+            if channel is None:
+                msg = "Join a voice channel first, then run `/voice join`."
+            else:
+                chat_id = str(interaction.channel.id) if interaction.channel else ""
+                msg = await self._voice.join(channel, chat_id, self.daemon.cfg)
+        elif verb == "leave":
+            msg = await self._voice.leave()
+        elif verb == "consent":
+            msg = "Listening now." if self._voice.grant_consent() else "No active voice session."
+        else:
+            msg = "Usage: `/voice join` · `/voice leave` · `/voice consent`"
+
+        try:
+            await interaction.followup.send(msg, ephemeral=True)
+        except Exception:  # noqa: BLE001
+            logger.debug("[%s] voice followup failed", self.name, exc_info=True)
+
     async def stop(self) -> None:
+        try:
+            await self._voice.leave()
+        except Exception:  # noqa: BLE001
+            logger.debug("[%s] voice leave on stop raised", self.name, exc_info=True)
         self.daemon.approvals.register_platform_renderer(self.name, None)
         if self._client is not None:
             try:
@@ -301,6 +375,22 @@ class DiscordAdapter(GatewayAdapter):
 
     # ---- approval rendering ----
 
+    def _approval_authorized_ids(self) -> frozenset[str]:
+        """Discord user ids permitted to click Approve/Deny on a tool
+        confirmation. Precedence: explicit ``approval_user_ids`` in the
+        platform config; otherwise the inbound ``allowed_user_ids``. The bot
+        OWNER is always included so the operator can approve with no config.
+        Empty result → no restriction (back-compat, logged at render time)."""
+        cfg = self._platform_config()
+        raw = cfg.get("approval_user_ids")
+        if isinstance(raw, (list, tuple, set, frozenset)):
+            ids = {str(x) for x in raw}
+        else:
+            ids = set(self._allowed_user_ids())
+        if self._owner_id:
+            ids.add(self._owner_id)
+        return frozenset(ids)
+
     async def _render_approval(self, request: ApprovalRequest) -> None:
         if self._client is None:  # pragma: no cover
             logger.warning(
@@ -328,10 +418,19 @@ class DiscordAdapter(GatewayAdapter):
         if channel is None:
             return
         body = _format_approval_body(request)
+        authorized = self._approval_authorized_ids()
+        if not authorized:
+            logger.warning(
+                "[%s] approval prompt is UNLOCKED — no approval_user_ids/allowed_user_ids "
+                "configured and owner unresolved, so anyone in the channel can approve. "
+                "Set [gateway.platforms.discord] approval_user_ids to lock it down.",
+                self.name,
+            )
         view = _build_approval_view(
             request.request_id,
             on_decision=self._on_approval_button,
             timeout=self.approval_view_timeout,
+            authorized_ids=authorized,
         )
         try:
             await channel.send(body, view=view)
@@ -474,6 +573,7 @@ def _build_approval_view(
     *,
     on_decision: Callable[[str, str], Any],
     timeout: float,
+    authorized_ids: frozenset[str] = frozenset(),
 ) -> discord.ui.View:
     """Construct a discord.ui.View with allow/deny buttons.
 
@@ -481,6 +581,10 @@ def _build_approval_view(
     callback. The View times out after ``timeout`` seconds — the
     daemon's ApprovalRouter also enforces its own timeout, so the
     user sees an auto-deny either way.
+
+    ``authorized_ids`` locks the buttons: when non-empty, only those Discord
+    user ids may click (others get an ephemeral refusal and the click is a
+    no-op). Empty → anyone who can see the message may approve (back-compat).
     """
     from discord import ButtonStyle, ui
 
@@ -488,6 +592,22 @@ def _build_approval_view(
         def __init__(self) -> None:
             super().__init__(timeout=timeout)
             self._request_id = request_id
+
+        async def interaction_check(self, interaction: discord.Interaction) -> bool:
+            # discord.py calls this before any component callback; returning
+            # False blocks the click. This is the lockdown: only authorized
+            # users (operator / configured approvers) can act on the prompt.
+            if not authorized_ids:
+                return True
+            if str(getattr(interaction.user, "id", "")) in authorized_ids:
+                return True
+            try:
+                await interaction.response.send_message(
+                    "⛔ Only the operator can approve this action.", ephemeral=True
+                )
+            except Exception:
+                logger.debug("approval interaction_check refusal failed", exc_info=True)
+            return False
 
         @ui.button(label="✅ Allow", style=ButtonStyle.success)
         async def allow_button(
