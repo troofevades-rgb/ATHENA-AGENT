@@ -66,6 +66,10 @@ class DiscordAdapter(GatewayAdapter):
             else daemon.profile_dir / "gateway_attachments" / self.name
         )
         self._client: discord.Client | None = None
+        # Bot application owner id (resolved on ready). Used to lock the
+        # Approve/Deny buttons to the operator by default — see
+        # _approval_authorized_ids.
+        self._owner_id: str | None = None
         self._tree: Any = None  # discord.app_commands.CommandTree
         # Voice (Discord-voice Phase 3): one session per bot connection,
         # driven by the /voice slash command. The controller's discord +
@@ -133,6 +137,21 @@ class DiscordAdapter(GatewayAdapter):
         commands show up immediately — falling back to a global sync only
         when the bot isn't in any guild yet.
         """
+        # Resolve the bot owner so approval buttons can lock to the operator
+        # (you) with zero config. Best-effort: team-owned apps may expose no
+        # single user owner → left None → approvals stay open unless the
+        # operator sets approval_user_ids / allowed_user_ids.
+        if self._client is not None and self._owner_id is None:
+            try:
+                app = await self._client.application_info()
+                owner = getattr(app, "owner", None)
+                if owner is not None and getattr(owner, "id", None):
+                    self._owner_id = str(owner.id)
+                    logger.info(
+                        "[%s] approval buttons locked to owner id %s", self.name, self._owner_id
+                    )
+            except Exception:
+                logger.debug("[%s] could not resolve application owner", self.name, exc_info=True)
         if self._tree is None:
             return
         try:
@@ -356,6 +375,22 @@ class DiscordAdapter(GatewayAdapter):
 
     # ---- approval rendering ----
 
+    def _approval_authorized_ids(self) -> frozenset[str]:
+        """Discord user ids permitted to click Approve/Deny on a tool
+        confirmation. Precedence: explicit ``approval_user_ids`` in the
+        platform config; otherwise the inbound ``allowed_user_ids``. The bot
+        OWNER is always included so the operator can approve with no config.
+        Empty result → no restriction (back-compat, logged at render time)."""
+        cfg = self._platform_config()
+        raw = cfg.get("approval_user_ids")
+        if isinstance(raw, (list, tuple, set, frozenset)):
+            ids = {str(x) for x in raw}
+        else:
+            ids = set(self._allowed_user_ids())
+        if self._owner_id:
+            ids.add(self._owner_id)
+        return frozenset(ids)
+
     async def _render_approval(self, request: ApprovalRequest) -> None:
         if self._client is None:  # pragma: no cover
             logger.warning(
@@ -383,10 +418,19 @@ class DiscordAdapter(GatewayAdapter):
         if channel is None:
             return
         body = _format_approval_body(request)
+        authorized = self._approval_authorized_ids()
+        if not authorized:
+            logger.warning(
+                "[%s] approval prompt is UNLOCKED — no approval_user_ids/allowed_user_ids "
+                "configured and owner unresolved, so anyone in the channel can approve. "
+                "Set [gateway.platforms.discord] approval_user_ids to lock it down.",
+                self.name,
+            )
         view = _build_approval_view(
             request.request_id,
             on_decision=self._on_approval_button,
             timeout=self.approval_view_timeout,
+            authorized_ids=authorized,
         )
         try:
             await channel.send(body, view=view)
@@ -529,6 +573,7 @@ def _build_approval_view(
     *,
     on_decision: Callable[[str, str], Any],
     timeout: float,
+    authorized_ids: frozenset[str] = frozenset(),
 ) -> discord.ui.View:
     """Construct a discord.ui.View with allow/deny buttons.
 
@@ -536,6 +581,10 @@ def _build_approval_view(
     callback. The View times out after ``timeout`` seconds — the
     daemon's ApprovalRouter also enforces its own timeout, so the
     user sees an auto-deny either way.
+
+    ``authorized_ids`` locks the buttons: when non-empty, only those Discord
+    user ids may click (others get an ephemeral refusal and the click is a
+    no-op). Empty → anyone who can see the message may approve (back-compat).
     """
     from discord import ButtonStyle, ui
 
@@ -543,6 +592,22 @@ def _build_approval_view(
         def __init__(self) -> None:
             super().__init__(timeout=timeout)
             self._request_id = request_id
+
+        async def interaction_check(self, interaction: discord.Interaction) -> bool:
+            # discord.py calls this before any component callback; returning
+            # False blocks the click. This is the lockdown: only authorized
+            # users (operator / configured approvers) can act on the prompt.
+            if not authorized_ids:
+                return True
+            if str(getattr(interaction.user, "id", "")) in authorized_ids:
+                return True
+            try:
+                await interaction.response.send_message(
+                    "⛔ Only the operator can approve this action.", ephemeral=True
+                )
+            except Exception:
+                logger.debug("approval interaction_check refusal failed", exc_info=True)
+            return False
 
         @ui.button(label="✅ Allow", style=ButtonStyle.success)
         async def allow_button(
