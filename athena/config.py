@@ -682,6 +682,15 @@ class Config:
     # and the synthesis path degrades gracefully.
     tts_backend: str = ""
     tts_voice: str = ""
+    # Discord-voice: optional per-voice chat model override. Empty → voice
+    # turns use the main ``model``. Set to a fast *non-thinking* Ollama
+    # model (e.g. "troofevades:latest", "glm4:9b") to keep spoken replies
+    # snappy: a thinking model emits a <think> block before every answer,
+    # which is stripped from speech but still costs ~12-20s of generation.
+    # Same provider as ``model`` → the swap is just the model string
+    # (cf. athena/commands/model.py:_switch_model). The coding agent keeps
+    # using ``model`` unchanged.
+    voice_model: str = ""
     # T-MIG (hermes migration): tirith pre-Bash security scanner.
     # Wraps the external `tirith` binary (Linux / macOS) which
     # inspects shell commands for content-level threats

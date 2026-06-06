@@ -123,21 +123,31 @@ class DiscordAdapter(GatewayAdapter):
         await self._client.start(self.bot_token)
 
     async def _on_ready(self) -> None:
-        """Discord's connection-ready event. Sync slash commands to
-        the global command table so ``/athena`` becomes invocable.
+        """Discord's connection-ready event. Sync slash commands so
+        ``/athena`` / ``/voice`` become invocable.
 
-        ``tree.sync()`` can take up to an hour to propagate globally
-        on first run — Discord caches command lists aggressively.
-        Subsequent runs with the same command set are no-ops.
+        **Per-guild** sync is INSTANT; a plain global ``tree.sync()`` can
+        take up to ~an hour for a *newly added* command to appear (Discord
+        caches global command lists aggressively). For a self-hosted bot
+        we mirror the global command set into each connected guild so new
+        commands show up immediately — falling back to a global sync only
+        when the bot isn't in any guild yet.
         """
         if self._tree is None:
             return
         try:
-            await self._tree.sync()
+            guilds = list(getattr(self._client, "guilds", []) or [])
+            if guilds:
+                for guild in guilds:
+                    self._tree.copy_global_to(guild=guild)
+                    await self._tree.sync(guild=guild)
+            else:
+                await self._tree.sync()
             logger.info(
-                "[%s] connected as %s; slash commands synced",
+                "[%s] connected as %s; slash commands synced (%d guild(s))",
                 self.name,
                 getattr(self._client, "user", "?"),
+                len(guilds),
             )
         except Exception:
             logger.warning(
