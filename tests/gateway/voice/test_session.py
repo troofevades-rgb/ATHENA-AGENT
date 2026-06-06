@@ -110,6 +110,50 @@ def test_full_pipeline_one_turn() -> None:
     assert rec.capture_calls[:2] == [False, True]
 
 
+def test_flush_frame_ends_utterance_before_cap() -> None:
+    # Speech with NO trailing hangover silence: the segmenter would ride to
+    # the max cap, but a receiver-issued flush marker ends it immediately.
+    events, spoken = [], []
+
+    async def transcribe(u):
+        return "flushed"
+
+    async def run_turn(e):
+        events.append(e)
+        return "ok"
+
+    async def speak(t):
+        spoken.append(t)
+
+    flush = VoiceFrame(speaker_id="u1", pcm=b"", flush=True)
+    # 3 speech frames (60ms voiced, over the 40ms min) then a flush — and
+    # NOT enough frames to reach the 400ms cap on their own.
+    rec = FakeReceiver([SPEECH, SPEECH, SPEECH, flush])
+    s = _session(rec, transcribe, run_turn, speak)
+    stats = asyncio.run(s.run())
+    assert stats.utterances == 1 and stats.turns == 1
+    assert events[0].text == "flushed" and spoken == ["ok"]
+
+
+def test_flush_frame_without_speech_is_noop() -> None:
+    turns = []
+
+    async def transcribe(u):
+        return "x"
+
+    async def run_turn(e):
+        turns.append(e)
+        return "y"
+
+    async def speak(t):
+        return None
+
+    flush = VoiceFrame(speaker_id="u1", pcm=b"", flush=True)
+    s = _session(FakeReceiver([flush, flush]), transcribe, run_turn, speak)
+    stats = asyncio.run(s.run())
+    assert stats.utterances == 0 and turns == []
+
+
 def test_empty_transcript_runs_no_turn() -> None:
     turns, spoken = [], []
 

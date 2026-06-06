@@ -146,9 +146,12 @@ class PiperLocalBackend(Provider):
             path = Path(tmp)
 
         with wave.open(str(path), "wb") as wf:
-            # PiperVoice.synthesize writes PCM frames into the wave writer
-            # and sets channels / sampwidth / framerate from the model.
-            piper_voice.synthesize(text, wf)
+            # synthesize_wav writes the PCM AND sets channels / sampwidth /
+            # framerate from the model (set_wav_format defaults True). NB:
+            # plain synthesize() returns audio chunks and its 2nd arg is the
+            # synth config, not the WAV — passing the writer there leaves the
+            # WAV header unset ("# channels not specified").
+            piper_voice.synthesize_wav(text, wf)
             rate = wf.getframerate() or DISCORD_SAMPLE_RATE
             n_frames = wf.getnframes()
 

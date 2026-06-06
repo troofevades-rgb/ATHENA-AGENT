@@ -23,10 +23,20 @@ class VoiceFrame:
     ``sample_rate``. ``speaker_id`` is the platform's stable id for whoever
     produced it (v1 segments whoever crosses VAD; per-speaker separation is
     a Tier-2 concern but the tag is carried so it's available later).
+
+    ``flush`` flips this from an audio frame into a *control* marker: an
+    end-of-utterance signal carrying no audio (``pcm`` empty). A receiver
+    emits one when it detects — by wall clock — that the active speaker has
+    gone quiet, so the session can close the utterance immediately rather
+    than wait for the segmenter's max-length cap. This matters in an
+    open-mic channel where background audio streams continuously and the
+    per-frame VAD never sees the silence the segmenter needs: the segmenter
+    is pure/synchronous and can't watch the clock, but the receiver can.
     """
 
     speaker_id: str
     pcm: bytes
+    flush: bool = False
 
 
 class VoiceReceiver(abc.ABC):

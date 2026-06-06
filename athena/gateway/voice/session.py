@@ -63,10 +63,13 @@ class VoiceSessionConfig:
     frame_ms: int = 20
     min_utterance_ms: int = 400
     # Hard cap on a single utterance. Bounds worst-case latency when
-    # end-of-speech isn't detected (e.g. continuous background noise that
-    # the VAD flags as speech) — the turn fires at the cap rather than
-    # making the speaker wait. 10s comfortably fits a spoken sentence.
-    max_utterance_ms: int = 10_000
+    # end-of-speech isn't detected (e.g. an open-mic room whose continuous
+    # background the VAD flags as speech) — the turn fires at the cap
+    # rather than making the speaker wait. In that environment the cap is
+    # effectively the *listen window* every turn, so it's the dominant
+    # capture latency: 6s still fits a spoken command/question while
+    # shaving 4s off each turn vs the original 10s.
+    max_utterance_ms: int = 6_000
     silence_hangover_ms: int = 800
     # webrtcvad 0 (permissive) – 3 (aggressive non-speech rejection).
     # 3 is the most robust at detecting the *end* of speech over a noisy
@@ -146,7 +149,13 @@ class VoiceSession:
                     # busy so we don't backlog or transcribe our own voice.
                     self.stats.dropped_frames += 1
                     continue
-                utterance = self._segmenter.feed(frame)
+                # A flush marker (receiver detected end-of-speech by wall
+                # clock) closes the in-progress utterance now; a normal frame
+                # feeds the VAD state machine.
+                if frame.flush:
+                    utterance = self._segmenter.flush()
+                else:
+                    utterance = self._segmenter.feed(frame)
                 if utterance is not None:
                     self.stats.utterances += 1
                     await self._handle(utterance)
