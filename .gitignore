@@ -76,3 +76,20 @@ tests/video/fixtures/*.mov
 /athena-log.txt
 /athena-*.log
 coverage.json
+
+# Local-only: test plans, runbooks, and internal planning/recon notes.
+# These are working artifacts, not shippable docs — they stay on disk
+# but never get committed to the public repo. The *_PLAN.md / *RECON.md
+# globs make the policy hold for future files automatically.
+*-pytest.txt
+/pytest-out.txt
+*_PLAN.md
+*RECON.md
+RUNBOOK.md
+TUI_SPRINT.md
+PHASE_1_BASELINE.md
+transform/PIPELINE.md
+athena/goal/LOOP_NOTES.md
+athena/providers/CAPABILITY_NOTES.md
+docs/manual-test-suite.md
+docs/user-driven-test-plan.md

@@ -1,8 +1,8 @@
 """Canonical jailbreak system prompts.
 
 Ported from the G0DM0D3 reference at
-``C:\\Users\\dev\\G0DM0D3\\src\\lib\\godmode-prompt.ts`` and
-``api/lib/ultraplinian.ts``. Keep this module byte-faithful with
+``src/lib/godmode-prompt.ts`` and ``api/lib/ultraplinian.ts``
+(in the G0DM0D3 repo). Keep this module byte-faithful with
 the TypeScript exports so a future bump of the reference is a
 straight copy-paste -- divergence here causes user-visible
 behavior drift between athena and the reference web app.
