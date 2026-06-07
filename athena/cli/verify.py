@@ -94,6 +94,6 @@ def main(argv: list[str]) -> int:
         return 0
     if outcome.outcome == "failed_diagnostics":
         return 1
-    if outcome.outcome == "failed_run":
+    if outcome.outcome in ("failed_run", "blocked_by_policy"):
         return 2
     return 0

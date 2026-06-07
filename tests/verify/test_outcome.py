@@ -170,3 +170,41 @@ def test_to_dict_round_trip_shape() -> None:
     assert d["retries"] == 1
     assert d["rolled_back"] is False
     assert d["introduced_errors"] == []
+
+
+# ---------------------------------------------------------------------------
+# blocked_by_policy (sandbox runner refused the verify command)
+# ---------------------------------------------------------------------------
+
+
+def test_blocked_by_policy_counts_as_failed() -> None:
+    """A run blocked by the shell/sandbox policy is a failure, not a pass —
+    the write went in but couldn't be verified."""
+    o = VerificationOutcome(
+        path="a.py",
+        outcome="blocked_by_policy",
+        run_exit_code=-1,
+        run_stderr_tail="verify command blocked by policy: rm -rf denied",
+    )
+    assert o.passed is False
+    assert o.failed is True
+
+
+def test_report_blocked_by_policy_shows_policy_message() -> None:
+    o = VerificationOutcome(
+        path="a.py",
+        outcome="blocked_by_policy",
+        checkpoint_id="cp-9",
+        run_exit_code=-1,
+        run_stderr_tail="verify command blocked by policy: operation not allowed",
+    )
+    rep = o.report()
+    assert "blocked by policy" in rep
+    assert "operation not allowed" in rep
+    # Failure → still offers the rollback hint when a checkpoint exists.
+    assert "/rollback-to cp-9" in rep
+
+
+def test_to_dict_preserves_blocked_by_policy() -> None:
+    d = VerificationOutcome(path="x.py", outcome="blocked_by_policy").to_dict()
+    assert d["outcome"] == "blocked_by_policy"

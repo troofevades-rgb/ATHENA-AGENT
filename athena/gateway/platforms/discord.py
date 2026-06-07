@@ -102,17 +102,17 @@ class DiscordAdapter(GatewayAdapter):
         # ``add_listener`` is only on ``discord.ext.commands.Bot``, not
         # plain Client. Set the attribute directly: it's the same shape
         # ``Client.event`` would produce, just with the correct name.
-        self._client.on_ready = self._on_ready  # type: ignore[attr-defined]  # FIXME: dynamic discord.py event attr (see comment above)
-        self._client.on_message = self._on_message  # type: ignore[attr-defined]  # FIXME: dynamic discord.py event attr (see comment above)
+        self._client.on_ready = self._on_ready  # type: ignore[attr-defined]  # NOTE: dynamic discord.py event attr (see comment above)
+        self._client.on_message = self._on_message  # type: ignore[attr-defined]  # NOTE: dynamic discord.py event attr (see comment above)
 
-        @self._tree.command(  # type: ignore[untyped-decorator]  # FIXME: discord.py CommandTree.command is untyped
+        @self._tree.command(  # type: ignore[untyped-decorator]  # NOTE: discord.py CommandTree.command is untyped
             name="athena",
             description="Send a prompt to the athena agent.",
         )
         async def _athena_cmd(interaction: discord.Interaction, prompt: str) -> None:
             await self._on_slash_command(interaction, prompt)
 
-        @self._tree.command(  # type: ignore[untyped-decorator]  # FIXME: discord.py CommandTree.command is untyped
+        @self._tree.command(  # type: ignore[untyped-decorator]  # NOTE: discord.py CommandTree.command is untyped
             name="voice",
             description="Voice chat with Athena: join | leave | consent.",
         )
