@@ -215,7 +215,7 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         pass
 
-    ap = argparse.ArgumentParser(prog="athena", description="Local Claude Code on Ollama")
+    ap = argparse.ArgumentParser(prog="athena", description="Local first Agentic CLI")
     # Distribution name (athena-coder) differs from the Python import
     # name (athena); show both so users hitting --version see the
     # `pip install` identifier alongside the version.
