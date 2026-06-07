@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from . import command
 
 
 @command("dump")
-def cmd_dump(agent, arg: str = "") -> str:
+def cmd_dump(agent: Any, arg: str = "") -> str:
     sysmsg = next((m for m in agent.messages if m.get("role") == "system"), None)
     if not sysmsg:
         ui.error("no system message in history")

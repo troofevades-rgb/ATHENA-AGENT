@@ -713,6 +713,10 @@ def _resolve_race_provider_and_models(agent: Any, tier: str) -> tuple[Any, list[
             from ..providers.ollama import OllamaProvider
 
             provider = OllamaProvider()
+        # ``provider`` is non-None here: either it was the agent's live
+        # ollama provider (``is_ollama`` implies non-None) or freshly
+        # constructed just above. Assert to narrow the ``Any | None``.
+        assert provider is not None
         try:
             models = provider.list_models()
         except Exception as e:  # noqa: BLE001
@@ -1037,7 +1041,7 @@ def _clear_jailbreak(agent: Any) -> None:
 
 
 @command("godmode")
-def cmd_godmode(agent, arg: str = "") -> str:
+def cmd_godmode(agent: Any, arg: str = "") -> str:
     """``/godmode`` -- G0DM0D3 jailbreaking toolkit.
 
     Gated: requires ``ATHENA_ALLOW_GODMODE=1`` in the environment.

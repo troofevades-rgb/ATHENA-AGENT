@@ -34,6 +34,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -105,7 +106,7 @@ def _gate_or_session() -> tuple[Any, BrowserSession, CaptureLogger] | str:
     return cfg, session, _capture_logger_for(cfg)
 
 
-def _safe_call(fn, *args, **kw):
+def _safe_call(fn: Callable[..., Any], *args: Any, **kw: Any) -> tuple[Any, str | None]:
     """Run a Playwright call; return a tuple (value, error_str
     or None). Exceptions become structured errors."""
     try:

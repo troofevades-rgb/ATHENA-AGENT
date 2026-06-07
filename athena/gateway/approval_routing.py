@@ -202,7 +202,7 @@ class ApprovalRouter:
         hard = soft + 5.0
 
         try:
-            cf: concurrent.futures.Future[Any] = asyncio.run_coroutine_threadsafe(
+            cf: concurrent.futures.Future[Decision] = asyncio.run_coroutine_threadsafe(
                 self.request_async(
                     session_id=session_id,
                     tool_name=tool_name,

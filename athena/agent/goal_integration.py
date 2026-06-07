@@ -23,7 +23,11 @@ from typing import TYPE_CHECKING
 from .. import ui
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from pathlib import Path
+
+    from ..config import Config
     from ..goal.state import GoalState
+    from .stats import Stats
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +53,17 @@ class AgentGoalIntegration:
     # attributes the mixin reaches into. The actual values come from
     # ``Agent.__init__`` -- the mixin never assigns to them.
     if TYPE_CHECKING:  # pragma: no cover - typing only
+        cfg: Config
+        stats: Stats
         goal_state: GoalState | None
         _last_turn_interrupted: bool
         _last_assistant_text: str
         _last_stop_reason: str | None
         _goal_loop_tokens_used: int
+
+        # Provided by sibling mixins / the concrete Agent; declared
+        # here so the goal mixin type-checks in isolation.
+        def _profile_dir(self) -> Path: ...
 
     def _consult_goal_continuation(self, *, tokens_at_loop_start: int) -> str | None:
         """T5-07 hook called after each real assistant turn.

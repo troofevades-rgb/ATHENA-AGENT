@@ -26,6 +26,8 @@ without requiring ``/clear``.
 from __future__ import annotations
 
 import re
+from pathlib import Path
+from typing import Any, cast
 
 from .. import ui
 from ..goal.invariant import clear_goal, get_goal, set_goal
@@ -39,11 +41,11 @@ from ..goal.state import (
 from . import command
 
 
-def _profile_dir(agent):
-    return agent._profile_dir()
+def _profile_dir(agent: Any) -> Path:
+    return cast(Path, agent._profile_dir())
 
 
-def _show(agent) -> None:
+def _show(agent: Any) -> None:
     pdir = _profile_dir(agent)
     text = get_goal(pdir)
     if not text:
@@ -64,7 +66,7 @@ def _show(agent) -> None:
             ui.console.print(f"    {marker} {sg.text}")
 
 
-def _max_turns(agent) -> int:
+def _max_turns(agent: Any) -> int:
     """Read the configured turn cap, tolerating agents that
     don't expose a ``cfg`` (pre-T5-07 tests / minimal stubs).
 
@@ -148,7 +150,7 @@ def _validate_goal_text(text: str) -> str | None:
     return None
 
 
-def _bootstrap_prompt(agent) -> str:
+def _bootstrap_prompt(agent: Any) -> str:
     """The first synthetic continuation injected after /goal <text> or
     /goal resume — kicks the loop driver into life so the user doesn't
     have to type a manual nudge.
@@ -170,7 +172,7 @@ def _bootstrap_prompt(agent) -> str:
     return build_continuation_prompt(state, cfg)
 
 
-def _set_goal_and_state(agent, text: str) -> None:
+def _set_goal_and_state(agent: Any, text: str) -> None:
     """Persist a fresh goal + reset its state to active. The
     state's max_turns comes from cfg; turns_taken starts at 0.
 
@@ -208,7 +210,7 @@ def _set_goal_and_state(agent, text: str) -> None:
     ui.info(f"goal set: {text}  (status=active, max_turns={max_turns})")
 
 
-def _pause(agent) -> None:
+def _pause(agent: Any) -> None:
     pdir = _profile_dir(agent)
     state = load_state(pdir)
     if state is None:
@@ -223,7 +225,7 @@ def _pause(agent) -> None:
     ui.info("goal paused — /goal resume to continue")
 
 
-def _resume(agent) -> bool:
+def _resume(agent: Any) -> bool:
     """Returns True when the caller should bootstrap the loop with a
     synthetic continuation (state moved to active); False when nothing
     to resume."""
@@ -249,7 +251,7 @@ def _resume(agent) -> bool:
     return True
 
 
-def _clear(agent) -> None:
+def _clear(agent: Any) -> None:
     pdir = _profile_dir(agent)
     # T6-06.4: drop any subgoal-cards in the task store too.
     _clear_store_subgoals_for_previous_goal(agent)
@@ -263,7 +265,7 @@ def _clear(agent) -> None:
 
 
 @command("goal")
-def cmd_goal(agent, arg: str = "") -> str:
+def cmd_goal(agent: Any, arg: str = "") -> str:
     arg = arg.strip()
     if not arg or arg == "show" or arg == "status":
         _show(agent)
@@ -295,7 +297,7 @@ def cmd_goal(agent, arg: str = "") -> str:
 
 
 @command("subgoal")
-def cmd_subgoal(agent, arg: str = "") -> str:
+def cmd_subgoal(agent: Any, arg: str = "") -> str:
     arg = arg.strip()
     pdir = _profile_dir(agent)
     state = load_state(pdir)
@@ -345,7 +347,7 @@ def cmd_subgoal(agent, arg: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_workspace_str(agent) -> str | None:
+def _resolve_workspace_str(agent: Any) -> str | None:
     """Best-effort workspace path for board scoping. Tries the
     agent's own workspace attribute first; falls back to
     file_ops's bound workspace; None if neither is set
@@ -362,7 +364,7 @@ def _resolve_workspace_str(agent) -> str | None:
         return None
 
 
-def _project_subgoal_create(agent, state, subgoal) -> str | None:
+def _project_subgoal_create(agent: Any, state: GoalState, subgoal: Subgoal) -> str | None:
     """Create a card in the task store tagged with
     ``goal_id=state.goal_id``. Returns the task id (so the
     Subgoal can persist a pointer back), or None when the
@@ -381,7 +383,7 @@ def _project_subgoal_create(agent, state, subgoal) -> str | None:
             workspace=_resolve_workspace_str(agent),
             note="subgoal",
         )
-        return task.id
+        return cast(str, task.id)
     except Exception as e:  # noqa: BLE001
         import logging as _logging
 
@@ -389,7 +391,7 @@ def _project_subgoal_create(agent, state, subgoal) -> str | None:
         return None
 
 
-def _project_subgoal_done(agent, state, subgoal) -> None:
+def _project_subgoal_done(agent: Any, state: GoalState, subgoal: Subgoal) -> None:
     """Flip the matching store task to done. Best-effort: a
     failure logs + returns without disturbing the in-state
     update."""
@@ -406,7 +408,7 @@ def _project_subgoal_done(agent, state, subgoal) -> None:
         _logging.getLogger(__name__).debug("could not project subgoal done to task store: %s", e)
 
 
-def _clear_store_subgoals_for_previous_goal(agent) -> None:
+def _clear_store_subgoals_for_previous_goal(agent: Any) -> None:
     """When a new /goal replaces an active one OR /goal clear
     runs, drop any subgoal-cards belonging to the prior goal_id
     so the board doesn't show stale subgoals indefinitely."""

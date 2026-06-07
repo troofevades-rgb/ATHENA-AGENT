@@ -17,12 +17,16 @@ import signal
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..config import CONFIG_DIR
 from ..cron.jobs import CronJob, JobStore
 from ..cron.runner import run_agent_job
 from ..cron.scheduler import CronScheduler
 from ..cron.watchdog import run_watchdog_job
+
+if TYPE_CHECKING:
+    from types import FrameType
 
 
 def _default_paths() -> tuple[Path, Path]:
@@ -102,7 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def _select_mode(args) -> str:
+def _select_mode(args: argparse.Namespace) -> str:
     if args.script:
         if args.skill or args.prompt:
             raise SystemExit("error: --script is mutually exclusive with --skill/--prompt")
@@ -117,7 +121,7 @@ def _open_scheduler() -> CronScheduler:
     return CronScheduler(db_path=sched_db, jobs_db_path=jobs_db)
 
 
-def _cmd_add(args) -> int:
+def _cmd_add(args: argparse.Namespace) -> int:
     mode = _select_mode(args)
     try:
         job = CronJob(
@@ -142,7 +146,7 @@ def _cmd_add(args) -> int:
     return 0
 
 
-def _cmd_list(args) -> int:
+def _cmd_list(args: argparse.Namespace) -> int:
     sched_db, jobs_db = _default_paths()
     store = JobStore(jobs_db)
     jobs = store.list_jobs()
@@ -178,7 +182,7 @@ def _resolve_id(store: JobStore, prefix_or_id: str) -> CronJob | None:
     return None
 
 
-def _cmd_remove(args) -> int:
+def _cmd_remove(args: argparse.Namespace) -> int:
     scheduler = _open_scheduler()
     try:
         job = _resolve_id(scheduler.store, args.job_id)
@@ -192,7 +196,7 @@ def _cmd_remove(args) -> int:
     return 0
 
 
-def _cmd_enable(args) -> int:
+def _cmd_enable(args: argparse.Namespace) -> int:
     scheduler = _open_scheduler()
     try:
         job = _resolve_id(scheduler.store, args.job_id)
@@ -207,7 +211,7 @@ def _cmd_enable(args) -> int:
     return 0
 
 
-def _cmd_disable(args) -> int:
+def _cmd_disable(args: argparse.Namespace) -> int:
     scheduler = _open_scheduler()
     try:
         job = _resolve_id(scheduler.store, args.job_id)
@@ -222,7 +226,7 @@ def _cmd_disable(args) -> int:
     return 0
 
 
-def _cmd_run_now(args) -> int:
+def _cmd_run_now(args: argparse.Namespace) -> int:
     _, jobs_db = _default_paths()
     store = JobStore(jobs_db)
     job = _resolve_id(store, args.job_id)
@@ -237,7 +241,7 @@ def _cmd_run_now(args) -> int:
     return 0 if result.get("status") == "success" else 1
 
 
-def _cmd_logs(args) -> int:
+def _cmd_logs(args: argparse.Namespace) -> int:
     _, jobs_db = _default_paths()
     store = JobStore(jobs_db)
     job = _resolve_id(store, args.job_id)
@@ -257,7 +261,7 @@ def _cmd_logs(args) -> int:
     return 0
 
 
-def _cmd_daemon(args) -> int:
+def _cmd_daemon(args: argparse.Namespace) -> int:
     scheduler = _open_scheduler()
     scheduler.start()
     jobs = scheduler.list_jobs()
@@ -269,7 +273,7 @@ def _cmd_daemon(args) -> int:
 
     stop_event = {"stopped": False}
 
-    def _on_sig(signum, frame):  # noqa: ARG001
+    def _on_sig(signum: int, frame: FrameType | None) -> None:  # noqa: ARG001
         stop_event["stopped"] = True
 
     signal.signal(signal.SIGINT, _on_sig)

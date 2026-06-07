@@ -7,8 +7,9 @@ import json
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from . import commands, tools, ui
 from .agent import Agent
@@ -201,7 +202,7 @@ def main() -> int:
         import importlib
 
         mod = importlib.import_module(_SUBCOMMANDS[sys.argv[1]])
-        return mod.main(sys.argv[2:])
+        return cast(int, mod.main(sys.argv[2:]))
 
     # T6-07: optional one-line "update available" notice at
     # startup. cfg.update_auto_check defaults to False so
@@ -390,10 +391,11 @@ def main() -> int:
 
         # UI callback for progress chatter. In JSON mode it goes
         # to stderr so stdout remains parser-friendly.
+        on_info: Callable[[str], None]
         if args.json:
 
-            def on_info(m):
-                return print(m, file=sys.stderr)
+            def on_info(m: str) -> None:
+                print(m, file=sys.stderr)
         else:
             on_info = ui.info
 

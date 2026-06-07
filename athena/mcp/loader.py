@@ -189,7 +189,7 @@ def _register_mcp_tool(
         parameters=schema,
         func=_dispatcher,
         requires_confirmation=False,
-        check_fn=lambda _s=_srv: _s not in _HIDDEN_SERVERS,
+        check_fn=lambda: _srv not in _HIDDEN_SERVERS,
     )
     bump_schema_version()
 

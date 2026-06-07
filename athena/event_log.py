@@ -335,7 +335,7 @@ def count_errors_within_days(
     return sum(1 for ev in iter_events(files) if ev.get("level") == "error")
 
 
-__all__: Iterable[str] = (
+__all__: tuple[str, ...] = (
     "EventKind",
     "EventLevel",
     "EventLog",

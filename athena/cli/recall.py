@@ -28,6 +28,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import cast
 
 from ..config import load_config, profile_dir
 from ..recall import VectorStore, build_vector_store
@@ -84,8 +85,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         )
         return 0
     sys.stdout.write(f"{len(entries)} vector(s) at {store.path}\n")
-    by_model: dict[str, int] = {}
-    by_workspace: dict[str, int] = {}
+    by_model = {}
+    by_workspace = {}
     for e in entries:
         by_model[e.model_id] = by_model.get(e.model_id, 0) + 1
         by_workspace[e.workspace] = by_workspace.get(e.workspace, 0) + 1
@@ -206,4 +207,4 @@ def main(argv: list[str]) -> int:
     p_clear.set_defaults(func=cmd_clear)
 
     args = ap.parse_args(argv)
-    return args.func(args)
+    return cast(int, args.func(args))

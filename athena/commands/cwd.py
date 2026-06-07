@@ -14,13 +14,14 @@ Switching workspaces:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from .. import tools, ui
 from . import command
 
 
 @command("cwd")
-def cmd_cwd(agent, arg: str = "") -> str:
+def cmd_cwd(agent: Any, arg: str = "") -> str:
     if not arg:
         ui.info(f"workspace: {agent.workspace}")
         return ""

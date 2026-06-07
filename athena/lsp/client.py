@@ -167,9 +167,12 @@ def _read_frame(stream: IO[bytes]) -> dict[str, Any] | None:
     if not body:
         return None
     try:
-        return json.loads(body.decode("utf-8"))
+        parsed = json.loads(body.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +302,7 @@ class SubprocessTransport(LSPTransport):
 
     def close(self) -> None:
         try:
-            self._proc.stdin.close()
+            self._stdin.close()
         except Exception:
             pass
         try:
@@ -310,11 +313,12 @@ class SubprocessTransport(LSPTransport):
             except Exception:
                 pass
         try:
-            self._proc.stdout.close()
+            self._stdout.close()
         except Exception:
             pass
         try:
-            self._proc.stderr.close()
+            if self._proc.stderr is not None:
+                self._proc.stderr.close()
         except Exception:
             pass
 

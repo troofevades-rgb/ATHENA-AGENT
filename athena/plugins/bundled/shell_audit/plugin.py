@@ -27,9 +27,10 @@ class ShellAuditPlugin(Plugin):
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config)
         self._log_path: Path | None = None
+        configured_root = self.config.get("log_root")
         self._log_root: Path = (
-            Path(self.config.get("log_root"))
-            if self.config.get("log_root")
+            Path(configured_root)
+            if configured_root
             else Path.home() / ".athena" / "logs" / "shell_audit"
         )
 

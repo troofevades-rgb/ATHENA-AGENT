@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from ..skills import manager
@@ -28,7 +29,7 @@ from . import file_ops
 from .registry import tool
 
 
-def _workspace():
+def _workspace() -> Path:
     return file_ops._WORKSPACE
 
 
@@ -159,7 +160,7 @@ def _check_body_matches_skill(
     return bool(h1_tokens & skill_tokens), h1, h1_tokens
 
 
-def _skill_metadata(skill_name: str, workspace) -> tuple[str, str] | None:
+def _skill_metadata(skill_name: str, workspace: Path) -> tuple[str, str] | None:
     """Read the target skill's frontmatter for the topic-match check.
     Returns (name, description) or None if the skill doesn't exist.
 
@@ -533,7 +534,9 @@ def skill_manage(
 
         if action == "write_file":
             # Pre-flight above already checked file_path +
-            # file_content are both present.
+            # file_content are both present; re-assert for the
+            # type-checker (the guard returned early otherwise).
+            assert file_path and file_content is not None
             manager.skill_write_file(name, file_path, file_content, workspace)
             return _ok(action, name, f"wrote {file_path}")
 

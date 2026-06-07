@@ -35,7 +35,7 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol, cast, runtime_checkable
 
 if TYPE_CHECKING:
     # Type-only: a runtime import would pull athena.tools.__init__ (which
@@ -287,7 +287,7 @@ def resolve_backend(cfg: Any) -> VideoGenerationBackend | None:
                 method,
             )
             return None
-    return instance
+    return cast(VideoGenerationBackend, instance)
 
 
 # ---------------------------------------------------------------------------

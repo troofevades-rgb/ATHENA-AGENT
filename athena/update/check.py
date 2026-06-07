@@ -37,9 +37,12 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from .detect import PACKAGE_NAME, InstallMethod
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +96,7 @@ def is_newer(current: str, latest: str | None) -> bool:
     if not latest:
         return False
     try:
-        return _parse(latest) > _parse(current)
+        return bool(_parse(latest) > _parse(current))
     except Exception:  # noqa: BLE001
         return False
 
@@ -333,7 +336,7 @@ def _pointer_fallback() -> str:
     )
 
 
-def _resolve_changelog_path(explicit: str | None):
+def _resolve_changelog_path(explicit: str | None) -> Path | None:
     from pathlib import Path
 
     if explicit:
@@ -390,7 +393,10 @@ def _slice_between(
     to the end" / "from the first heading to current"."""
     latest_idx: int | None = None
     current_idx: int | None = None
-    norm = lambda v: v.lstrip("v").lower()  # noqa: E731
+
+    def norm(v: str) -> str:
+        return v.lstrip("v").lower()
+
     target_latest = norm(latest)
     target_current = norm(current)
     for offset, ver in headings:

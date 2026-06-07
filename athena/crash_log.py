@@ -61,7 +61,6 @@ import re
 import sys
 import traceback
 import uuid
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -389,7 +388,7 @@ def capture_crash(
 
 
 # Re-exports for the explicit ``__all__`` consumers might rely on.
-__all__: Iterable[str] = (
+__all__: tuple[str, ...] = (
     "CrashContext",
     "MAX_CRASH_RECORDS",
     "capture_crash",

@@ -8,7 +8,12 @@ from pathlib import Path
 
 from ..config import load_config
 from ..skills.discovery import discover_skills
-from ..skills.importer import ImportResult, import_archive, import_skill
+from ..skills.importer import (
+    ConflictPolicy,
+    ImportResult,
+    import_archive,
+    import_skill,
+)
 from ..skills.validation import validate_skill
 from .rollback import (
     RollbackError,
@@ -35,7 +40,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         sys.stderr.write(f"error: {source} does not exist\n")
         return 1
     base = _import_base(args)
-    policy = "overwrite" if args.overwrite else "rename" if args.rename else "abort"
+    policy: ConflictPolicy = "overwrite" if args.overwrite else "rename" if args.rename else "abort"
 
     if (
         source.is_file()

@@ -113,10 +113,10 @@ class AthenaMCPResources:
             for entry in entries:
                 lines.append(f"- **{entry.name}** ({entry.type}): {entry.description}")
             return _resource(uri, "\n".join(lines) + "\n", "text/markdown")
-        entry = read_entry(self.memory_profile, rest)
-        if entry is None:
+        matched = read_entry(self.memory_profile, rest)
+        if matched is None:
             return _error(uri, f"memory entry not found: {rest}")
-        return _resource(uri, entry.body, "text/markdown")
+        return _resource(uri, matched.body, "text/markdown")
 
     # ---- audit -------------------------------------------------------
 

@@ -21,6 +21,7 @@ Each task's verify_fn:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 from ..task import EvalTask, VerifyContext
 from ._mcp_helpers import (
@@ -90,10 +91,11 @@ def _verify_add(ctx: VerifyContext) -> bool:
     for entry in log:
         if entry.get("tool") != "add":
             continue
-        args = entry.get("args") or {}
+        args: dict[str, Any] = entry.get("args") or {}
         try:
-            a = float(args.get("a"))
-            b = float(args.get("b"))
+            # args.get(...) is Any | None; None raises TypeError, caught below.
+            a = float(cast("Any", args.get("a")))
+            b = float(cast("Any", args.get("b")))
         except (TypeError, ValueError):
             continue
         if {a, b} == {17.0, 25.0}:

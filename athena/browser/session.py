@@ -19,7 +19,11 @@ from __future__ import annotations
 import contextvars
 import logging
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from playwright.sync_api import BrowserContext, Page, Playwright
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +72,9 @@ class BrowserSession:
     def __init__(self, *, session_id: str, cfg: Any):
         self.session_id = session_id
         self.cfg = cfg
-        self._playwright = None  # type: Any
-        self._context = None  # type: Any
-        self._page = None  # type: Any
+        self._playwright: Playwright | None = None
+        self._context: BrowserContext | None = None
+        self._page: Page | None = None
 
     @property
     def started(self) -> bool:
@@ -129,7 +133,7 @@ class BrowserSession:
             raise
 
     @property
-    def page(self):
+    def page(self) -> Page:
         """The currently active page. Raises BrowserUnavailable
         if the session hasn't been started yet."""
         if self._page is None:
@@ -137,7 +141,7 @@ class BrowserSession:
         return self._page
 
     @property
-    def context(self):
+    def context(self) -> BrowserContext:
         if self._context is None:
             raise BrowserUnavailable("browser not started; call ensure_started() first")
         return self._context
@@ -161,10 +165,15 @@ class _suppress:
     exception. Used in close paths where one teardown failure
     shouldn't mask another."""
 
-    def __enter__(self):
+    def __enter__(self) -> _suppress:
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool:
         if exc is not None:
             logger.debug("browser teardown leg: %s: %s", exc_type, exc)
         return True

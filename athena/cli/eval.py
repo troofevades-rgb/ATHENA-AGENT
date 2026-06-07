@@ -40,9 +40,14 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..config import load_config, profile_dir
+
+if TYPE_CHECKING:
+    from ..eval.agent.report import TaskResult
+    from ..eval.runner import ProgressFn
+    from ..eval.summary import EvalScore
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -143,13 +148,13 @@ def _resolve_output_dir(
     return profile_dir(profile) / "eval" / eval_id
 
 
-def _score_progress_to_stderr(quiet: bool):
+def _score_progress_to_stderr(quiet: bool) -> ProgressFn | None:
     """Per-case progress emitter. Mirrors batch's stderr lines
     but adds the passed/failed mark + scorer name."""
     if quiet:
         return None
 
-    def _print(es, done: int, total: int) -> None:
+    def _print(es: EvalScore, done: int, total: int) -> None:
         mark = "PASS" if es.passed else ("ERR " if es.run_status not in ("ok", "") else "FAIL")
         sys.stderr.write(
             f"[{done:>4}/{total}] {mark}  {es.case_id}  "
@@ -372,7 +377,7 @@ def _main_run(argv: list[str]) -> int:
             sys.stderr.write(msg + "\n")
             sys.stderr.flush()
 
-    def _on_task_done(result) -> None:
+    def _on_task_done(result: TaskResult) -> None:
         if args.quiet:
             return
         mark = {

@@ -317,6 +317,9 @@ def run_eval(
     cases_by_id = {c.case_id: c for c in cases}
     scored: list[EvalScore] = []
     for idx, c in enumerate(cases, start=1):
+        # case_id is minted above for every case that lacked one, so it is
+        # non-None here; assert to narrow str | None -> str for mypy.
+        assert c.case_id is not None
         envelope_path = output_dir / f"{_safe_filename(c.case_id)}.json"
         if not envelope_path.exists():
             # Defensive: shouldn't happen in the normal flow

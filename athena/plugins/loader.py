@@ -25,6 +25,7 @@ import importlib.util
 import logging
 import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from .base import Plugin
@@ -79,7 +80,7 @@ def _enabled(manifest: PluginManifest, config: dict[str, Any]) -> bool:
     return manifest.enabled_by_default
 
 
-def _import_plugin_module(manifest: PluginManifest):
+def _import_plugin_module(manifest: PluginManifest) -> ModuleType:
     """Import ``plugin.py`` from the manifest's directory.
 
     Uses a unique module name (``athena_plugin__<plugin_name>``) so multiple
@@ -97,7 +98,7 @@ def _import_plugin_module(manifest: PluginManifest):
     return module
 
 
-def _find_plugin_subclass(module) -> type[Plugin]:
+def _find_plugin_subclass(module: ModuleType) -> type[Plugin]:
     """Return the single :class:`Plugin` subclass declared in ``module``.
 
     Subclasses defined in the module (not re-imported from elsewhere) and

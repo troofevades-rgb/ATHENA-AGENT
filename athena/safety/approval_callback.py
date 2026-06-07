@@ -9,14 +9,15 @@ gateway adapter in Phase 10) can route prompts to chat platforms.
 import contextvars
 import logging
 from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-ApprovalFn = Callable[[str, dict], str]
+ApprovalFn = Callable[[str, dict[str, Any]], str]
 """(tool_name, args) -> "allow" | "deny"."""
 
 
-def _interactive_approval(tool_name: str, args: dict) -> str:
+def _interactive_approval(tool_name: str, args: dict[str, Any]) -> str:
     """Default: interactive prompt via ``ui.confirm`` with a tool-
     appropriate preview so the user sees WHAT is about to run, not
     just the tool name. Bash gets the command; Edit/Write get a
@@ -37,7 +38,7 @@ def _interactive_approval(tool_name: str, args: dict) -> str:
     )
 
 
-def _build_preview(tool_name: str, args: dict) -> tuple[str | None, str | None]:
+def _build_preview(tool_name: str, args: dict[str, Any]) -> tuple[str | None, str | None]:
     """Build a human-readable preview of what ``tool_name(args)`` is
     about to do. Returns ``(preview, kind)`` where ``kind`` is one
     of ``"command"``, ``"diff"``, ``"file"``, ``"text"``, or None.
@@ -98,7 +99,7 @@ def _format_replace_as_diff(old: str, new: str) -> str:
     return "\n".join(out)
 
 
-def AUTO_DENY(tool_name: str, args: dict) -> str:
+def AUTO_DENY(tool_name: str, args: dict[str, Any]) -> str:
     """Refuse every confirmation prompt without user input.
 
     Used by forks. The denial is logged at WARNING so background forks that

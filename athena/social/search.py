@@ -39,7 +39,7 @@ _DEFAULT_MAX_RESULTS = 20
 
 @tool(
     name="search_x",
-    aliases=("social_search",),
+    aliases=["social_search"],
     toolset="recall",
     description=(
         "Search X / social posts for recent, real-time information. "

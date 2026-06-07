@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,7 @@ from typing import Any
 from ..config import CONFIG_DIR
 from ..config import profile_dir as _profile_dir
 from ..sessions.store import SessionStore
-from ..transform.classifier import auto_classify, extract_trajectories
+from ..transform.classifier import Trajectory, auto_classify, extract_trajectories
 from ..transform.dataset import (
     build_dpo_dataset_from_trajectories,
     build_sft_dataset,
@@ -96,7 +97,7 @@ def _next_output_name(base_model: str) -> str:
 # ---- Subcommand handlers ----------------------------------------------
 
 
-def _cmd_review(args) -> int:
+def _cmd_review(args: argparse.Namespace) -> int:
     profile_dir = _profile_dir(args.profile)
     if getattr(args, "no_tui", False):
         return _cmd_review_classic(profile_dir, args)
@@ -120,7 +121,7 @@ def _cmd_review(args) -> int:
         return _cmd_review_classic(profile_dir, args)
 
 
-def _cmd_review_classic(profile_dir: Path, args) -> int:
+def _cmd_review_classic(profile_dir: Path, args: argparse.Namespace) -> int:
     """The pre-T3-05R one-at-a-time prompt path. Reached via
     --no-tui or when textual isn't installed."""
     review = ReviewSession(profile_dir, since_days=args.since_days)
@@ -136,7 +137,9 @@ def _cmd_review_classic(profile_dir: Path, args) -> int:
     return 0
 
 
-def _enumerate_trajectories(profile_dir: Path, since_days: int, include_auto_labels: bool):
+def _enumerate_trajectories(
+    profile_dir: Path, since_days: int, include_auto_labels: bool
+) -> Iterator[Trajectory]:
     """Yield Trajectories from every recent session, with user_label hydrated."""
     from datetime import timedelta
 
@@ -169,7 +172,7 @@ def _enumerate_trajectories(profile_dir: Path, since_days: int, include_auto_lab
         store.close()
 
 
-def _cmd_build_dataset(args) -> int:
+def _cmd_build_dataset(args: argparse.Namespace) -> int:
     profile_dir = _profile_dir(args.profile)
     trajectories = list(
         _enumerate_trajectories(
@@ -227,7 +230,7 @@ def _cmd_build_dataset(args) -> int:
     return 0 if sft or dpo else 1
 
 
-def _cmd_run(args) -> int:
+def _cmd_run(args: argparse.Namespace) -> int:
     """Run the LoRA -> DPO -> GGUF pipeline, persisting per-phase state
     to ``<output_dir>/.athena_train_state.json``.
 
@@ -427,7 +430,7 @@ def _load_or_create_state(
     *,
     output_dir: Path,
     run_id: str,
-    args,
+    args: argparse.Namespace,
     dpo_enabled: bool,
     export_enabled: bool,
     resume: bool,
@@ -466,7 +469,7 @@ def _load_or_create_state(
     return fresh
 
 
-def _args_to_state_dict(args) -> dict[str, Any]:
+def _args_to_state_dict(args: argparse.Namespace) -> dict[str, Any]:
     """Capture the subset of CLI args that ``athena train resume`` needs
     to re-invoke the run. Stored in the state file so the user doesn't
     have to remember every flag from the original invocation.
@@ -483,7 +486,14 @@ def _args_to_state_dict(args) -> dict[str, Any]:
     }
 
 
-def _record_run_legacy(args, output_name, output_dir, sft_dataset, dpo_dataset, state):
+def _record_run_legacy(
+    args: argparse.Namespace,
+    output_name: str,
+    output_dir: Path,
+    sft_dataset: Path,
+    dpo_dataset: Path | None,
+    state: RunState,
+) -> None:
     """Append a summary entry to the legacy ``~/.athena/training_state.json``
     history so ``athena train status`` keeps working. The per-run state
     file under ``output_dir`` is the source of truth for resumability;
@@ -501,7 +511,7 @@ def _record_run_legacy(args, output_name, output_dir, sft_dataset, dpo_dataset, 
     )
 
 
-def _cmd_resume(args) -> int:
+def _cmd_resume(args: argparse.Namespace) -> int:
     """``athena train resume <output_name>`` — load the named run's state
     file, rehydrate the CLI args it was launched with, and continue
     from the first non-completed phase.
@@ -539,7 +549,7 @@ def _cmd_resume(args) -> int:
         return 2
 
     # argparse.Namespace stand-in.
-    class _Args:
+    class _Args(argparse.Namespace):
         pass
 
     a = _Args()
@@ -561,8 +571,17 @@ def _cmd_resume(args) -> int:
 
 
 def _record_run(
-    base_model, output_name, output_dir, sft_dataset, dpo_dataset, *, sft, dpo, export, register
-):
+    base_model: str,
+    output_name: str,
+    output_dir: Path,
+    sft_dataset: Path,
+    dpo_dataset: Path | None,
+    *,
+    sft: int | None,
+    dpo: int | None,
+    export: int | None,
+    register: int | None,
+) -> None:
     state = _load_state()
     state["runs"].append(
         {
@@ -583,7 +602,7 @@ def _record_run(
     _save_state(state)
 
 
-def _cmd_status(args) -> int:  # noqa: ARG001
+def _cmd_status(args: argparse.Namespace) -> int:  # noqa: ARG001
     state = _load_state()
     runs = state.get("runs", [])
     if not runs:

@@ -158,7 +158,7 @@ class ObservabilityPlugin(Plugin):
         _otel_trace.set_tracer_provider(provider)
         self._tracer = _otel_trace.get_tracer("athena")
 
-    def _build_span_exporter(self):
+    def _build_span_exporter(self) -> Any:
         endpoint = self.config.get("otlp_endpoint")
         if endpoint:
             try:
@@ -191,6 +191,7 @@ class ObservabilityPlugin(Plugin):
         endpoint = self.config.get("otlp_endpoint")
         console_opt_in = bool(self.config.get("metrics_console", False))
         reader: Any
+        exporter: Any
         if endpoint:
             try:
                 from opentelemetry.exporter.otlp.proto.http.metric_exporter import (

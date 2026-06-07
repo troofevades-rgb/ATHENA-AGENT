@@ -5,6 +5,8 @@ Asks the model to write ATHENA.md based on what it finds in the project.
 
 from __future__ import annotations
 
+from typing import Any
+
 from . import command
 
 _PROMPT = """\
@@ -25,5 +27,5 @@ reading the code. After writing it, summarize what you put in it.
 
 
 @command("init")
-def cmd_init(agent, arg: str = "") -> str:
+def cmd_init(agent: Any, arg: str = "") -> str:
     return _PROMPT

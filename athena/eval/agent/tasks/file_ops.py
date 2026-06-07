@@ -355,7 +355,7 @@ def _verify_json_value(ctx: VerifyContext) -> bool:
         data = _json.loads(_read(ctx.workspace / "config.json"))
     except _json.JSONDecodeError:
         return False
-    return data.get("name") == "new" and data.get("version") == 1
+    return bool(data.get("name") == "new" and data.get("version") == 1)
 
 
 _update_json_value = EvalTask(

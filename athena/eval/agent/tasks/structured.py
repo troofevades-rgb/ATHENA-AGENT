@@ -413,10 +413,12 @@ def _verify_aggregate(ctx: VerifyContext) -> bool:
         return False
 
     # Numbers may land as int or str — coerce.
-    def _n(k):
-        v = data.get(k)
+    def _n(k: str) -> int | None:
+        v: Any = data.get(k)
+        if v is None:
+            return None
         try:
-            return int(v) if v is not None else None
+            return int(v)
         except (TypeError, ValueError):
             try:
                 return int(float(v))

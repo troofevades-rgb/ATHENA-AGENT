@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from .providers.base import MemoryEntry, MemoryProvider
 from .providers.builtin_file import BuiltinFileProvider
@@ -72,7 +73,7 @@ def memory_dir(
         raise NotImplementedError(
             f"{provider.name!r} provider is not file-backed; memory_dir() unavailable."
         )
-    return method(profile, workspace=workspace)
+    return cast(Path, method(profile, workspace=workspace))
 
 
 def load_index(

@@ -16,11 +16,16 @@ text).
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING, Any
 
 from ..config import load_config
 from ..lsp.client import Diagnostic, Severity, diagnose
 from .registry import tool
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..agent.core import Agent
+    from ..config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -29,18 +34,19 @@ _MAX_LINES = 200
 _TRUNCATED_MARKER = "[diagnose: truncated, +{} more]"
 
 
-def _active_cfg_or_disk():
+def _active_cfg_or_disk() -> Config:
     """Live agent cfg when available; tests monkeypatch
     ``athena.tools.diagnose.load_config`` directly, so we route the
     disk fallback through the same module-level binding to preserve
     that seam."""
-    from ._active_cfg import active_cfg as _active
+    from ._active_cfg import active_cfg as _active  # noqa: F401 -- import seam
 
+    get_current_agent: Callable[[], Agent | None]
     try:
-        from ..agent.core import get_current_agent
+        from ..agent.context import get_current_agent
     except ImportError:
 
-        def get_current_agent():
+        def get_current_agent() -> Agent | None:
             return None
 
     agent = get_current_agent()
@@ -53,7 +59,7 @@ def _active_cfg_or_disk():
 
 @tool(
     name="Diagnose",
-    aliases=("diagnose",),
+    aliases=["diagnose"],
     toolset="code",
     description=(
         "Run a language server (pyright/pylsp by default for Python) "
@@ -77,7 +83,7 @@ def _active_cfg_or_disk():
     },
     parallel_safe=True,
 )
-def Diagnose(paths: list[str] | None = None, **_kwargs) -> str:
+def Diagnose(paths: list[str] | None = None, **_kwargs: Any) -> str:
     paths = list(paths or [])
     if not paths:
         return "ERROR: paths required"
@@ -165,13 +171,12 @@ def _ok_line(paths: list[str]) -> str:
     # let the operator see that distinct case.
     from ..lsp.client import _language_for_path, _server_command
 
-    languages = {_language_for_path(p) for p in paths}
-    languages.discard(None)
+    languages: set[str] = {lang for p in paths if (lang := _language_for_path(p)) is not None}
     if not languages:
         return f"ok ({len(paths)} file(s); no language mapped)"
     unreachable = [lang for lang in languages if _server_command(lang, cfg) is None]
     if unreachable:
-        joined = ", ".join(sorted(filter(None, unreachable)))
+        joined = ", ".join(sorted(unreachable))
         return f"ok (no diagnostics — LSP server not installed for {joined})"
     return f"ok ({len(paths)} file(s) clean)"
 

@@ -37,12 +37,16 @@ import logging
 import os
 import threading
 import wave
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...providers import register_provider
 from ...providers.base import Capabilities, Provider, StreamChunk
 from ..job import ContentType, Segment, TranscribeResult
+
+if TYPE_CHECKING:
+    from ...config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +95,7 @@ def _register_cuda_dll_dirs() -> None:
     _cuda_dll_dirs_registered = True
 
 
-def _load_model(name: str, device: str, compute_type: str):
+def _load_model(name: str, device: str, compute_type: str) -> Any:
     """Load (or reuse) the WhisperModel. Lazy so importing this
     file doesn't pull faster-whisper unless someone actually
     transcribes."""
@@ -145,17 +149,19 @@ class FasterWhisperLocalBackend(Provider):
 
     def __init__(self, api_key: str | None = None, **kwargs: Any):
         super().__init__(api_key=api_key, **kwargs)
-        self._cfg_override = kwargs.get("cfg")
+        self._cfg_override: Config | None = kwargs.get("cfg")
 
     # ---- chat ABC plumbing — not a chat backend ----
 
-    def stream_chat(self, **kwargs: Any):  # noqa: D401
+    def stream_chat(self, **kwargs: Any) -> Iterator[StreamChunk]:  # noqa: D401
         raise NotImplementedError(
             "audio_whisper_local is a transcription backend, not a chat "
             "provider; route via MediaRegistry.backend_for('audio_transcription')"
         )
 
-    def parse_tool_calls(self, content: str, raw_response: dict[str, Any]):
+    def parse_tool_calls(
+        self, content: str, raw_response: dict[str, Any]
+    ) -> tuple[str, list[dict[str, Any]]]:
         return content, []
 
     # ---- AudioBackend protocol ----
@@ -242,7 +248,7 @@ class FasterWhisperLocalBackend(Provider):
 
     # ---- internals ----
 
-    def _load_cfg(self):
+    def _load_cfg(self) -> Config:
         if self._cfg_override is not None:
             return self._cfg_override
         from ...config import load_config

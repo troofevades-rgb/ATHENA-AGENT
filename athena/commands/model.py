@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from .. import ui
 from ..providers.credential_pool import global_pool as _global_pool
@@ -84,7 +84,7 @@ def _ollama_models(agent: Any) -> list[str]:
     provider = getattr(agent, "provider", None)
     if provider is not None and getattr(provider, "name", "") == "ollama":
         try:
-            return provider.list_models()
+            return cast("list[str]", provider.list_models())
         except Exception as e:  # noqa: BLE001
             logger.debug("live ollama list_models failed, trying fresh: %s", e)
     try:
@@ -138,7 +138,7 @@ def _openrouter_models() -> dict[str, bool]:
             logger.debug("openrouter /models -> %d", r.status_code)
             return {}
         data = r.json().get("data", []) or []
-        models: dict[str, bool] = {}
+        models = {}
         for entry in data:
             if not isinstance(entry, dict):
                 continue
@@ -396,7 +396,7 @@ def _warn_if_openrouter_no_tools(provider_name: str, bare_model: str) -> None:
 
 
 @command("model")
-def cmd_model(agent, arg: str = "") -> str:
+def cmd_model(agent: Any, arg: str = "") -> str:
     arg = (arg or "").strip()
     if not arg:
         _render_picker(agent)

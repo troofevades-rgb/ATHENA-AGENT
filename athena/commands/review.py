@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from . import command
 
 
 @command("review")
-def cmd_review(agent, arg: str = "") -> str:
+def cmd_review(agent: Any, arg: str = "") -> str:
     target = arg.strip() or "the pending uncommitted changes"
     return (
         f"Review {target}. Run `git status` and `git diff` (or `git diff "
@@ -24,7 +26,7 @@ def cmd_review(agent, arg: str = "") -> str:
 
 
 @command("security-review")
-def cmd_security_review(agent, arg: str = "") -> str:
+def cmd_security_review(agent: Any, arg: str = "") -> str:
     target = arg.strip() or "the pending uncommitted changes"
     return (
         f"Perform a security review of {target}. Run `git diff` via Bash, "

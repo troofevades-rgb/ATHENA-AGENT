@@ -38,7 +38,7 @@ exhausted lists the providers attempted so the user can correct.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from . import get_provider_class, providers_with_capability
 from .base import Provider
@@ -46,6 +46,7 @@ from .credential_pool import CredentialPool
 
 if TYPE_CHECKING:
     from ..config import Config
+    from ..config_sections import ProvidersConfig
 
 
 logger = logging.getLogger(__name__)
@@ -100,7 +101,7 @@ class _CredentialUnavailable(RuntimeError):
 def _route(model: str, cfg: Config) -> str:
     """Decide which provider serves ``model``. Pure dispatch — no
     network calls, no credential lookups."""
-    routing = (cfg.providers or {}).get("routing") or {}
+    routing = cast("ProvidersConfig", cfg.providers or {}).get("routing") or {}
     if isinstance(routing, dict) and model in routing:
         explicit = routing[model]
         if isinstance(explicit, str) and explicit:
@@ -153,7 +154,7 @@ def _build_provider(
     """
     bare = _bare_model(name, model)
     cls = get_provider_class(name)
-    provider_cfg = (cfg.providers or {}).get(name, {}) or {}
+    provider_cfg = cast("ProvidersConfig", cfg.providers or {}).get(name, {}) or {}
 
     if name == "ollama":
         host = provider_cfg.get("host") or cfg.ollama_host
@@ -201,7 +202,7 @@ def _fallback_chain(primary: str, cfg: Config) -> list[tuple[str, str | None]]:
     Unknown / malformed entries are dropped with a logged warning so a
     typo in one entry doesn't disable the whole chain.
     """
-    raw = (cfg.providers or {}).get(primary, {}).get("fallback") or []
+    raw = cast("ProvidersConfig", cfg.providers or {}).get(primary, {}).get("fallback") or []
     if not isinstance(raw, list):
         return []
     out: list[tuple[str, str | None]] = []

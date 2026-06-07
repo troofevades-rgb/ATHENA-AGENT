@@ -228,7 +228,7 @@ def passthrough_blocks(
         raise ValueError(f"unknown provider {provider!r}; choose from {sorted(LONG_EDGE_CAP)}")
     cap = long_edge_cap or LONG_EDGE_CAP[provider]
 
-    img = Image.open(Path(path))
+    img: Image.Image = Image.open(Path(path))
     img.load()
     w, h = img.size
 

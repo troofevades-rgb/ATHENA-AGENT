@@ -16,6 +16,8 @@ new palette without restarting athena.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from . import command
 
@@ -25,7 +27,7 @@ def _swatch(color: str) -> str:
     return f"[on {color}]    [/]"
 
 
-def _show(agent) -> None:
+def _show(agent: Any) -> None:
     active = ui.theme()
     ui.console.print(f"[bold]active theme:[/] {active.name} — [dim]{active.description}[/]")
     ui.console.print("[bold]available themes:[/]")
@@ -36,12 +38,12 @@ def _show(agent) -> None:
         ui.console.print(f"{marker} [bold]{t.name:10}[/] {swatches}  [dim]{t.description}[/]")
 
 
-def _list(agent) -> None:
+def _list(agent: Any) -> None:
     for t in ui.list_themes():
         ui.console.print(t.name)
 
 
-def _set(agent, name: str) -> None:
+def _set(agent: Any, name: str) -> None:
     name = name.strip()
     if not name:
         ui.error("usage: /theme set <name>")
@@ -66,7 +68,7 @@ def _set(agent, name: str) -> None:
     ui.info(f"theme → {new.name} ({new.description}). session-scoped; use /theme save to persist.")
 
 
-def _refresh_tui_banner(agent) -> None:
+def _refresh_tui_banner(agent: Any) -> None:
     """If a TUI gateway is active, re-emit ``BannerEvent`` so
     the Ink-side palette updates live. Silent no-op when the
     legacy Rich UI path is in use or the banner build fails for
@@ -91,7 +93,7 @@ def _refresh_tui_banner(agent) -> None:
         return
 
 
-def _save(agent) -> None:
+def _save(agent: Any) -> None:
     """Persist the active theme name to ``~/.athena/config.toml``.
 
     Atomic write: parse the existing file, set or insert ``theme =
@@ -138,7 +140,7 @@ def _save(agent) -> None:
 
 
 @command("theme")
-def cmd_theme(agent, arg: str = "") -> str:
+def cmd_theme(agent: Any, arg: str = "") -> str:
     """``/theme`` — inspect or switch the TUI color palette."""
     arg = (arg or "").strip()
     if not arg or arg in ("status", "show"):

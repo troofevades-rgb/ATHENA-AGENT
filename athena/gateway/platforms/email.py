@@ -38,7 +38,7 @@ import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import aiosmtplib
 
@@ -432,6 +432,9 @@ def _extract_body(msg: email.message.Message) -> str:
                 continue
             if payload is None:
                 continue
+            # With decode=True the payload is bytes at runtime; the
+            # except below still guards the case where it isn't.
+            payload = cast(bytes, payload)
             charset = part.get_content_charset() or "utf-8"
             try:
                 text = payload.decode(charset, errors="replace")
@@ -448,6 +451,9 @@ def _extract_body(msg: email.message.Message) -> str:
         except Exception:
             payload = None
         if payload is not None:
+            # With decode=True the payload is bytes at runtime; the
+            # except below still guards the case where it isn't.
+            payload = cast(bytes, payload)
             charset = msg.get_content_charset() or "utf-8"
             try:
                 text = payload.decode(charset, errors="replace")

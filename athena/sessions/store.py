@@ -26,7 +26,7 @@ from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from . import jsonl, sqlite_index
 
@@ -148,7 +148,7 @@ class SessionStore:
             raise RuntimeError("SessionStore is closed")
         conn = getattr(self._tls, "conn", None)
         if conn is not None:
-            return conn
+            return cast(sqlite3.Connection, conn)
         conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         try:
             conn.execute("PRAGMA journal_mode=WAL")

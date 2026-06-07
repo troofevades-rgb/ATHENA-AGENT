@@ -48,12 +48,12 @@ def _build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def _store(args) -> SessionStore:
+def _store(args: argparse.Namespace) -> SessionStore:
     home = args.home.expanduser().resolve() if args.home else CONFIG_DIR
     return SessionStore(_profile_dir(args.profile, home))
 
 
-def _cmd_list(args, store: SessionStore) -> int:
+def _cmd_list(args: argparse.Namespace, store: SessionStore) -> int:
     sessions = store.list_sessions(limit=args.limit)
     if not sessions:
         print("(no sessions)")
@@ -70,7 +70,7 @@ def _cmd_list(args, store: SessionStore) -> int:
     return 0
 
 
-def _cmd_browse(args, store: SessionStore) -> int:
+def _cmd_browse(args: argparse.Namespace, store: SessionStore) -> int:
     # Show fork lineage at the top so the user knows what they're inside of.
     children = store.children(args.session_id)
     if children:
@@ -103,7 +103,7 @@ def _cmd_browse(args, store: SessionStore) -> int:
     return 0
 
 
-def _cmd_search(args, store: SessionStore) -> int:
+def _cmd_search(args: argparse.Namespace, store: SessionStore) -> int:
     workspace = None if args.workspace == "" else args.workspace
     hits = store.search(args.query, k=args.k, workspace=workspace)
     if not hits:
@@ -115,7 +115,7 @@ def _cmd_search(args, store: SessionStore) -> int:
     return 0
 
 
-def _cmd_purge(args, store: SessionStore) -> int:
+def _cmd_purge(args: argparse.Namespace, store: SessionStore) -> int:
     if not args.confirm:
         print("error: --confirm required (purge is irreversible)", file=sys.stderr)
         return 2
@@ -143,7 +143,7 @@ def _cmd_purge(args, store: SessionStore) -> int:
     return 0
 
 
-def _cmd_verify(args, store: SessionStore) -> int:
+def _cmd_verify(args: argparse.Namespace, store: SessionStore) -> int:
     rows = store.verify()
     if args.json:
         import json as _json

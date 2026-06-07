@@ -24,14 +24,18 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .. import ui
-from .context import _current_agent, get_current_agent  # noqa: F401 -- re-export
+from .context import _current_agent as _current_agent  # noqa: F401 -- re-export
+from .context import get_current_agent as get_current_agent  # noqa: F401 -- re-export
 from .goal_integration import AgentGoalIntegration
 from .lifecycle import AgentLifecycle
 from .runtime import AgentRuntime
 from .stats import Stats  # noqa: F401 -- re-export
+
+if TYPE_CHECKING:
+    from .fork import ForkResult
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.S)
 _TOOL_CALL_TAG_RE = re.compile(r"<tool_call>\s*(.+?)\s*</tool_call>", re.S)
@@ -122,7 +126,7 @@ def _extract_text_tool_calls(text: str) -> tuple[str, list[dict[str, Any]]]:
     # Harmony / GPT-OSS style <function=name><parameter=key>val</parameter></function>
     fn_matches = list(_FUNCTION_TAG_RE.finditer(s))
     if fn_matches:
-        all_calls: list[dict[str, Any]] = []
+        all_calls = []
         for fm in fn_matches:
             name = fm.group(1).strip()
             body = fm.group(2)
@@ -327,8 +331,8 @@ class Agent(AgentLifecycle, AgentRuntime, AgentGoalIntegration):
 from .fork import fork as _fork_impl  # noqa: E402
 
 
-def _agent_fork(self, **kwargs):
+def _agent_fork(self: Agent, **kwargs: Any) -> ForkResult:
     return _fork_impl(self, **kwargs)
 
 
-Agent.fork = _agent_fork
+Agent.fork = _agent_fork  # type: ignore[attr-defined]  # dynamically bound to avoid import cycle

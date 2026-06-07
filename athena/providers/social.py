@@ -26,10 +26,14 @@ import logging
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from . import register_provider
 from .base import Capabilities, Provider, StreamChunk
+
+if TYPE_CHECKING:
+    from ..config import Config
+    from ..social.oauth import SocialOAuth
 
 logger = logging.getLogger(__name__)
 
@@ -336,17 +340,17 @@ class SocialProvider(Provider):
                 return None
         return access_token
 
-    def _get_oauth(self):
+    def _get_oauth(self) -> SocialOAuth:
         if self._oauth is not None:
-            return self._oauth
+            return cast("SocialOAuth", self._oauth)
         from ..social.oauth import SocialOAuth
 
         self._oauth = SocialOAuth(self._cfg())
-        return self._oauth
+        return cast("SocialOAuth", self._oauth)
 
-    def _cfg(self):
+    def _cfg(self) -> Config:
         if self._cfg_override is not None:
-            return self._cfg_override
+            return cast("Config", self._cfg_override)
         from ..config import load_config
 
         return load_config()
@@ -365,7 +369,7 @@ class SocialProvider(Provider):
         """
         self.last_error = None
         if self._transport is not None:
-            return self._transport(url, access_token)
+            return cast("dict[str, Any] | None", self._transport(url, access_token))
         try:
             req = urllib.request.Request(
                 url,

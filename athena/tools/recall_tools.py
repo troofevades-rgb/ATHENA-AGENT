@@ -8,7 +8,7 @@ doesn't pollute the result.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from .registry import tool
 
@@ -145,7 +145,7 @@ def _ranked_hits(
     backend), so the caller never breaks because of a missing
     optional component."""
     if mode == "keyword":
-        return store.search(query, k=k, workspace=workspace)
+        return cast("list[Any]", store.search(query, k=k, workspace=workspace))
 
     import logging as _logging
 
@@ -155,7 +155,7 @@ def _ranked_hits(
 
     vector_store = get_active_vector_store()
     if vector_store is None:
-        return store.search(query, k=k, workspace=workspace)
+        return cast("list[Any]", store.search(query, k=k, workspace=workspace))
 
     candidate_k = max(k * 3, k + 5)
     # Step bug-fix: the vector store can exist but its embedder
@@ -175,7 +175,7 @@ def _ranked_hits(
             "search_sessions: vector path unavailable (%s); degrading to keyword-only",
             e,
         )
-        return store.search(query, k=k, workspace=workspace)
+        return cast("list[Any]", store.search(query, k=k, workspace=workspace))
 
     if mode == "semantic":
         # Pure semantic: no FTS5 fetch. Hydrate top-k vec ids

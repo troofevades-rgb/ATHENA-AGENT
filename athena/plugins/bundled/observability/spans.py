@@ -13,6 +13,7 @@ from blowing up at import time when the optional dep is missing.
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Iterator
 from typing import Any
 
 try:
@@ -20,12 +21,12 @@ try:
 
     _HAVE_OTEL = True
 except ImportError:  # pragma: no cover — exercised only without the extras
-    _otel_trace = None
+    _otel_trace = None  # type: ignore[assignment]
     _HAVE_OTEL = False
 
 
 @contextlib.contextmanager
-def start_span(name: str, attributes: dict[str, Any] | None = None):
+def start_span(name: str, attributes: dict[str, Any] | None = None) -> Iterator[Any]:
     """Context manager that yields a Span (or None when OTel is
     absent).
 
@@ -45,7 +46,7 @@ def start_span(name: str, attributes: dict[str, Any] | None = None):
         yield span
 
 
-def get_tracer():
+def get_tracer() -> Any:
     """Return the athena tracer (or ``None`` when OTel is absent).
 
     Callers usually want :func:`start_span` instead; this is here

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from .. import ui
 from . import command
 
 
 @command("cost")
-def cmd_cost(agent, arg: str = "") -> str:
+def cmd_cost(agent: Any, arg: str = "") -> str:
     s = agent.stats
     elapsed = time.time() - s.started
     ui.console.print(

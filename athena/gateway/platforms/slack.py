@@ -29,13 +29,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ..base import GatewayAdapter
 from ..events import ApprovalRequest, MessageEvent, MessageType
 
 if TYPE_CHECKING:
     from slack_sdk.socket_mode.aiohttp import SocketModeClient
+    from slack_sdk.socket_mode.async_client import AsyncBaseSocketModeClient
     from slack_sdk.socket_mode.request import SocketModeRequest
     from slack_sdk.web.async_client import AsyncWebClient
 
@@ -109,7 +110,7 @@ class SlackAdapter(GatewayAdapter):
             self._render_approval,
         )
 
-        await self._socket.connect()
+        await self._socket.connect()  # type: ignore[no-untyped-call]  # NOTE: slack_sdk SocketModeClient.connect is untyped
         # Socket Mode's connect() returns once connected; the listener
         # runs as long as the websocket stays open. Block here until
         # someone cancels us so the daemon's start-task semantics work.
@@ -121,7 +122,7 @@ class SlackAdapter(GatewayAdapter):
         self.daemon.approvals.register_platform_renderer(self.name, None)
         if self._socket is not None:
             try:
-                await self._socket.disconnect()
+                await self._socket.disconnect()  # type: ignore[no-untyped-call]  # NOTE: slack_sdk SocketModeClient.disconnect is untyped
             except Exception:
                 logger.debug(
                     "[%s] socket.disconnect raised",
@@ -147,7 +148,7 @@ class SlackAdapter(GatewayAdapter):
 
     async def _on_request(
         self,
-        client: SocketModeClient,
+        client: AsyncBaseSocketModeClient,
         req: SocketModeRequest,
     ) -> None:
         """Single listener for every Socket Mode envelope.
@@ -179,7 +180,7 @@ class SlackAdapter(GatewayAdapter):
 
     async def _ack(
         self,
-        client: SocketModeClient,
+        client: AsyncBaseSocketModeClient,
         req: SocketModeRequest,
     ) -> None:
         from slack_sdk.socket_mode.response import SocketModeResponse
@@ -329,7 +330,7 @@ class SlackAdapter(GatewayAdapter):
             _, request_id, decision = parts
             if decision not in {"allow", "deny"}:
                 continue
-            self.daemon.approvals.resolve(request_id, decision)
+            self.daemon.approvals.resolve(request_id, cast('Literal["allow", "deny"]', decision))
 
     # ---- approval rendering -----------------------------------------
 
@@ -399,7 +400,7 @@ class SlackAdapter(GatewayAdapter):
         deny_id = _ACTION_SEPARATOR.join(
             (_ACTION_PREFIX, request.request_id, "deny"),
         )
-        blocks = [
+        blocks: list[dict[str, Any]] = [
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": "\n".join(body_lines)},

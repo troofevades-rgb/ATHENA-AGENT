@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import cast
 
 from ..agent.checkpoints import (
     CheckpointAuditLog,
@@ -79,7 +80,7 @@ def _resolve_session(args: argparse.Namespace) -> str:
     session JSONL under the profile's sessions dir."""
     explicit = getattr(args, "session", None)
     if explicit:
-        return explicit
+        return cast(str, explicit)
     sessions_dir = _profile_root(args) / "sessions"
     if not sessions_dir.exists():
         raise SystemExit(f"no sessions dir at {sessions_dir}")

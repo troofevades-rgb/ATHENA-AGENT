@@ -57,7 +57,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 # ---- Predicate input bundle --------------------------------------------
 
@@ -419,7 +419,10 @@ def user_rules_from_config(entries: list[dict[str, Any]]) -> list[Rule]:
             rules.append(
                 Rule(
                     name=f"user:{name}",
-                    predicate=lambda inp, p=pattern: bool(p.search(_last_user_text(inp))),
+                    predicate=cast(
+                        "Predicate",
+                        lambda inp, p=pattern: bool(p.search(_last_user_text(inp))),
+                    ),
                     params=dict(params),
                 )
             )
@@ -430,7 +433,10 @@ def user_rules_from_config(entries: list[dict[str, Any]]) -> list[Rule]:
             rules.append(
                 Rule(
                     name=f"user:{name}",
-                    predicate=lambda inp, c=count: inp.tool_calls_so_far >= c,
+                    predicate=cast(
+                        "Predicate",
+                        lambda inp, c=count: inp.tool_calls_so_far >= c,
+                    ),
                     params=dict(params),
                 )
             )

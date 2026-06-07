@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 _SCHEMA_DIR = Path(__file__).resolve().parent
 _PROTOCOL_PATH = _SCHEMA_DIR / "v1" / "protocol.json"
@@ -37,7 +37,7 @@ def load_protocol() -> dict[str, Any]:
     package and never mutates at runtime.
     """
     with open(_PROTOCOL_PATH, encoding="utf-8") as f:
-        return json.load(f)
+        return cast("dict[str, Any]", json.load(f))
 
 
 def event_schema(type_literal: str) -> dict[str, Any]:
@@ -76,7 +76,7 @@ def _resolve_ref(proto: dict[str, Any], ref: str) -> dict[str, Any]:
     if not ref.startswith("#/$defs/"):
         raise ValueError(f"unsupported $ref shape: {ref!r}")
     name = ref[len("#/$defs/") :]
-    return proto["$defs"][name]
+    return cast("dict[str, Any]", proto["$defs"][name])
 
 
 __all__ = [

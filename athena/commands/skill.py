@@ -16,6 +16,7 @@ Subcommands:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from .. import ui
 from ..skills.importer import import_archive, import_skill
@@ -32,7 +33,7 @@ def _is_archive(path: Path) -> bool:
 
 
 @command("skill")
-def cmd_skill(agent, arg: str = "") -> str:
+def cmd_skill(agent: Any, arg: str = "") -> str:
     parts = (arg or "").strip().split(maxsplit=1)
     if not parts:
         ui.error("usage: /skill import <path> | /skill import-workspace <path> | /skill reload")

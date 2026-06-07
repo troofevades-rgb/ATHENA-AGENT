@@ -26,7 +26,7 @@ import shlex
 import shutil
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..config import load_config
 
@@ -314,4 +314,4 @@ def main(argv: list[str]) -> int:
     if not getattr(args, "func", None):
         p.print_help()
         return 2
-    return args.func(args)
+    return cast(int, args.func(args))

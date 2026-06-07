@@ -24,12 +24,16 @@ import json
 import logging
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ..tools.registry import tool
 from .audit import ActionAuditLog, default_audit_path
-from .contract import Action, Screenshot
+from .contract import Action, ActionType, Screenshot
 from .detect import select_backend
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..config import Config
+    from .permission import PermissionGate
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +47,7 @@ _backend: Any = None
 _audit: ActionAuditLog | None = None
 
 
-def _resolve_backend(cfg: Any):
+def _resolve_backend(cfg: Any) -> Any:
     """Lazy backend resolution — picked once per process so a
     series of computer_* calls reuses the same handle."""
     global _backend
@@ -71,7 +75,7 @@ def _reset_for_tests() -> None:
     _audit = None
 
 
-def _load_cfg():
+def _load_cfg() -> Config:
     """Indirection so tests can monkeypatch."""
     from ..config import load_config
 
@@ -291,18 +295,22 @@ def computer_observe(question: str = "", **_kwargs: Any) -> str:
     answer: str | None = None
     vision_error: str | None = None
     try:
+        from ..config import profile_dir as _pd
         from ..vision.analyze import (
+            ProviderFactory,
             _default_provider_factory,
             _handle_describe,
         )
-        from ..vision.hashlog import HashLogger
+        from ..vision.hashlog import HashLogger, audit_path
 
+        profile = getattr(cfg, "profile", None) or "default"
+        hash_logger = HashLogger(audit_path(_pd(profile)))
         described = _handle_describe(
             Path(path),
-            HashLogger(cfg=cfg),
+            hash_logger,
             cfg,
             prompt=question,
-            provider_factory=_default_provider_factory,
+            provider_factory=cast(ProviderFactory, _default_provider_factory),
         )
         if "error" in described:
             vision_error = str(described["error"])
@@ -386,7 +394,7 @@ def _persist_screenshot(shot: Screenshot, *, cfg: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _gate_for(cfg: Any):
+def _gate_for(cfg: Any) -> PermissionGate:
     """Build a PermissionGate. T6-04R: the gate routes through
     :mod:`athena.safety.approval_guard` directly — there is no
     longer a bespoke confirm callback here. Prompts surface via
@@ -537,7 +545,7 @@ def computer_click(
     **_kwargs: Any,
 ) -> str:
     button = (button or "left").lower()
-    action_type = (
+    action_type: ActionType = (
         "double_click" if button == "double" else "right_click" if button == "right" else "click"
     )
     return _single_action_path(

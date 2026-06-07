@@ -41,6 +41,8 @@ from .events import MessageEvent
 from .router import SessionRouter
 
 if TYPE_CHECKING:
+    from ..webhooks.server import WebhookServer
+    from ..webhooks.subscription import WebhookSubscription
     from .base import GatewayAdapter
 
 logger = logging.getLogger(__name__)
@@ -323,7 +325,7 @@ class GatewayDaemon:
 
     # ---- webhook server bootstrap ----
 
-    async def _start_webhook_server(self, host: str, port: int):
+    async def _start_webhook_server(self, host: str, port: int) -> WebhookServer:
         """Construct + start a WebhookServer wired to the same
         profile's store and a dispatch callback that closes over
         this daemon. Called from start() when
@@ -334,7 +336,11 @@ class GatewayDaemon:
 
         store = WebhookStore(self.profile_dir / "webhooks.db")
 
-        async def _dispatch(sub, payload, headers):
+        async def _dispatch(
+            sub: WebhookSubscription,
+            payload: dict[str, Any],
+            headers: dict[str, str],
+        ) -> None:
             await dispatch_webhook(
                 daemon=self,
                 sub=sub,

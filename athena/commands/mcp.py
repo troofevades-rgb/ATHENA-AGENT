@@ -8,13 +8,15 @@ misbehaving subprocess).
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from ..mcp.loader import active_clients, disable_server, enable_server, hidden_servers
 from . import command
 
 
 @command("mcp")
-def cmd_mcp(agent, arg: str = "") -> str:
+def cmd_mcp(agent: Any, arg: str = "") -> str:
     sub = arg.split(maxsplit=1)
     clients = active_clients()
     hidden = hidden_servers()

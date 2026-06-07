@@ -41,6 +41,7 @@ import asyncio
 import json
 import logging
 import threading
+from collections.abc import Coroutine
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutTimeout
 from typing import Any
@@ -166,7 +167,9 @@ class SSETransport:
         )
         self._thread.start()
 
-    def _submit_blocking(self, coro, *, timeout: float | None = None) -> Any:
+    def _submit_blocking(
+        self, coro: Coroutine[Any, Any, Any], *, timeout: float | None = None
+    ) -> Any:
         assert self._loop is not None, "loop not started"
         cf: Future[Any] = asyncio.run_coroutine_threadsafe(coro, self._loop)
         try:
@@ -253,6 +256,7 @@ class SSETransport:
             # is overwritten as soon as the new endpoint frame
             # arrives (see _handle_frame).
             self._endpoint_ready.clear()
+            assert self._client is not None, "listener started before client init"
             try:
                 async with self._client.stream("GET", "/sse") as r:
                     if r.status_code == 401 and self.oauth_cfg is not None:
@@ -452,6 +456,7 @@ class SSETransport:
         if not self._endpoint_ready.is_set():
             await asyncio.sleep(0.05)
 
+        assert self._client is not None, "request issued before client init"
         self._id_counter += 1
         msg_id = self._id_counter
         envelope = {

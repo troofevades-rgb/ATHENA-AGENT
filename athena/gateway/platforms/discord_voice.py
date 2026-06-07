@@ -92,7 +92,7 @@ def _mono_rms(mono: bytes) -> float:
     s.frombytes(mono[: len(mono) - (len(mono) % 2)])
     if not s:
         return 0.0
-    return (sum(x * x for x in s) / len(s)) ** 0.5
+    return float((sum(x * x for x in s) / len(s)) ** 0.5)
 
 
 def downmix_stereo_to_mono(pcm_stereo: bytes) -> bytes:

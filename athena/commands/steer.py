@@ -11,13 +11,15 @@ model, prepending each as a synthetic ``[/steer] <message>`` user message.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from ..steer.queue import GLOBAL_STEER_QUEUE
 from . import command
 
 
 @command("steer")
-def cmd_steer(agent, arg: str = "") -> str:
+def cmd_steer(agent: Any, arg: str = "") -> str:
     arg = arg.strip()
     session_id = agent.session_id or "_no_session"
 
@@ -37,7 +39,7 @@ def cmd_steer(agent, arg: str = "") -> str:
 
 
 @command("queue")
-def cmd_queue(agent, arg: str = "") -> str:
+def cmd_queue(agent: Any, arg: str = "") -> str:
     session_id = agent.session_id or "_no_session"
     pending = GLOBAL_STEER_QUEUE.list(session_id)
     if not pending:

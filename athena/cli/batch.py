@@ -21,11 +21,19 @@ import argparse
 import json
 import logging
 import sys
-from concurrent.futures import ThreadPoolExecutor, wait
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..config import load_config, profile_dir
+
+if TYPE_CHECKING:
+    from ..batch.manifest import BatchEntry, BatchManifest, ManifestEntry
+    from ..config import Config
+
+# Fired once per finished/skipped entry with (manifest_entry, done, total).
+ProgressFn = Callable[["ManifestEntry", int, int], None]
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +122,7 @@ def _resolve_output_dir(
     args: argparse.Namespace,
     *,
     batch_id: str,
-    cfg: Any,
+    cfg: Config,
 ) -> Path:
     if args.output_dir:
         return Path(args.output_dir).expanduser()
@@ -124,12 +132,12 @@ def _resolve_output_dir(
 
 def _run_one(
     *,
-    entry,
-    cfg,
-    workspace_default,
-    output_dir,
-    force,
-) -> tuple[Any, dict[str, Any]]:
+    entry: BatchEntry,
+    cfg: Config,
+    workspace_default: Path,
+    output_dir: Path,
+    force: bool,
+) -> tuple[ManifestEntry, dict[str, Any]]:
     """Run one batch entry — used by both the serial path and
     the ThreadPool path. Returns (manifest_entry, envelope_dict).
     Skipped entries return a synthesized manifest_entry +
@@ -139,6 +147,8 @@ def _run_one(
     from ..batch.runner import _safe_filename
     from ..headless import run_headless
 
+    # Callers (_run_parallel) pre-allocate run_ids before submitting work.
+    assert entry.run_id is not None
     envelope_path = output_dir / f"{_safe_filename(entry.run_id)}.json"
     if envelope_path.exists() and not force:
         try:
@@ -178,8 +188,16 @@ def _run_one(
 
 
 def _run_parallel(
-    entries, *, cfg, workspace_default, output_dir, force, parallel, progress, batch_id
-):
+    entries: list[BatchEntry],
+    *,
+    cfg: Config,
+    workspace_default: Path,
+    output_dir: Path,
+    force: bool,
+    parallel: int,
+    progress: ProgressFn | None,
+    batch_id: str,
+) -> BatchManifest:
     """ThreadPoolExecutor wrapper. Workers each construct their
     own Agent inside run_headless — no shared state. Results
     return in input order (not completion order) so the
@@ -218,7 +236,7 @@ def _run_parallel(
     results: dict[int, Any] = {}
     skipped_count = 0
 
-    def _task(idx: int, entry):
+    def _task(idx: int, entry: BatchEntry) -> tuple[int, tuple[ManifestEntry, dict[str, Any]]]:
         return idx, _run_one(
             entry=entry,
             cfg=cfg,
@@ -243,6 +261,8 @@ def _run_parallel(
         for i, entry in enumerate(entries):
             if i in results:
                 continue
+            # run_ids were pre-allocated above before any work was submitted.
+            assert entry.run_id is not None
             ph = {
                 "run_id": entry.run_id,
                 "status": "interrupted",
@@ -302,7 +322,9 @@ def _run_parallel(
     return manifest
 
 
-def _as_completed(futures):
+def _as_completed(
+    futures: list[Future[tuple[int, tuple[ManifestEntry, dict[str, Any]]]]],
+) -> Iterator[Future[tuple[int, tuple[ManifestEntry, dict[str, Any]]]]]:
     """Yield futures as they complete. Wraps concurrent.futures
     as_completed so the caller's `for fut in ...:` shape works
     without an extra import in the call site."""
@@ -311,14 +333,14 @@ def _as_completed(futures):
     yield from as_completed(futures)
 
 
-def _progress_to_stderr(quiet: bool):
+def _progress_to_stderr(quiet: bool) -> ProgressFn | None:
     """Build the per-entry progress callback. Quiet mode → no-
     op; otherwise emit one line per entry to stderr with the
     status + run_id + duration."""
     if quiet:
         return None
 
-    def _print(me, done: int, total: int) -> None:
+    def _print(me: ManifestEntry, done: int, total: int) -> None:
         # Color stub: keep stderr text-only for portability.
         # The CLI's existing ui module would add colors but
         # would also depend on stdout — and progress is

@@ -249,7 +249,7 @@ class WindowsBackend:
 # ---------------------------------------------------------------------------
 
 
-def _hbitmap_to_bmp(hbm: int, width: int, height: int, gdi32) -> bytes:
+def _hbitmap_to_bmp(hbm: int, width: int, height: int, gdi32: Any) -> bytes:
     """Extract pixel bytes from an HBITMAP + wrap with a minimal
     BMP header. Returned bytes are a valid BMP that any image
     library (or the OS preview) can read."""
@@ -425,7 +425,7 @@ class _INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("ii", _INPUT_UNION)]
 
 
-def _send_input(*inputs) -> int:
+def _send_input(*inputs: _INPUT) -> int:
     """SendInput wrapper. Returns the number of events sent."""
     user32 = ctypes.windll.user32
     n = len(inputs)

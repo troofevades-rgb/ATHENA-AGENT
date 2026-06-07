@@ -46,9 +46,10 @@ def _verify_after_write(p: Path) -> str:
         if getattr(cfg, "verify_on_write", "diagnose") == "off":
             return ""
         from ..verify import VerifiedExecution
+        from ..verify.outcome import VerificationOutcome
 
         verifier = VerifiedExecution(cfg=cfg, workspace=_WORKSPACE)
-        outcome = verifier.verify_write(p)
+        outcome: VerificationOutcome = verifier.verify_write(p)
     except Exception:  # noqa: BLE001
         import logging as _logging
 
@@ -104,6 +105,7 @@ def workspace_info() -> str:
     }
     # Profile + memory dir are convenience extras. Failures here must
     # not crash the whole tool — surface "(unavailable)" instead.
+    profile = "default"
     try:
         from ..config import profile_dir
         from ._active_cfg import active_cfg
@@ -116,9 +118,9 @@ def workspace_info() -> str:
         info["profile"] = "(unavailable)"
         info["profile_dir"] = "(unavailable)"
     try:
-        from ..memory import memory_dir
+        from ..memory.store import memory_dir
 
-        info["memory_dir"] = str(memory_dir(_WORKSPACE))
+        info["memory_dir"] = str(memory_dir(profile, workspace=_WORKSPACE))
     except Exception:  # noqa: BLE001
         info["memory_dir"] = "(unavailable)"
     return _json.dumps(info, indent=2)
@@ -148,7 +150,7 @@ def workspace_info() -> str:
     },
     parallel_safe=True,
 )
-def Read(file_path: str, offset: int | None = None, limit: int | None = None, **legacy) -> str:
+def Read(file_path: str, offset: int | None = None, limit: int | None = None, **legacy: Any) -> str:
     # Back-compat: also accept path / start_line / end_line from old call sites.
     file_path = file_path or legacy.get("path")  # type: ignore[assignment]
     if offset is None and "start_line" in legacy:
@@ -210,7 +212,7 @@ def Read(file_path: str, offset: int | None = None, limit: int | None = None, **
     },
     requires_confirmation=True,
 )
-def Write(file_path: str = "", content: str = "", **legacy) -> str:
+def Write(file_path: str = "", content: str = "", **legacy: Any) -> str:
     file_path = file_path or legacy.get("path", "")
     p = _resolve(file_path, intent="write")
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -281,7 +283,7 @@ def Edit(
     replace_all: bool = False,
     fuzzy: bool = False,
     fuzzy_threshold: float = 0.95,
-    **legacy,
+    **legacy: Any,
 ) -> str:
     # Back-compat: old call sites used path/old_str/new_str
     file_path = file_path or legacy.get("path", "")

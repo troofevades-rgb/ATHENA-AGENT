@@ -13,7 +13,7 @@ from typing import Any
 if sys.version_info >= (3, 11):
     import tomllib
 else:
-    import tomli as tomllib  # type: ignore
+    import tomli as tomllib  # type: ignore[import-not-found,unused-ignore]
 
 
 from .config_sections import (
@@ -858,11 +858,19 @@ class Config:
 # names are re-exported here so callers importing from athena.config
 # (the existing public surface) keep working without churn.
 from .config_deprecations import (
-    _DEPRECATION_WARNED,
-    _LEGACY_FIELD_MAP,
-    _emit_deprecation,
-    reported_deprecations,
-    reset_deprecation_dedup,
+    _DEPRECATION_WARNED as _DEPRECATION_WARNED,
+)
+from .config_deprecations import (
+    _LEGACY_FIELD_MAP as _LEGACY_FIELD_MAP,
+)
+from .config_deprecations import (
+    _emit_deprecation as _emit_deprecation,
+)
+from .config_deprecations import (
+    reported_deprecations as reported_deprecations,
+)
+from .config_deprecations import (
+    reset_deprecation_dedup as reset_deprecation_dedup,
 )
 
 # Sections that legitimately accept arbitrary sub-keys (plugin names,

@@ -19,6 +19,7 @@ user clicks).
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -28,7 +29,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def build_agent_factory(daemon: GatewayDaemon):
+def build_agent_factory(
+    daemon: GatewayDaemon,
+) -> Callable[[str], Awaitable[Agent]]:
     """Return an async ``(session_id) -> Agent`` factory bound to
     ``daemon``. The factory closes over the daemon's session store,
     config, and profile dir; it does NOT close over a specific
@@ -68,7 +71,9 @@ def _build_agent_sync(daemon: GatewayDaemon, session_id: str) -> Agent:
     # competes with the user-facing reply for the local Ollama inference
     # slot (a chat turn can crawl or stall), and a chat user never sees
     # the review's suggestions anyway. Read by AgentRuntime._maybe_fire_review.
-    agent._suppress_background_review = True
+    # The flag is not a declared Agent attribute (runtime reads it via getattr
+    # with a False default), so the assignment is dynamic.
+    agent._suppress_background_review = True  # type: ignore[attr-defined]
     try:
         loaded = agent.load_history_from_session(session_id)
         if loaded:
@@ -103,7 +108,7 @@ def build_gateway_approval_callback(
     platform: str,
     chat_id: str,
     timeout: float | None = None,
-):
+) -> Callable[[str, dict[str, Any]], str]:
     """Return a sync approval callback that bridges into
     :meth:`ApprovalRouter.request_sync`.
 

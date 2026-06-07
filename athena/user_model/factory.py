@@ -15,7 +15,13 @@ from typing import TYPE_CHECKING
 
 from ..config import profile_dir
 from ..memory.store import memory_dir
-from .base import BackendHealth, IngestResult, QueryResult, UserModelBackend
+from .base import (
+    BackendHealth,
+    IngestResult,
+    QueryResult,
+    Transcript,
+    UserModelBackend,
+)
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -31,7 +37,7 @@ class _DisabledBackend:
 
     backend_name = "none"
 
-    async def ingest_session(self, transcript, *, session_id):
+    async def ingest_session(self, transcript: Transcript, *, session_id: str) -> IngestResult:
         return IngestResult(
             facts_added=0,
             facts_updated=0,
@@ -39,7 +45,7 @@ class _DisabledBackend:
             backend=self.backend_name,
         )
 
-    async def query(self, question, *, max_tokens=800):
+    async def query(self, question: str, *, max_tokens: int = 800) -> QueryResult:
         return QueryResult(
             answer="(user model disabled — set [user_model] backend to enable)",
             sources=[],

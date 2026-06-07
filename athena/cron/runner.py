@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from .delivery import deliver
-from .jobs import JobStore
+from .jobs import CronJob, JobStore
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +51,15 @@ def run_agent_job_by_id(job_id: str, *, jobs_db_path: Path | None = None) -> Non
     run_agent_job(job, store=store)
 
 
-def run_agent_job(job, *, store: JobStore | None = None) -> dict[str, Any]:
+def run_agent_job(job: CronJob, *, store: JobStore | None = None) -> dict[str, Any]:
     """Build an Agent, run one turn, deliver the result. Returns the
     delivered dict so callers (tests, run-now) can inspect it.
     """
     if not (job.skill or job.prompt):
-        result = {"status": "error", "reason": "agent job has no skill or prompt"}
+        result: dict[str, Any] = {
+            "status": "error",
+            "reason": "agent job has no skill or prompt",
+        }
         if store:
             store.record_run(job.id, status="error")
         deliver(job, result)
@@ -113,7 +116,7 @@ def run_agent_job(job, *, store: JobStore | None = None) -> dict[str, Any]:
     return result
 
 
-def _build_prompt(job) -> str:
+def _build_prompt(job: CronJob) -> str:
     if job.skill:
         ctx = f" Context: {job.description}" if job.description else ""
         return f"Run the {job.skill} skill.{ctx}"

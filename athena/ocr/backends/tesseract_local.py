@@ -29,12 +29,16 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...providers import register_provider
-from ...providers.base import Capabilities, Provider
+from ...providers.base import Capabilities, Provider, StreamChunk
 from ..contract import OCRBlock, OCRResult
+
+if TYPE_CHECKING:
+    from ...config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -64,17 +68,19 @@ class TesseractLocalBackend(Provider):
 
     def __init__(self, api_key: str | None = None, **kwargs: Any):
         super().__init__(api_key=api_key, **kwargs)
-        self._cfg_override = kwargs.get("cfg")
+        self._cfg_override: Config | None = kwargs.get("cfg")
 
     # ----- chat ABC plumbing — not a chat backend -----
 
-    def stream_chat(self, **kwargs: Any):  # noqa: D401
+    def stream_chat(self, **kwargs: Any) -> Iterator[StreamChunk]:  # noqa: D401
         raise NotImplementedError(
             "ocr_tesseract_local is an OCR backend, not a chat "
             "provider; route via MediaRegistry.backend_for('ocr')"
         )
 
-    def parse_tool_calls(self, content: str, raw_response: dict[str, Any]):
+    def parse_tool_calls(
+        self, content: str, raw_response: dict[str, Any]
+    ) -> tuple[str, list[dict[str, Any]]]:
         return content, []
 
     # ----- OCRBackend protocol -----
@@ -152,7 +158,7 @@ class TesseractLocalBackend(Provider):
 
     # ----- internals -----
 
-    def _load_cfg(self):
+    def _load_cfg(self) -> Config:
         if self._cfg_override is not None:
             return self._cfg_override
         from ...config import load_config

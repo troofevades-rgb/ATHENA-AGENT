@@ -21,8 +21,12 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from ..config import load_config, profile_dir
+
+if TYPE_CHECKING:
+    from ..cache import CrossSessionCache
 
 
 def _resolve_index_path(args: argparse.Namespace) -> Path:
@@ -35,7 +39,7 @@ def _resolve_index_path(args: argparse.Namespace) -> Path:
     return profile_dir(profile) / "cache_index.json"
 
 
-def _build_cache(path: Path):
+def _build_cache(path: Path) -> CrossSessionCache:
     from ..cache import CrossSessionCache
 
     cfg = load_config()
@@ -115,4 +119,4 @@ def main(argv: list[str]) -> int:
     p_clear.set_defaults(func=cmd_clear)
 
     args = ap.parse_args(argv)
-    return args.func(args)
+    return cast(int, args.func(args))

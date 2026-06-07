@@ -29,7 +29,7 @@ from . import command
 
 
 @command("checkpoint")
-def cmd_checkpoint(agent, arg: str = "") -> str:
+def cmd_checkpoint(agent: Any, arg: str = "") -> str:
     """Create a checkpoint. Usage: /checkpoint [label]"""
     mgr = getattr(agent, "checkpoint_manager", None)
     if mgr is None:
@@ -46,7 +46,7 @@ def cmd_checkpoint(agent, arg: str = "") -> str:
 
 
 @command("rollback-to")
-def cmd_rollback_to(agent, arg: str = "") -> str:
+def cmd_rollback_to(agent: Any, arg: str = "") -> str:
     """Rollback to a checkpoint by label or id.
     Usage: /rollback-to <label-or-id>"""
     mgr = getattr(agent, "checkpoint_manager", None)
@@ -76,7 +76,7 @@ def cmd_rollback_to(agent, arg: str = "") -> str:
 
 
 @command("checkpoints")
-def cmd_checkpoints(agent, arg: str = "") -> str:
+def cmd_checkpoints(agent: Any, arg: str = "") -> str:
     """List checkpoints, or `/checkpoints purge` to drop auto-created
     pre-rollback entries.
     Usage: /checkpoints [purge]"""
@@ -99,7 +99,7 @@ def cmd_checkpoints(agent, arg: str = "") -> str:
     return ""
 
 
-def _reload_agent_messages(agent) -> None:
+def _reload_agent_messages(agent: Any) -> None:
     """After a rollback truncates the session log, re-sync
     ``agent.messages`` (the in-memory transcript fed to the provider)
     from the now-shortened JSONL plus the synthetic rollback marker.

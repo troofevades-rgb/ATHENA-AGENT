@@ -16,10 +16,14 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
-from ..config import load_config
+from ..config import Config, load_config
 from ..providers import list_providers
 from ..providers.credential_pool import Credential, CredentialPool, profile_pool
+
+if TYPE_CHECKING:
+    from ..config_sections import ProvidersConfig
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -98,7 +102,7 @@ def _build_parser() -> argparse.ArgumentParser:
 # ---- capabilities ------------------------------------------------------
 
 
-def _cmd_capabilities(args) -> int:
+def _cmd_capabilities(args: argparse.Namespace) -> int:
     """``athena providers capabilities`` — render the capability matrix."""
     import dataclasses as _dc
     import json as _json
@@ -143,7 +147,7 @@ def _cmd_capabilities(args) -> int:
     return 0
 
 
-def _open_pool(args) -> CredentialPool:
+def _open_pool(args: argparse.Namespace) -> CredentialPool:
     # Explicit file override wins (test isolation). Otherwise resolve
     # the profile and hand back its scoped pool — so `athena providers
     # add-key` writes where the agent running that profile reads.
@@ -161,7 +165,7 @@ def _open_pool(args) -> CredentialPool:
 # ---- list ---------------------------------------------------------------
 
 
-def _cmd_list(args) -> int:
+def _cmd_list(args: argparse.Namespace) -> int:
     pool = _open_pool(args)
     registered = set(list_providers())
     with_creds = pool.list_credentials()
@@ -183,7 +187,7 @@ def _cmd_list(args) -> int:
 # ---- add-key / remove-key ----------------------------------------------
 
 
-def _cmd_add_key(args) -> int:
+def _cmd_add_key(args: argparse.Namespace) -> int:
     registered = set(list_providers())
     if args.provider not in registered:
         print(
@@ -202,7 +206,7 @@ def _cmd_add_key(args) -> int:
     return 0
 
 
-def _cmd_remove_key(args) -> int:
+def _cmd_remove_key(args: argparse.Namespace) -> int:
     pool = _open_pool(args)
     removed = pool.remove_credential(args.provider, args.key_or_match)
     if removed == 0:
@@ -219,7 +223,7 @@ def _cmd_remove_key(args) -> int:
 # ---- test ---------------------------------------------------------------
 
 
-def _cmd_test(args) -> int:
+def _cmd_test(args: argparse.Namespace) -> int:
     pool = _open_pool(args)
     cfg = load_config()
     registered = set(list_providers())
@@ -248,7 +252,7 @@ def _cmd_test(args) -> int:
 
 def _probe_provider(
     name: str,
-    cfg,
+    cfg: Config,
     pool: CredentialPool,
     *,
     model_override: str | None = None,
@@ -271,7 +275,8 @@ def _probe_provider(
             return False, f"unreachable: {e}"
 
     if name == "openai_compat":
-        host = (cfg.providers or {}).get("openai_compat", {}).get("host")
+        providers_cfg = cast("ProvidersConfig", cfg.providers or {})
+        host = providers_cfg.get("openai_compat", {}).get("host")
         if not host:
             return False, "providers.openai_compat.host not configured"
         return True, f"host configured: {host} (no live probe)"
@@ -328,7 +333,7 @@ _SAMPLE_MODELS: dict[str, str] = {
 # ---- Entry point --------------------------------------------------------
 
 
-def _cmd_models(args) -> int:
+def _cmd_models(args: argparse.Namespace) -> int:
     """Query the provider's list-models endpoint and print every available id."""
     pool = _open_pool(args)
     cfg = load_config()

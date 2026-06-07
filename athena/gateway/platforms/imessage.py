@@ -175,8 +175,9 @@ class IMessageAdapter(GatewayAdapter, TextApprovalState):
         """BlueBubbles wraps events as ``{"data": {...}}`` but some
         proxies pre-unwrap. Accept either shape."""
         if isinstance(raw, dict):
-            if isinstance(raw.get("data"), dict):
-                return raw["data"]
+            inner = raw.get("data")
+            if isinstance(inner, dict):
+                return inner
             return raw
         if isinstance(raw, str):
             try:

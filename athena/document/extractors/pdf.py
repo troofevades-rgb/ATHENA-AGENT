@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..result import (
     DocumentResult,
@@ -112,7 +112,7 @@ def rasterize_page(
         # the matrix scales the 72-DPI base to the requested DPI.
         matrix = fitz.Matrix(dpi / 72.0, dpi / 72.0)
         pix = p.get_pixmap(matrix=matrix, alpha=False)
-        return pix.tobytes("png")
+        return cast(bytes, pix.tobytes("png"))
     finally:
         doc.close()
 

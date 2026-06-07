@@ -171,7 +171,14 @@ def _search_duckduckgo(query: str, max_results: int) -> list[dict[str, str]]:
         a = div.select_one("a.result__a") or div.select_one("a")
         if not a:
             continue
-        href = a.get("href", "")
+        href_attr = a.get("href", "")
+        # ``Tag.get`` may return a multi-valued attribute list; href is
+        # single-valued, so collapse to a plain string (preserving prior
+        # str-only behaviour) before parsing.
+        if isinstance(href_attr, list):
+            href = href_attr[0] if href_attr else ""
+        else:
+            href = href_attr or ""
         # DDG wraps URLs in a redirector — extract the underlying url if present
         if href.startswith("//duckduckgo.com/l/?uddg="):
             from urllib.parse import parse_qs, unquote, urlparse

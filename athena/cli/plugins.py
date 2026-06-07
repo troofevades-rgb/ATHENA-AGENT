@@ -77,8 +77,8 @@ def _set_enabled(name: str, enabled: bool) -> int:
         )
         return 2
     state = load_plugin_state()
-    enabled_map = state.get("enabled") if isinstance(state.get("enabled"), dict) else {}
-    enabled_map = dict(enabled_map)
+    raw_enabled = state.get("enabled")
+    enabled_map: dict[str, bool] = dict(raw_enabled) if isinstance(raw_enabled, dict) else {}
     enabled_map[name] = enabled
     state["enabled"] = enabled_map
     save_plugin_state(state)

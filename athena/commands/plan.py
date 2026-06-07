@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from ..tools import plan as plan_mod
 from . import command
 
 
 @command("plan")
-def cmd_plan(agent, arg: str = "") -> str:
+def cmd_plan(agent: Any, arg: str = "") -> str:
     arg = arg.strip()
     plan_mod.enter_plan_mode()
     if not arg:
@@ -19,7 +21,7 @@ def cmd_plan(agent, arg: str = "") -> str:
 
 
 @command("plan-exit")
-def cmd_plan_exit(agent, arg: str = "") -> str:
+def cmd_plan_exit(agent: Any, arg: str = "") -> str:
     plan_mod.exit_plan_mode_silent()
     ui.info("plan mode exited (without execution)")
     return ""

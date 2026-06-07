@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from .. import ui
 from ..config import SESSIONS_DIR
@@ -11,7 +12,7 @@ from . import command
 
 
 @command("resume")
-def cmd_resume(agent, arg: str = "") -> str:
+def cmd_resume(agent: Any, arg: str = "") -> str:
     arg = arg.strip()
     if not arg:
         # List the most recent sessions

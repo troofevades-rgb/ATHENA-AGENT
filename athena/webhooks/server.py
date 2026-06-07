@@ -32,7 +32,7 @@ import asyncio
 import base64
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -333,7 +333,7 @@ _FORWARDED_HEADER_PREFIXES: tuple[str, ...] = (
 )
 
 
-def _snapshot_headers(headers) -> dict[str, str]:
+def _snapshot_headers(headers: Mapping[str, str]) -> dict[str, str]:
     """Filter the request headers to a small set the agent might
     care about (event type, source identity, etc.).
 

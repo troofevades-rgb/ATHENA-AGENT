@@ -179,8 +179,9 @@ def _coerce_user_text(message: dict[str, Any]) -> str:
         return message
     if not isinstance(message, dict):
         return ""
-    if isinstance(message.get("text"), str):
-        return message["text"]
+    text = message.get("text")
+    if isinstance(text, str):
+        return text
     content = message.get("content")
     if isinstance(content, str):
         return content
@@ -193,7 +194,9 @@ def _coerce_user_text(message: dict[str, Any]) -> str:
     return ""
 
 
-def _build_approval_callback(server: ACPServer, session_id: str):
+def _build_approval_callback(
+    server: ACPServer, session_id: str
+) -> Callable[[str, dict[str, Any]], str]:
     """Return a sync approval callback that bridges into
     :meth:`StreamingSender.permission_request` via
     ``asyncio.run_coroutine_threadsafe``.

@@ -144,7 +144,7 @@ def main(argv: list[str]) -> int:
         rollbacks = collect_rollback_markers(profile_dir=pdir, since=since, until=until)
 
     if args.action == "skill":
-        events = collect_skill_events(
+        skill_events = collect_skill_events(
             audit_dir=audit_dir,
             since=since,
             until=until,
@@ -153,30 +153,33 @@ def main(argv: list[str]) -> int:
         )
         if args.json_out:
             sys.stdout.write(
-                render_skill_diff_json(events, since=since, until=until, rollbacks=rollbacks) + "\n"
-            )
-        else:
-            sys.stdout.write(
-                render_skill_diff(events, since=since, until=until, rollbacks=rollbacks)
-            )
-        return 0
-
-    if args.action == "memory":
-        events = collect_memory_events(
-            audit_dir=audit_dir,
-            since=since,
-            until=until,
-            actor=args.actor,
-            with_content=args.content,
-        )
-        if args.json_out:
-            sys.stdout.write(
-                render_memory_diff_json(events, since=since, until=until, rollbacks=rollbacks)
+                render_skill_diff_json(skill_events, since=since, until=until, rollbacks=rollbacks)
                 + "\n"
             )
         else:
             sys.stdout.write(
-                render_memory_diff(events, since=since, until=until, rollbacks=rollbacks)
+                render_skill_diff(skill_events, since=since, until=until, rollbacks=rollbacks)
+            )
+        return 0
+
+    if args.action == "memory":
+        memory_events = collect_memory_events(
+            audit_dir=audit_dir,
+            since=since,
+            until=until,
+            actor=args.actor,
+            with_content=args.content,
+        )
+        if args.json_out:
+            sys.stdout.write(
+                render_memory_diff_json(
+                    memory_events, since=since, until=until, rollbacks=rollbacks
+                )
+                + "\n"
+            )
+        else:
+            sys.stdout.write(
+                render_memory_diff(memory_events, since=since, until=until, rollbacks=rollbacks)
             )
         return 0
 

@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as _dt
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -523,7 +524,7 @@ def _iter_mutation_records(
     *,
     since: _dt.datetime,
     until: _dt.datetime,
-):
+) -> Iterator[dict[str, Any]]:
     """Walk every ``mutations-YYYY-MM.jsonl`` under ``audit_dir`` and
     yield records whose ``timestamp`` falls in the window."""
     if not audit_dir.exists():

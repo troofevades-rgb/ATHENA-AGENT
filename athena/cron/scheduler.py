@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -141,10 +142,11 @@ class CronScheduler:
     def get_job(self, job_id: str) -> CronJob | None:
         return self.store.get(job_id)
 
-    def next_run_time(self, job_id: str):
+    def next_run_time(self, job_id: str) -> datetime | None:
         """Return the APScheduler-computed next-run time, or None."""
         job = self._sched.get_job(job_id)
-        return job.next_run_time if job else None
+        next_run: datetime | None = job.next_run_time if job else None
+        return next_run
 
     # ---- Internals ----
 

@@ -145,7 +145,7 @@ def _try_run_tui(state: dict[str, Any]) -> bool:
     except ImportError:
         return False
 
-    class _BoardApp(App[Any]):
+    class _BoardApp(App[Any]):  # type: ignore[misc,unused-ignore]  # App is Any when textual absent (CI)
         CSS = """
         Screen { background: $surface; }
         .col { width: 1fr; height: 1fr; padding: 1; border: solid $primary; }
@@ -197,7 +197,7 @@ def _try_run_tui(state: dict[str, Any]) -> bool:
 
 
 @command("board")
-def cmd_board(agent, arg: str = "") -> str:
+def cmd_board(agent: Any, arg: str = "") -> str:
     """``/board`` subcommands:
 
     /board                  show the board (default)

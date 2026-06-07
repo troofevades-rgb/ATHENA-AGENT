@@ -12,15 +12,19 @@ import argparse
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 from ..config import CONFIG_DIR, profile_dir
 from ..curator import state as curator_state
+
+if TYPE_CHECKING:
+    from ..agent.core import Agent
 
 # We don't need the full Agent for headless curator runs; a SimpleNamespace
 # carrying the few fields maybe_run_curator inspects is enough.
 
 
-def _build_agent_shell(profile: str, home: Path | None):
+def _build_agent_shell(profile: str, home: Path | None) -> SimpleNamespace:
     from ..config import load_config
 
     cfg = load_config()
@@ -72,7 +76,7 @@ def _logs_root(home: Path | None) -> Path:
     return (home or CONFIG_DIR) / "logs"
 
 
-def _cmd_run(args) -> int:
+def _cmd_run(args: argparse.Namespace) -> int:
     # Run the curator with the configured logs path via monkey patch on the
     # orchestrator's helper. Simpler: import the helper and let it stay
     # default (CONFIG_DIR). For --home override we set CONFIG_DIR.
@@ -86,7 +90,9 @@ def _cmd_run(args) -> int:
 
     agent = _build_agent_shell(args.profile, home)
     try:
-        summary = maybe_run_curator(agent, force=args.force, dry_run=args.dry_run)
+        # The headless shell is an intentional duck-typed stand-in carrying
+        # only the fields maybe_run_curator inspects (see _build_agent_shell).
+        summary = maybe_run_curator(cast("Agent", agent), force=args.force, dry_run=args.dry_run)
     finally:
         try:
             agent.session_store.close()
@@ -106,7 +112,7 @@ def _cmd_run(args) -> int:
     return 0
 
 
-def _cmd_status(args) -> int:
+def _cmd_status(args: argparse.Namespace) -> int:
     home = args.home.expanduser().resolve() if args.home else None
     s = curator_state.read_state(_skills_root(home))
     print(
@@ -122,7 +128,7 @@ def _cmd_status(args) -> int:
     return 0
 
 
-def _set_paused(args, paused: bool) -> int:
+def _set_paused(args: argparse.Namespace, paused: bool) -> int:
     home = args.home.expanduser().resolve() if args.home else None
     root = _skills_root(home)
     s = curator_state.read_state(root)
@@ -138,7 +144,7 @@ def _set_paused(args, paused: bool) -> int:
     return 0
 
 
-def _cmd_inspect_last(args) -> int:
+def _cmd_inspect_last(args: argparse.Namespace) -> int:
     home = args.home.expanduser().resolve() if args.home else None
     logs = _logs_root(home) / "curator"
     if not logs.exists():

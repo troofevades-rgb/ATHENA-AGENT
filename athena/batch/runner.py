@@ -18,7 +18,7 @@ import re
 import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..config import Config
 from .manifest import (
@@ -168,7 +168,10 @@ def batch_run(
     total = len(entries_list)
     try:
         for idx, entry in enumerate(entries_list, start=1):
-            envelope_path = output_dir / f"{_safe_filename(entry.run_id)}.json"
+            # run_id is non-None here: the mint loop above assigns one to
+            # every entry that arrived without it.
+            run_id = cast("str", entry.run_id)
+            envelope_path = output_dir / f"{_safe_filename(run_id)}.json"
 
             # Resume-safety: skip when the envelope already exists AND
             # is readable. A corrupt envelope used to be substituted with
@@ -216,7 +219,7 @@ def batch_run(
                 timeout_s=entry.timeout_s,
             )
 
-            envelope = result.to_dict() if hasattr(result, "to_dict") else dict(result)
+            envelope = result.to_dict() if hasattr(result, "to_dict") else dict(cast("Any", result))
             envelope_path.write_text(
                 json.dumps(envelope, indent=2, ensure_ascii=False),
                 encoding="utf-8",
@@ -247,7 +250,7 @@ def batch_run(
                 "task": entry.task,
                 "error": "batch interrupted before this entry ran",
             }
-            ph_path = output_dir / f"{_safe_filename(entry.run_id)}.json"
+            ph_path = output_dir / f"{_safe_filename(cast('str', entry.run_id))}.json"
             me = ManifestEntry.from_run_result(
                 envelope=placeholder_envelope,
                 envelope_path=ph_path,

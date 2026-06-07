@@ -24,7 +24,7 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def ffprobe_json(
     if not out.stdout.strip():
         return {}
     try:
-        return json.loads(out.stdout)
+        return cast("dict[str, Any]", json.loads(out.stdout))
     except json.JSONDecodeError:
         logger.warning("ffprobe emitted non-JSON for %s", path)
         return {}

@@ -336,9 +336,8 @@ def delegate_to_cli(
             reason="cli_delegate_command not configured",
         )
 
-    effective_timeout = float(
-        timeout_s if timeout_s is not None else getattr(cfg, "cli_delegate_timeout_s", 600.0)
-    )
+    cfg_timeout: float = getattr(cfg, "cli_delegate_timeout_s", 600.0)
+    effective_timeout = float(timeout_s if timeout_s is not None else cfg_timeout)
     worktree_root_cfg = getattr(cfg, "cli_delegate_worktree_root", None)
     worktree_root = Path(worktree_root_cfg) if worktree_root_cfg else None
 

@@ -8,12 +8,17 @@ use to weight the answer.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from . import file_ops
 from .registry import tool
 
+if TYPE_CHECKING:
+    from ..agent.core import Agent
 
-def _build_llm_call(agent):
+
+def _build_llm_call(agent: Agent) -> Callable[[str, str], Awaitable[str]]:
     """Wrap the agent's sync streaming provider as an async
     ``(system, user) -> str`` callable for the user-model backend."""
 

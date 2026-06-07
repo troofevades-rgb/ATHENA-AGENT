@@ -40,7 +40,10 @@ import platform
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -254,7 +257,7 @@ def _verdict_from_proc(
     )
 
 
-def _load_cfg():
+def _load_cfg() -> Config:
     """Module-level cfg load for the no-arg public-API form.
     Tests override by passing cfg= directly."""
     from ..config import load_config

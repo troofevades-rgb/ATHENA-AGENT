@@ -19,7 +19,10 @@ def _set_pinned(name: str, value: bool, workspace: Path | None) -> Path:
         raise SkillNotFoundError(f"no skill named {name!r}")
     _fm, skill_dir = entry
     skill_md = skill_dir / "SKILL.md"
-    fm, body = parse_frontmatter(skill_md)
+    parsed = parse_frontmatter(skill_md)
+    if parsed is None:
+        raise SkillNotFoundError(f"no SKILL.md to patch at {skill_md}")
+    fm, body = parsed
     fm.pinned = value
     skill_md.write_text(serialize_frontmatter(fm, body), encoding="utf-8")
     loader.invalidate(name, workspace)

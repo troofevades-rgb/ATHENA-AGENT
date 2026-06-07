@@ -30,13 +30,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from ..base import GatewayAdapter
 from ..events import ApprovalRequest, MessageEvent, MessageType
 from ._text_approval import TextApprovalState
+
+if TYPE_CHECKING:
+    from ..daemon import GatewayDaemon
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +54,7 @@ class SignalAdapter(GatewayAdapter, TextApprovalState):
 
     def __init__(
         self,
-        daemon,
+        daemon: GatewayDaemon,
         *,
         rest_url: str,
         account_number: str,

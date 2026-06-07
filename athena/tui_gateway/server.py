@@ -311,7 +311,7 @@ class _UnixDomainTransport(_Transport):
         self._path = f"/tmp/athena-tui-{os.getpid()}-{secrets.token_hex(4)}.sock"
 
     def bind(self) -> None:
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # type: ignore[attr-defined,unused-ignore]  # NOTE: AF_UNIX is POSIX-only; absent on win32 mypy platform
         # Restrict file mode to 0600 via umask at bind() — avoids
         # the race window of bind-then-chmod.
         old_umask = os.umask(0o077)

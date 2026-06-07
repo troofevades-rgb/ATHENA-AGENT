@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import re
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    import asyncio
 
 from .. import ui
 from . import command
@@ -36,7 +39,7 @@ def _parse(arg: str) -> tuple[float, str] | None:
     return float(n * multiplier), body
 
 
-def _run_iteration(agent, body: str) -> None:
+def _run_iteration(agent: Any, body: str) -> None:
     def _do() -> None:
         try:
             if body.startswith("/"):
@@ -56,7 +59,10 @@ def _run_iteration(agent, body: str) -> None:
 
         app = get_app_or_none()
         if app is not None and app.is_running:
-            future = run_in_terminal(_do)
+            # run_in_terminal is typed as returning Awaitable[None] but at
+            # runtime hands back an asyncio.Future (via ensure_future), which
+            # exposes .result(). Narrow to Future so the blocking wait typechecks.
+            future = cast("asyncio.Future[None]", run_in_terminal(_do))
             future.result()
             return
     except Exception:
@@ -65,7 +71,7 @@ def _run_iteration(agent, body: str) -> None:
 
 
 @command("loop")
-def cmd_loop(agent, arg: str = "") -> str:
+def cmd_loop(agent: Any, arg: str = "") -> str:
     global _LOOP
     parsed = _parse(arg)
     if not parsed:
@@ -108,7 +114,7 @@ def cmd_loop(agent, arg: str = "") -> str:
 
 
 @command("loop-stop")
-def cmd_loop_stop(agent, arg: str = "") -> str:
+def cmd_loop_stop(agent: Any, arg: str = "") -> str:
     global _LOOP
     if _LOOP is None:
         ui.info("no loop running")

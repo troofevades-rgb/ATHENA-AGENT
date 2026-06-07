@@ -54,7 +54,7 @@ import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 from ..config import load_config, profile_dir
 from .hashlog import HashLogger, audit_path, sha256_file
@@ -93,16 +93,16 @@ VALID_MODES = (
 # and returns *something* exposing a sync `describe(messages)`
 # method that returns a string. The production factory walks
 # T5-05's MediaRegistry; tests inject their own stub.
-ProviderFactory = Callable[[Any], "_VisionProvider"]
+ProviderFactory = Callable[[Any], "_VisionProvider | None"]
 
 
-class _VisionProvider:
+class _VisionProvider(Protocol):
     """Protocol — anything with a ``describe(messages) -> str``
     method qualifies. Doesn't subclass anything; ducktyping is
     enough for the analyzer's needs."""
 
     def describe(self, messages: list[dict[str, Any]]) -> str:  # pragma: no cover
-        raise NotImplementedError
+        ...
 
 
 def _default_provider_factory(cfg: Any) -> _VisionProvider | None:
@@ -139,7 +139,7 @@ class _StreamingDescribeAdapter:
     Consumes the stream, concatenates content chunks, returns the
     finished text."""
 
-    def __init__(self, provider, *, cfg):
+    def __init__(self, provider: Any, *, cfg: Any) -> None:
         self._provider = provider
         self._cfg = cfg
 
@@ -489,7 +489,7 @@ def _run(
                 return json.dumps({"error": "crop requires box=[x0,y0,x1,y1]", "mode": mode})
             return json.dumps(
                 _handle_crop(
-                    Path(path),
+                    Path(path),  # type: ignore[arg-type]
                     log,
                     box=box,
                     out_dir=paths_resolved["crops"],
@@ -499,19 +499,28 @@ def _run(
         if mode == "histogram":
             return json.dumps(_handle_histogram(Path(path), log, bins=bins))  # type: ignore[arg-type]
         if mode == "phash":
-            algo = algorithm or getattr(cfg, "vision_phash_algorithm", "phash")
-            hs = hash_size if hash_size is not None else getattr(cfg, "vision_phash_size", 8)
+            algo: str = algorithm or cast(str, getattr(cfg, "vision_phash_algorithm", "phash"))
+            hs: int = (
+                hash_size
+                if hash_size is not None
+                else cast(int, getattr(cfg, "vision_phash_size", 8))
+            )
             return json.dumps(
                 _handle_phash(
-                    Path(path),
+                    Path(path),  # type: ignore[arg-type]
                     log,
                     algorithm=algo,
                     hash_size=hs,
                 )
             )
         if mode == "compare":
-            algo = algorithm or getattr(cfg, "vision_phash_algorithm", "phash")
-            hs = hash_size if hash_size is not None else getattr(cfg, "vision_phash_size", 8)
+            assert paths is not None  # narrowed by the arity check above
+            algo = algorithm or cast(str, getattr(cfg, "vision_phash_algorithm", "phash"))
+            hs = (
+                hash_size
+                if hash_size is not None
+                else cast(int, getattr(cfg, "vision_phash_size", 8))
+            )
             return json.dumps(
                 _handle_compare(
                     Path(paths[0]),
@@ -525,7 +534,7 @@ def _run(
             factory = _provider_factory or _default_provider_factory
             return json.dumps(
                 _handle_describe(
-                    Path(path),
+                    Path(path),  # type: ignore[arg-type]
                     log,
                     cfg,
                     prompt=prompt,

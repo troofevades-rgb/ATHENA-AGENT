@@ -36,7 +36,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .. import tools, ui
 from ..config import Config
@@ -51,8 +51,11 @@ from .param_policy import ParamPolicy, policy_from_config
 from .stats import Stats
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..browser.session import BrowserSession
     from ..cache import CacheEntry
     from ..goal.state import GoalState
+    from ..skills.watcher import SkillWatcher
+    from .core import Agent
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +96,9 @@ class AgentLifecycle:
         cross_session_cache_entry: CacheEntry | None
         _model_system_cache: dict[str, str]
         _goal_loop_tokens_used: int
+        _prefill_cache: list[dict[str, Any]] | None
+        _skill_watcher: SkillWatcher | None
+        browser_session: BrowserSession | None
 
     def _cancel_in_flight(self) -> None:
         """Force an in-flight LLM HTTP stream to abort. Called from
@@ -199,10 +205,10 @@ class AgentLifecycle:
 
             from ..curator.orchestrator import maybe_run_curator
 
-            def _spawn():
+            def _spawn() -> None:
                 _cp("curator_thread_entry")
                 try:
-                    maybe_run_curator(self)
+                    maybe_run_curator(cast("Agent", self))
                 except Exception as e:
                     ui.info(f"curator run failed: {e}")
                     _cp("curator_thread_exception", exc=f"{type(e).__name__}: {e}")
@@ -340,10 +346,8 @@ class AgentLifecycle:
 
             summary = maybe_migrate_workspace_memory(self.cfg, self.workspace)
             if summary and summary.get("ran") and summary.get("copied"):
-                ui.info(
-                    f"migrated {len(summary['copied'])} legacy memory file(s) "
-                    f"into {summary['target']}"
-                )
+                copied = cast("list[str]", summary["copied"])
+                ui.info(f"migrated {len(copied)} legacy memory file(s) into {summary['target']}")
         except Exception as e:
             ui.info(f"legacy memory migration skipped: {e}")
 
@@ -444,7 +448,7 @@ class AgentLifecycle:
         except Exception:
             return None
 
-    def _load_goal_state(self):
+    def _load_goal_state(self) -> GoalState | None:
         """Read the T5-07 GoalState for this profile. None when no
         state file (no active loop)."""
         try:
@@ -560,7 +564,7 @@ class AgentLifecycle:
         valid entries are returned with extra keys stripped so the
         provider sees only the contract shape.
         """
-        cache = getattr(self, "_prefill_cache", None)
+        cache: list[dict[str, Any]] | None = getattr(self, "_prefill_cache", None)
         if cache is not None:
             return cache
         path_str = getattr(self.cfg, "agent_prefill_messages_file", None)
@@ -1058,9 +1062,10 @@ class AgentLifecycle:
         except Exception:  # noqa: BLE001
             logger.debug("cancel hook unregistration failed", exc_info=True)
         # Tear down the optional skill watcher (if running).
-        if getattr(self, "_skill_watcher", None) is not None:
+        watcher: SkillWatcher | None = getattr(self, "_skill_watcher", None)
+        if watcher is not None:
             try:
-                self._skill_watcher.stop()
+                watcher.stop()
             except Exception:  # noqa: BLE001
                 logger.debug("skill watcher stop failed", exc_info=True)
             self._skill_watcher = None
@@ -1112,9 +1117,10 @@ class AgentLifecycle:
         # ensure_started never fired (no chromium to tear down).
         # The user_data_dir on disk persists for a future
         # resume; only the live process is released here.
-        if getattr(self, "browser_session", None) is not None:
+        browser_session: BrowserSession | None = getattr(self, "browser_session", None)
+        if browser_session is not None:
             try:
-                self.browser_session.close()
+                browser_session.close()
             except Exception:  # noqa: BLE001
                 logger.debug("browser_session.close raised", exc_info=True)
             try:

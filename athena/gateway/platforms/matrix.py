@@ -32,7 +32,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..base import GatewayAdapter
 from ..events import ApprovalRequest, MessageEvent, MessageType
@@ -231,8 +231,9 @@ class MatrixAdapter(GatewayAdapter):
             request_id = self._prompt_to_request.get(target_event_id)
             if request_id is None:
                 return
+            decision: Literal["allow", "deny"]
             if key == _REACTION_ALLOW:
-                decision: str = "allow"
+                decision = "allow"
             elif key == _REACTION_DENY:
                 decision = "deny"
             else:

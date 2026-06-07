@@ -38,7 +38,10 @@ def _age(now: datetime, ts: datetime | None) -> timedelta | None:
 
 def _patch_state(skill_dir: Path, new_state: str) -> None:
     skill_md = skill_dir / "SKILL.md"
-    fm, body = parse_frontmatter(skill_md)
+    parsed = parse_frontmatter(skill_md)
+    if parsed is None:
+        raise archive_mod.SkillNotFoundError(f"no SKILL.md to patch at {skill_md}")
+    fm, body = parsed
     fm.state = new_state
     skill_md.write_text(serialize_frontmatter(fm, body), encoding="utf-8")
 

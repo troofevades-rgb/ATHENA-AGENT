@@ -34,6 +34,7 @@ contexts and the future board TUI's refresh thread.
 
 from __future__ import annotations
 
+import builtins
 import dataclasses
 import json
 import logging
@@ -293,7 +294,7 @@ class TaskStore:
         out.sort(key=lambda t: (_STATUS_ORDER.get(t.status, 99), t.order, t.created_at))
         return out
 
-    def all(self) -> list[Task]:
+    def all(self) -> builtins.list[Task]:
         """Every live task, no filter — for admin / status."""
         return self.list()
 

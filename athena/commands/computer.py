@@ -11,6 +11,8 @@ adjust the underlying knobs.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from ..computer.audit import ActionAuditLog, default_audit_path
 from ..computer.detect import available_backends, select_backend
@@ -75,7 +77,7 @@ def _print_status(*, tail_n: int = 5) -> None:
 
 
 @command("computer")
-def cmd_computer(agent, arg: str = "") -> str:
+def cmd_computer(agent: Any, arg: str = "") -> str:
     """``/computer`` slash command — status by default; ``status``
     is the explicit form."""
     arg = (arg or "").strip().lower()

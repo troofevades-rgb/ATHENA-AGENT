@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ..base import GatewayAdapter
 from ..events import ApprovalRequest, MessageEvent, MessageType
@@ -231,7 +231,10 @@ class TelegramAdapter(GatewayAdapter):
             try:
                 file_obj = await self._bot.get_file(file_id)
                 dest = chat_dir / (suggested_name or _basename_for(file_obj, file_id))
-                await self._bot.download_file(file_obj.file_path, destination=str(dest))
+                file_path = file_obj.file_path
+                if file_path is None:
+                    raise ValueError("Telegram File has no file_path")
+                await self._bot.download_file(file_path, destination=str(dest))
                 out.append(dest)
             except Exception:
                 logger.warning(
@@ -368,7 +371,9 @@ class TelegramAdapter(GatewayAdapter):
             if len(parts) == 3 and parts[0] == _CALLBACK_PREFIX:
                 _, request_id, decision = parts
                 if decision in {"allow", "deny"}:
-                    self.daemon.approvals.resolve(request_id, decision)
+                    self.daemon.approvals.resolve(
+                        request_id, cast(Literal["allow", "deny"], decision)
+                    )
         finally:
             try:
                 await callback.answer()

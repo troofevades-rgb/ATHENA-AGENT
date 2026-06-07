@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .delivery import deliver
-from .jobs import JobStore
+from .jobs import CronJob, JobStore
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +47,15 @@ def run_watchdog_job_by_id(job_id: str, *, jobs_db_path: Path | None = None) -> 
     run_watchdog_job(job, store=store)
 
 
-def run_watchdog_job(job, *, store: JobStore | None = None) -> dict[str, Any]:
+def run_watchdog_job(job: CronJob, *, store: JobStore | None = None) -> dict[str, Any]:
     """Execute ``job.script`` as a shell command. Returns the result dict
     (also delivered via :func:`deliver` and recorded against the store).
     """
     if not job.script:
-        result = {"status": "error", "reason": "watchdog job has no script"}
+        result: dict[str, Any] = {
+            "status": "error",
+            "reason": "watchdog job has no script",
+        }
         if store:
             store.record_run(job.id, status="error")
         deliver(job, result)
@@ -96,7 +99,7 @@ def run_watchdog_job(job, *, store: JobStore | None = None) -> dict[str, Any]:
     return result
 
 
-def _default_jobs_db(config_dir) -> Path:
+def _default_jobs_db(config_dir: str | Path) -> Path:
     """Default location for the cron jobs DB used when no override is passed.
 
     Lives next to the APScheduler db at ``<CONFIG_DIR>/cron_jobs.db``.

@@ -279,9 +279,7 @@ def _gather_usage_metrics_for_report(agent: Any) -> dict[str, Any] | None:
 
     top = sorted(all_metrics.values(), key=lambda m: m.views, reverse=True)[:10]
     never = [n for n in catalogue if n not in all_metrics or all_metrics[n].views == 0]
-    stale_30 = [
-        m for m in all_metrics.values() if m.days_stale() is not None and m.days_stale() > 30
-    ]
+    stale_30 = [m for m in all_metrics.values() if (ds := m.days_stale()) is not None and ds > 30]
     return {
         "top": [
             {
@@ -331,7 +329,7 @@ def _build_usage_section_for_prompt(agent: Any) -> str:
 
     never = [n for n in catalogue if n not in all_metrics or all_metrics[n].views == 0]
     stale_30 = [
-        m.name for m in all_metrics.values() if (m.days_stale() is not None and m.days_stale() > 30)
+        m.name for m in all_metrics.values() if (ds := m.days_stale()) is not None and ds > 30
     ]
     top = sorted(all_metrics.values(), key=lambda m: m.views, reverse=True)[:10]
 

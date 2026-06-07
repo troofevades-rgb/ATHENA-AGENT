@@ -10,7 +10,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from rich.console import Console
 from rich.live import Live
@@ -27,7 +27,8 @@ from rich.text import Text
 if sys.platform == "win32":
     for _stream in (sys.stdout, sys.stderr):
         try:
-            _stream.reconfigure(errors="replace")
+            # reconfigure exists on TextIOWrapper but not the generic TextIO type.
+            cast(Any, _stream).reconfigure(errors="replace")
         except (AttributeError, ValueError):
             pass
 
@@ -88,7 +89,7 @@ def _load_themes() -> dict[str, Theme]:
     try:
         import tomllib  # py311+
     except ImportError:
-        import tomli as tomllib  # type: ignore
+        import tomli as tomllib
 
     themes: dict[str, Theme] = {}
 
@@ -228,7 +229,7 @@ from contextlib import contextmanager as _contextmanager
 
 
 @_contextmanager
-def user_facing_render():
+def user_facing_render() -> Iterator[None]:
     """While this context is active, any ``console.print`` call
     is captured and shipped as MessageAppendEvent — so slash
     command output (``/help``, ``/board``, etc) shows up in the
@@ -342,12 +343,12 @@ def _bridged_print(*args: Any, **kwargs: Any) -> None:
         # the transcript. The console.file devnull redirect
         # silences the actual Rich render.
         if _saved_console_print is not None:
-            return _saved_console_print(*args, **kwargs)
+            _saved_console_print(*args, **kwargs)
         return None
     gw = _active_gateway
     if gw is None or _saved_console_print is None:
         if _saved_console_print is not None:
-            return _saved_console_print(*args, **kwargs)
+            _saved_console_print(*args, **kwargs)
         return None
     try:
         import io as _io
@@ -435,7 +436,15 @@ def _emit_message(role: str, content: str) -> bool:
     try:
         from .tui_gateway.events import MessageAppendEvent
 
-        gw.send_event(MessageAppendEvent(role=role, content=content))
+        # role is a free-form str at this surface (callers pass "system",
+        # "separator", ...); the event field is a Literal — preserve the
+        # current pass-through behaviour rather than narrowing the param.
+        gw.send_event(
+            MessageAppendEvent(
+                role=cast(Literal["user", "assistant", "system", "tool"], role),
+                content=content,
+            )
+        )
         return True
     except RuntimeError:
         # Gateway socket dead. Step 6 design: no mid-session
@@ -570,7 +579,7 @@ def tool_call_summary(name: str, args: dict[str, Any], *, call_id: str | None = 
     )
 
 
-def _short(v, n: int = 60) -> str:
+def _short(v: Any, n: int = 60) -> str:
     s = repr(v)
     return s if len(s) <= n else s[: n - 1] + "…"
 
@@ -895,7 +904,7 @@ class TypewriterStream:
         self._gateway: Any | None = None
         self._stream_id: str | None = None
 
-    def _renderable(self, body: str):
+    def _renderable(self, body: str) -> Text:
         text = Text()
         if self._prefix:
             text.append(self._prefix, style=self._prefix_style or "")
@@ -1117,7 +1126,11 @@ def _confirm_via_gateway(
                 default=default,
                 tool_name=tool_name,
                 preview=preview,
-                preview_kind=preview_kind,
+                # public param is permissive str|None; the event field is a
+                # Literal — preserve pass-through rather than narrow the API.
+                preview_kind=cast(
+                    "Literal['command', 'diff', 'file', 'text'] | None", preview_kind
+                ),
             )
         )
     except Exception:  # noqa: BLE001

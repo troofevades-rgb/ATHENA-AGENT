@@ -24,6 +24,7 @@ import dataclasses
 import logging
 import time
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -71,13 +72,24 @@ class StubLocalVideoBackend(Provider):
     # Chat ABC plumbing — not a chat backend.
     # ------------------------------------------------------------------
 
-    def stream_chat(self, *, model, messages, tools=None, **kwargs):
+    def stream_chat(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.7,
+        max_tokens: int | None = None,
+        **kwargs: Any,
+    ) -> Iterator[StreamChunk]:
         raise NotImplementedError(
             "stub_video_local is capability-only (video_generation); "
             "route via best_provider_for({'video_generation'})"
         )
 
-    def parse_tool_calls(self, content, raw_response):
+    def parse_tool_calls(
+        self, content: str, raw_response: dict[str, Any]
+    ) -> tuple[str, list[dict[str, Any]]]:
         return content, []
 
     # ------------------------------------------------------------------

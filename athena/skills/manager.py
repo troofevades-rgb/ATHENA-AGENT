@@ -153,7 +153,10 @@ def skill_patch(
     if skill_dir is None:
         raise SkillNotFoundError(f"no skill named {name!r}")
     skill_md = skill_dir / "SKILL.md"
-    existing_fm, existing_body = parse_frontmatter(skill_md)
+    parsed = parse_frontmatter(skill_md)
+    if parsed is None:
+        raise SkillNotFoundError(f"no SKILL.md for skill {name!r}")
+    existing_fm, existing_body = parsed
 
     origin = get_current_write_origin()
     if origin in _AUTONOMOUS_MUTABLE_ORIGINS:

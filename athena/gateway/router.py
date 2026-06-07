@@ -20,7 +20,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .events import MessageEvent
 
@@ -136,7 +136,7 @@ class SessionRouter:
             ).fetchone()
             if row is not None:
                 self._touch_route(event)
-                return row[0]
+                return cast(str, row[0])
 
             if self.continuity:
                 linked = self._lookup_via_canonical_user(event)

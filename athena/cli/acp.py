@@ -21,6 +21,10 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..agent.core import Agent
 
 logger = logging.getLogger("athena.acp.cli")
 
@@ -39,7 +43,7 @@ async def _serve_async(profile: str | None) -> int:
 
     workspace = Path.cwd()
 
-    def _factory():
+    def _factory() -> Agent:
         # Defer the import so we don't construct an agent (and pull
         # in providers / skills / etc.) unless the IDE actually calls
         # session/new.

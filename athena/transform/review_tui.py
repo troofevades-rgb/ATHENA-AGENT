@@ -40,10 +40,14 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .batch_driver import BatchReviewDriver
 from .classifier import Label, Trajectory
+
+if TYPE_CHECKING:
+    from textual.app import App as _TextualApp
+    from textual.app import ComposeResult as _ComposeResult
 
 logger = logging.getLogger(__name__)
 
@@ -112,13 +116,13 @@ def make_app(
     *,
     suggestion_fn: SuggestionFn = default_suggestion,
     keymap: str = "default",
-):
+) -> _TextualApp[Any]:
     """Build the textual App for this driver. Returns an App
     instance; the caller decides whether to ``app.run()`` (live) or
     ``async with app.run_test()`` (pilot-driven test)."""
     syms = _require_textual()
-    App = syms["App"]
-    ComposeResult = syms["ComposeResult"]
+    App: Any = syms["App"]
+    ComposeResult = syms["ComposeResult"]  # kept for runtime parity; annotation uses _ComposeResult
     Binding = syms["Binding"]
     Vertical = syms["Vertical"]
     Footer = syms["Footer"]
@@ -138,7 +142,7 @@ def make_app(
         for key, action in keymap_dict.items()
     ]
 
-    class _LabelingApp(App):
+    class _LabelingApp(App):  # type: ignore[misc]  # dynamic lazy-imported optional-dep base (textual)
         TITLE = "athena train review"
         BINDINGS = bindings
 
@@ -151,7 +155,7 @@ def make_app(
 
         # ---- layout ----
 
-        def compose(self) -> ComposeResult:
+        def compose(self) -> _ComposeResult:
             yield Header()
             yield Vertical(
                 Static(id="status"),

@@ -36,6 +36,7 @@ import logging
 import threading
 import time
 import urllib.parse
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +64,13 @@ class CaptureLogger:
     session's wait penalty).
     """
 
-    def __init__(self, path: Path | str, *, min_interval_s: float = 1.0, sleep_fn=time.sleep):
+    def __init__(
+        self,
+        path: Path | str,
+        *,
+        min_interval_s: float = 1.0,
+        sleep_fn: Callable[[float], None] = time.sleep,
+    ):
         self.path = Path(path)
         self.min_interval_s = float(min_interval_s)
         self._last_nav_by_domain: dict[str, float] = {}

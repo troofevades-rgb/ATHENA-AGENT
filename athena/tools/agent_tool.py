@@ -76,10 +76,11 @@ def _resolve_disabled(spec_disabled: Any, enabled: list[str] | None) -> list[str
         return None
     if spec_disabled == "readonly":
         # Subtract anything in the candidate toolsets that isn't read-only.
+        candidates: set[str]
         if enabled is None:
             candidates = set(_REGISTRY.keys())
         else:
-            candidates: set[str] = set()
+            candidates = set()
             for ts in enabled:
                 candidates |= _TOOLSETS.get(ts, set())
         return sorted(candidates - _READONLY_TOOL_NAMES)
@@ -154,9 +155,15 @@ def Agent(
 
     ui.info(f"spawning sub-agent: {subagent_type} — {description}")
     try:
+        from ..agent.fork import fork as _fork
         from ..provenance import SUBAGENT
 
-        result = parent.fork(
+        # ``Agent.fork`` is monkey-patched onto the class at module load
+        # (see ``athena.agent.core``), so mypy can't see it as a method.
+        # Call the underlying typed function directly — identical at
+        # runtime to ``parent.fork(...)``.
+        result = _fork(
+            parent,
             enabled_toolsets=enabled,
             disabled_tools=disabled,
             system_addendum=spec["system_addendum"],

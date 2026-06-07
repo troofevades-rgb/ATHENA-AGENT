@@ -28,13 +28,16 @@ import logging
 import signal
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..config import Config, load_config, profile_dir
 from ..gateway.continuity import ContinuityManager
 from ..gateway.daemon import GatewayDaemon
 from ..gateway.router import SessionRouter
 from ..sessions.store import SessionStore
+
+if TYPE_CHECKING:
+    from ..gateway.base import GatewayAdapter
 
 logger = logging.getLogger("athena.gateway.cli")
 
@@ -86,7 +89,7 @@ def _instantiate_adapter(
     daemon: GatewayDaemon,
     name: str,
     settings: dict[str, Any],
-):
+) -> GatewayAdapter:
     """Construct one adapter by name. Raises ``ValueError`` for
     missing required settings; ``ImportError`` for missing SDKs.
 
@@ -103,17 +106,20 @@ def _instantiate_adapter(
         from ..gateway.platforms.telegram import TelegramAdapter
 
         token = resolve_credential(settings, "bot_token", platform="telegram")
+        assert token is not None  # required=True raises rather than return None
         return TelegramAdapter(daemon, bot_token=token)
     if name == "slack":
         from ..gateway.platforms.slack import SlackAdapter
 
         bot = resolve_credential(settings, "bot_token", platform="slack")
         app = resolve_credential(settings, "app_token", platform="slack")
+        assert bot is not None and app is not None  # required=True raises on missing
         return SlackAdapter(daemon, bot_token=bot, app_token=app)
     if name == "discord":
         from ..gateway.platforms.discord import DiscordAdapter
 
         token = resolve_credential(settings, "bot_token", platform="discord")
+        assert token is not None  # required=True raises rather than return None
         return DiscordAdapter(daemon, bot_token=token)
     if name == "signal":
         from ..gateway.platforms.signal import SignalAdapter
@@ -136,6 +142,7 @@ def _instantiate_adapter(
         if not server:
             raise ValueError("imessage requires server_url")
         password = resolve_credential(settings, "password", platform="imessage")
+        assert password is not None  # required=True raises rather than return None
         return IMessageAdapter(
             daemon,
             server_url=server,
@@ -165,6 +172,13 @@ def _instantiate_adapter(
             "access_token",
             platform="matrix",
         )
+        # The ``missing`` check above guarantees these are truthy; the
+        # ``resolve_credential(required=True)`` raises rather than return
+        # None. mypy can't track either invariant, so narrow explicitly.
+        assert homeserver is not None
+        assert user_id is not None
+        assert device_id is not None
+        assert access_token is not None
         store_path_raw = settings.get("store_path")
         store_path = Path(store_path_raw).expanduser() if store_path_raw else None
         return MatrixAdapter(
@@ -202,6 +216,9 @@ def _instantiate_adapter(
             "smtp_password",
             platform="email",
         )
+        # required=True raises rather than return None for either secret.
+        assert imap_password is not None
+        assert smtp_password is not None
         return EmailAdapter(
             daemon,
             imap_host=settings["imap_host"],

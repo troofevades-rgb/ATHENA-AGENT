@@ -29,11 +29,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from ..agent.core import Agent
     from ..gateway.daemon import GatewayDaemon
     from .subscription import WebhookSubscription
 
@@ -70,7 +72,7 @@ async def dispatch_webhook(
     payload: dict[str, Any],
     headers: dict[str, str],
     *,
-    agent_factory=None,
+    agent_factory: Callable[[], Agent] | None = None,
 ) -> None:
     """Build prompt → run agent → route response.
 
@@ -173,7 +175,7 @@ async def _run_agent(
     sub: WebhookSubscription,
     prompt: str,
     *,
-    agent_factory=None,
+    agent_factory: Callable[[], Agent] | None = None,
 ) -> str:
     """Construct an Agent, run one turn, return last assistant
     message. Agent runs in a worker thread; the asyncio loop stays
@@ -217,7 +219,7 @@ async def _run_agent(
                 )
 
 
-def _default_agent_factory():
+def _default_agent_factory() -> Agent:
     """Production factory: load current config + workspace, build a
     fresh Agent. One per webhook fire — webhooks are stateless."""
     from ..agent.core import Agent

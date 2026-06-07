@@ -21,7 +21,7 @@ import asyncio
 import contextlib
 import logging
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -178,7 +178,7 @@ class AgentPool:
             await self._close_agent(agent, session_id)
 
     @contextlib.asynccontextmanager
-    async def use(self, session_id: str):
+    async def use(self, session_id: str) -> AsyncIterator[Agent]:
         """Yield the agent for ``session_id`` and refcount-pin it so
         :meth:`_evict_if_full_unlocked` won't close it mid-dispatch.
 

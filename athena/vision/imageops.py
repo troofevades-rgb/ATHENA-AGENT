@@ -48,8 +48,9 @@ from __future__ import annotations
 
 import dataclasses
 import io
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import imagehash
 from PIL import Image, ImageChops
@@ -221,8 +222,8 @@ def error_level_analysis(
     # Reduce to luminance — max across RGB channels per pixel.
     diff_l = diff.convert("L")
 
-    extrema = diff_l.getextrema()  # (min, max)
-    max_diff = int(extrema[1])
+    extrema = diff_l.getextrema()  # (min, max) for single-band "L"
+    max_diff = int(cast(float, extrema[1]))
     # Mean diff over the whole frame.
     hist = diff_l.histogram()
     total_pix = img.size[0] * img.size[1]
@@ -242,7 +243,7 @@ def error_level_analysis(
             y1 = h if gy == grid - 1 else (gy + 1) * cell_h
             tile = diff_l.crop((x0, y0, x1, y1))
             t_ext = tile.getextrema()
-            tile_max = int(t_ext[1])
+            tile_max = int(cast(float, t_ext[1]))
             if tile_max < threshold:
                 continue
             t_hist = tile.histogram()
@@ -376,7 +377,7 @@ def histogram(path: Path | str, *, bins: int = 16) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-_HASH_ALGOS = {
+_HASH_ALGOS: dict[str, Callable[..., Any]] = {
     "phash": imagehash.phash,
     "dhash": imagehash.dhash,
     "ahash": imagehash.average_hash,

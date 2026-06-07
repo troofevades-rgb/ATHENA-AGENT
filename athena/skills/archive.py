@@ -37,7 +37,10 @@ def _resolve_unique(parent: Path, name: str) -> Path:
 
 def _patch_state(skill_md: Path, new_state: str) -> None:
     """Rewrite a SKILL.md's frontmatter ``state`` field in place."""
-    fm, body = parse_frontmatter(skill_md)
+    parsed = parse_frontmatter(skill_md)
+    if parsed is None:
+        raise SkillNotFoundError(f"no SKILL.md to patch at {skill_md}")
+    fm, body = parsed
     fm.state = new_state
     skill_md.write_text(serialize_frontmatter(fm, body), encoding="utf-8")
 

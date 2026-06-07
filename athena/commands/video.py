@@ -19,6 +19,8 @@ make it permanent.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from . import command
 
@@ -107,7 +109,7 @@ def _auth_status(name: str) -> str:
     return "[yellow]no credential found[/]"
 
 
-def _resolved_backend_name(cfg) -> str | None:
+def _resolved_backend_name(cfg: Any) -> str | None:
     """What a ``video_generate`` call will ACTUALLY use right now —
     the result of the same resolver the tools call. Returns the backend
     name, or None if nothing resolves. Never raises."""
@@ -120,7 +122,7 @@ def _resolved_backend_name(cfg) -> str | None:
         return None
 
 
-def _show(agent) -> None:
+def _show(agent: Any) -> None:
     cfg = getattr(agent, "cfg", None)
     vg = getattr(cfg, "video_generation", None) if cfg else None
     selector = vg.backend if vg is not None else None
@@ -166,13 +168,13 @@ def _show(agent) -> None:
         ui.console.print(f"{marker} {name}  —  {auth}")
 
 
-def _list(agent) -> None:
+def _list(agent: Any) -> None:
     """Compact name-only listing for scripts."""
     for name, _ in _video_backends():
         ui.console.print(name)
 
 
-def _set(agent, name: str) -> None:
+def _set(agent: Any, name: str) -> None:
     name = name.strip()
     if not name:
         ui.error("usage: /video set <backend_name>")
@@ -190,7 +192,7 @@ def _set(agent, name: str) -> None:
     ui.info(f"video backend → {name} (session-scoped; edit ~/.athena/config.toml to persist)")
 
 
-def _clear(agent) -> None:
+def _clear(agent: Any) -> None:
     cfg = getattr(agent, "cfg", None)
     if cfg is None:
         ui.error("agent has no cfg attribute")
@@ -200,7 +202,7 @@ def _clear(agent) -> None:
 
 
 @command("video")
-def cmd_video(agent, arg: str = "") -> str:
+def cmd_video(agent: Any, arg: str = "") -> str:
     """``/video`` — inspect or switch the video-generation backend."""
     arg = (arg or "").strip()
     if not arg or arg in ("status", "show"):

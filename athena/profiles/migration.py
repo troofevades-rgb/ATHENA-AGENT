@@ -32,6 +32,7 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
+from typing import Any
 
 from ..config import CONFIG_DIR
 from .resolution import DEFAULT_PROFILE, ensure_profile
@@ -167,7 +168,7 @@ def migrate_workspace_memory(
     workspace: Path,
     home: Path | None = None,
     dry_run: bool = False,
-) -> dict[str, list[str] | bool]:
+) -> dict[str, list[str] | bool | str]:
     """Copy legacy workspace-keyed memory into the new sub-store.
 
     Source: ``<home>/.athena/projects/<workspace-slug>/memory/`` --
@@ -276,7 +277,9 @@ def migrate_workspace_memory(
     }
 
 
-def maybe_migrate_workspace_memory(cfg, workspace: Path) -> dict[str, list[str] | bool] | None:
+def maybe_migrate_workspace_memory(
+    cfg: Any, workspace: Path
+) -> dict[str, list[str] | bool | str] | None:
     """Convenience wrapper called from :class:`~athena.agent.core.Agent`
     construction. Returns ``None`` when the flag is off (the common
     case during the dogfood window); otherwise returns the

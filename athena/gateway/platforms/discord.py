@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ..base import GatewayAdapter
 from ..events import ApprovalRequest, MessageEvent, MessageType
@@ -102,17 +102,17 @@ class DiscordAdapter(GatewayAdapter):
         # ``add_listener`` is only on ``discord.ext.commands.Bot``, not
         # plain Client. Set the attribute directly: it's the same shape
         # ``Client.event`` would produce, just with the correct name.
-        self._client.on_ready = self._on_ready
-        self._client.on_message = self._on_message
+        self._client.on_ready = self._on_ready  # type: ignore[attr-defined]  # NOTE: dynamic discord.py event attr (see comment above)
+        self._client.on_message = self._on_message  # type: ignore[attr-defined]  # NOTE: dynamic discord.py event attr (see comment above)
 
-        @self._tree.command(
+        @self._tree.command(  # type: ignore[untyped-decorator]  # NOTE: discord.py CommandTree.command is untyped
             name="athena",
             description="Send a prompt to the athena agent.",
         )
         async def _athena_cmd(interaction: discord.Interaction, prompt: str) -> None:
             await self._on_slash_command(interaction, prompt)
 
-        @self._tree.command(
+        @self._tree.command(  # type: ignore[untyped-decorator]  # NOTE: discord.py CommandTree.command is untyped
             name="voice",
             description="Voice chat with Athena: join | leave | consent.",
         )
@@ -476,7 +476,7 @@ class DiscordAdapter(GatewayAdapter):
     ) -> None:
         if decision not in {"allow", "deny"}:
             return
-        self.daemon.approvals.resolve(request_id, decision)
+        self.daemon.approvals.resolve(request_id, cast('Literal["allow", "deny"]', decision))
 
     # ---- outbound ----
 

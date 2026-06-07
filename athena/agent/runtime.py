@@ -36,8 +36,9 @@ import json
 import logging
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from .. import tools, ui
 from ..safety.approval_callback import get_approval_callback
@@ -51,7 +52,9 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..providers import Provider
     from ..sessions.store import SessionStore
     from .checkpoints import CheckpointManager
+    from .core import Agent
     from .param_policy import ParamPolicy
+    from .stats import Stats
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +126,7 @@ class AgentRuntime:
         model: str
         provider: Provider
         messages: list[dict[str, Any]]
+        stats: Stats
         session_id: str | None
         session_store: SessionStore | None
         plugin_hooks: HookDispatcher
@@ -136,6 +140,14 @@ class AgentRuntime:
         _last_turn_interrupted: bool
         _last_stop_reason: str | None
         cancel_pending: bool
+
+        # Provided by sibling mixins / the concrete Agent; declared
+        # here so the runtime mixin type-checks in isolation.
+        def _profile_dir(self) -> Path: ...
+
+        def _consult_goal_continuation(self, *, tokens_at_loop_start: int) -> str | None: ...
+
+        def write_status_snapshot(self) -> None: ...
 
     def _log_event(
         self,
@@ -192,7 +204,7 @@ class AgentRuntime:
             # GPU is idle, never compete with the user-visible turn.
             self._wait_for_background_review(timeout=3.0)
 
-            token = _current_agent.set(self)
+            token = _current_agent.set(cast("Agent", self))
             set_active_checkpoint_manager(self.checkpoint_manager)
             _set_metrics_store(self.skill_metrics_store)
             # T6-01: bind the per-session vector store on the
@@ -719,7 +731,7 @@ class AgentRuntime:
         try:
             from ..review.orchestrator import maybe_fire_review
 
-            fired = maybe_fire_review(self)
+            fired = maybe_fire_review(cast("Agent", self))
             if fired is not None:
                 self.stats.review_fired_count += 1
                 # Record the thread on the agent so the next
@@ -1069,7 +1081,7 @@ class AgentRuntime:
 
         slots: list[tuple[dict[str, Any], str, str] | None] = [None] * len(batch)
 
-        def _make_sink(idx: int):
+        def _make_sink(idx: int) -> Callable[[dict[str, Any], str, str], None]:
             def _sink(call: dict[str, Any], name: str, result: str) -> None:
                 slots[idx] = (call, name, result)
 

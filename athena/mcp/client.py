@@ -220,6 +220,7 @@ class MCPStdioClient:
     # ---- background loops ----------------------------------------------
 
     def _read_loop(self) -> None:
+        assert self.proc.stdout is not None  # stdout=PIPE at spawn
         try:
             for line in self.proc.stdout:
                 if self._stop.is_set():
@@ -245,6 +246,7 @@ class MCPStdioClient:
                 self._pending.clear()
 
     def _stderr_loop(self) -> None:
+        assert self.proc.stderr is not None  # stderr=PIPE at spawn
         try:
             for line in self.proc.stderr:
                 if self._stop.is_set():

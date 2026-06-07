@@ -34,7 +34,10 @@ import logging
 import signal
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from types import FrameType
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +185,7 @@ def reset_for_tests() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _sigint_handler(signum, frame):  # noqa: ARG001 — signal handler signature
+def _sigint_handler(signum: int, frame: FrameType | None) -> None:  # noqa: ARG001 — signal handler signature
     """SIGINT handler — engages the switch then re-raises so
     downstream code that catches KeyboardInterrupt (the agent's
     existing turn-cancel paths) sees the same signal it always

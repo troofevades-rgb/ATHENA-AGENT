@@ -32,7 +32,7 @@ def install_json_logging(
     from pythonjsonlogger import jsonlogger
 
     handler = logging.StreamHandler(stream=sys.stderr)
-    formatter = jsonlogger.JsonFormatter(
+    formatter = jsonlogger.JsonFormatter(  # type: ignore[attr-defined,unused-ignore]
         "%(asctime)s %(name)s %(levelname)s %(message)s",
         rename_fields={"asctime": "timestamp", "levelname": "level"},
     )
@@ -40,7 +40,7 @@ def install_json_logging(
         # Defaults attach to every record without requiring callers
         # to pass them in via ``extra=``.
         for key, value in static_fields.items():
-            formatter._defaults = {
+            formatter._defaults = {  # type: ignore[attr-defined,unused-ignore]
                 **getattr(formatter, "_defaults", {}),
                 key: value,
             }

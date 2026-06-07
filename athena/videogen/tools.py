@@ -32,11 +32,14 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..tools.registry import tool
 from ..tools.status import status_payload
-from .job import GenerationRequest, resolve_backend, run_generation
+from .job import GenerationRequest, GenerationResult, resolve_backend, run_generation
+
+if TYPE_CHECKING:
+    from ..config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +53,7 @@ _DEFAULT_ASPECT = "16:9"
 # ---------------------------------------------------------------------------
 
 
-def _load_cfg():
+def _load_cfg() -> Config:
     """Resolve the active config.
 
     Prefers the live agent's ``cfg`` when an agent context is set —
@@ -175,7 +178,7 @@ def video_generate(
     return json.dumps(result.to_dict())
 
 
-def _emit_artifact(result) -> None:
+def _emit_artifact(result: GenerationResult) -> None:
     """Hand a successfully-rendered file to the media-artifact sink so
     the gateway can deliver it into the chat. No-op on the terminal
     (nothing bound) and on non-``done`` results."""

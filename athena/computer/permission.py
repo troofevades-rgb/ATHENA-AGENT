@@ -55,6 +55,7 @@ import hashlib
 import logging
 import re
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from ..safety.approval_callback import get_approval_callback
@@ -404,7 +405,7 @@ class PermissionGate:
         return any(a.lower() in haystack for a in allow)
 
 
-def _build_prompt_callback(action: Action, tier: Tier):
+def _build_prompt_callback(action: Action, tier: Tier) -> Callable[[str], bool]:
     """Construct the sync prompt callback approval_guard will
     invoke on a cache miss. Bridges into athena's existing
     :func:`approval_callback.get_approval_callback` so the

@@ -11,10 +11,12 @@ Thin by design. The hard work lives in the dependencies; this
 package sequences them and handles the failure UX.
 """
 
+from typing import Any
+
 from .outcome import VerificationOutcome
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy access to :class:`VerifiedExecution` — the loop pulls
     every Tier-5 dependency at import time; loading it on demand
     keeps the outcome-only surface lightweight (callers that just

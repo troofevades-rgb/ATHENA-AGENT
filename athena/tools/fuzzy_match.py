@@ -17,6 +17,7 @@ both paths are tested.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 
 
 @dataclasses.dataclass
@@ -96,7 +97,7 @@ def find_fuzzy_matches(
     return matches
 
 
-def _build_scorer():
+def _build_scorer() -> Callable[[str, str], float]:
     """Return a (a, b) -> float scorer in [0.0, 1.0].
 
     Prefers rapidfuzz if installed (fast C); falls back to stdlib
@@ -108,7 +109,7 @@ def _build_scorer():
         from rapidfuzz.fuzz import ratio  # type: ignore[import-not-found]
 
         def _scorer(a: str, b: str) -> float:
-            return ratio(a, b) / 100.0
+            return float(ratio(a, b)) / 100.0
 
         return _scorer
     except ImportError:

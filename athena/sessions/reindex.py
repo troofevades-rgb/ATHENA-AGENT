@@ -48,6 +48,7 @@ def _restore_db(bak: Path, db_path: Path) -> None:
 def _load_meta(jsonl_path: Path) -> dict[str, Any]:
     """Read the sidecar meta file or construct a minimal one from the JSONL."""
     meta_path = jsonl_path.with_suffix(".meta.json")
+    meta: dict[str, Any]
     if meta_path.exists():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from . import command
 
@@ -58,7 +60,7 @@ SLASH_HELP = """\
 
 
 @command("help")
-def cmd_help(agent, arg: str = "") -> str:
+def cmd_help(agent: Any, arg: str = "") -> str:
     # Print with markup disabled. Several command-line placeholders
     # in SLASH_HELP are wrapped in square brackets ([file], [path],
     # [name], [ref], [prompt], [list|show|delete|dir], [goal:<id>])

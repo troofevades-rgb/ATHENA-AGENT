@@ -140,8 +140,8 @@ class StreamingSender:
         except (asyncio.TimeoutError, Exception):
             return "deny"
         decision = response.get("decision") if isinstance(response, dict) else None
-        if decision in ("allow", "deny"):
-            return decision
+        if decision == "allow":
+            return "allow"
         return "deny"
 
     # ---- session lifecycle hooks ----

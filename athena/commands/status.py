@@ -13,12 +13,14 @@ counters onto the snapshot when the active provider exposes the
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from . import command
 
 
 @command("status")
-def cmd_status(agent, arg: str = "") -> str:
+def cmd_status(agent: Any, arg: str = "") -> str:
     # ``/status live`` used to render a Rich.Live dashboard via
     # ``ui.live_status``. That function was removed during the
     # UI cleanup — the same live data (model, profile, elapsed,

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from . import command
 
 
 @command("hooks")
-def cmd_hooks(agent, arg: str = "") -> str:
+def cmd_hooks(agent: Any, arg: str = "") -> str:
     plugin = None
     for p in getattr(agent.plugin_hooks, "plugins", []):
         if getattr(p, "name", "") == "shell_hook":

@@ -10,6 +10,8 @@ without re-inlining the whole thing.
 
 from __future__ import annotations
 
+from typing import cast
+
 from .registry import tool
 
 
@@ -53,7 +55,7 @@ def read_tool_result(
     offset: int = 0,
 ) -> str:
     """Read up to ``max_bytes`` of a stored tool result from ``offset``."""
-    from ..agent.core import get_current_agent
+    from ..agent import get_current_agent
 
     agent = get_current_agent()
     storage = getattr(agent, "tool_result_storage", None) if agent else None
@@ -61,7 +63,7 @@ def read_tool_result(
         return "ERROR: tool_result_storage not initialised on the current agent"
 
     try:
-        return storage.read(handle, max_bytes=int(max_bytes), offset=int(offset))
+        return cast(str, storage.read(handle, max_bytes=int(max_bytes), offset=int(offset)))
     except FileNotFoundError as e:
         return f"ERROR: {e}"
     except ValueError as e:

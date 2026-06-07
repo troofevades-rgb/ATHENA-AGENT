@@ -105,20 +105,28 @@ def _try_windows() -> DesktopBackend | None:
 
 def _try_macos() -> DesktopBackend | None:
     try:
-        from .backends.macos import MacOSBackend
+        # macos backend not implemented yet; import fails -> falls back to noop.
+        from .backends.macos import (  # type: ignore[import-not-found]
+            MacOSBackend,
+        )
     except Exception as e:  # noqa: BLE001
         logger.debug("computer: macos backend unavailable: %s", e)
         return None
-    return MacOSBackend()
+    backend: DesktopBackend = MacOSBackend()
+    return backend
 
 
 def _try_linux() -> DesktopBackend | None:
     try:
-        from .backends.linux import LinuxBackend
+        # linux backend not implemented yet; import fails -> falls back to noop.
+        from .backends.linux import (  # type: ignore[import-not-found]
+            LinuxBackend,
+        )
     except Exception as e:  # noqa: BLE001
         logger.debug("computer: linux backend unavailable: %s", e)
         return None
-    return LinuxBackend()
+    backend: DesktopBackend = LinuxBackend()
+    return backend
 
 
 def _noop() -> DesktopBackend:

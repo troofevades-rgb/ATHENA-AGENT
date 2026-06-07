@@ -159,16 +159,16 @@ def reconcile(
 
     # 3. KEEP_AS_IS that flipped state.
     for skill in claimed_keeps:
-        pre = before.get(skill)
-        post = after.get(skill)
-        if pre is None or post is None:
+        kept_pre = before.get(skill)
+        kept_post = after.get(skill)
+        if kept_pre is None or kept_post is None:
             continue
-        if pre.state != post.state or pre.is_archived != post.is_archived:
+        if kept_pre.state != kept_post.state or kept_pre.is_archived != kept_post.is_archived:
             report.no_op_after_keep.append(
                 {
                     "skill": skill,
-                    "before_state": pre.state,
-                    "after_state": post.state,
+                    "before_state": kept_pre.state,
+                    "after_state": kept_post.state,
                 }
             )
 

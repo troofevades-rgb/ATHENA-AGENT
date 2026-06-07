@@ -26,7 +26,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from typing import Any
+from typing import Any, cast
 
 from .. import ui
 
@@ -144,7 +144,7 @@ def _figlet(text: str, font: str) -> str | None:
     except ImportError:
         return None
     try:
-        return pyfiglet.figlet_format(text, font=font).rstrip("\n")
+        return cast(str, pyfiglet.figlet_format(text, font=font)).rstrip("\n")
     except Exception:  # noqa: BLE001 — bad font name etc
         return None
 
@@ -207,7 +207,9 @@ def _cmd_list_fonts(args: argparse.Namespace) -> int:
     except ImportError:
         sys.stderr.write("pyfiglet not installed: pip install pyfiglet\n")
         return 1
-    fonts = sorted(pyfiglet.FigletFont.getFonts())
+    # pyfiglet ships no type stubs; getFonts() is an untyped classmethod.
+    raw_fonts = pyfiglet.FigletFont.getFonts()  # type: ignore[no-untyped-call,unused-ignore]
+    fonts = sorted(cast("list[str]", raw_fonts))
     sys.stdout.write(f"{len(fonts)} available fonts:\n")
     for f in fonts:
         sys.stdout.write(f"  {f}\n")

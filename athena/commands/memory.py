@@ -9,17 +9,19 @@ what the agent will actually see.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .. import ui
 from ..memory.store import delete_entry, list_entries, memory_dir, read_entry
 from . import command
 
 
-def _profile(agent) -> str:
+def _profile(agent: Any) -> str:
     return agent.cfg.profile or "default"
 
 
 @command("memory")
-def cmd_memory(agent, arg: str = "") -> str:
+def cmd_memory(agent: Any, arg: str = "") -> str:
     arg = arg.strip()
     sub, _, rest = arg.partition(" ")
 
@@ -42,16 +44,16 @@ def cmd_memory(agent, arg: str = "") -> str:
             ui.error("usage: /memory show <filename>")
             return ""
         name = rest[:-3] if rest.endswith(".md") else rest
-        entry = read_entry(_profile(agent), name, workspace=agent.workspace)
-        if not entry:
+        shown = read_entry(_profile(agent), name, workspace=agent.workspace)
+        if not shown:
             ui.error(f"not found: {rest}")
             return ""
-        fname = entry.path.name if entry.path is not None else f"{entry.name}.md"
-        ui.console.print(f"[bold]{fname}[/]  [dim][{entry.type}][/]")
-        ui.console.print(f"  name: {entry.name}")
-        ui.console.print(f"  description: {entry.description}")
+        fname = shown.path.name if shown.path is not None else f"{shown.name}.md"
+        ui.console.print(f"[bold]{fname}[/]  [dim][{shown.type}][/]")
+        ui.console.print(f"  name: {shown.name}")
+        ui.console.print(f"  description: {shown.description}")
         ui.console.print()
-        ui.console.print(entry.body)
+        ui.console.print(shown.body)
         return ""
 
     if sub == "delete":
