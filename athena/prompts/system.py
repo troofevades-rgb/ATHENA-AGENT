@@ -464,6 +464,7 @@ def build_system_prompt(
     disabled_sections: list[str] | None = None,
     tool_result_nonce: str | None = None,
     extra_append: str | None = None,
+    allow_elevation: bool = False,
 ) -> str:
     """Assemble the full system prompt.
 
@@ -496,6 +497,35 @@ def build_system_prompt(
 
     env = collect_environment(workspace, model)
     parts.append(env.render())
+
+    # Per-command elevation (opt-in, Windows). Only surfaced when the
+    # operator sets cfg.shell_allow_elevation AND we're on Windows where
+    # `sudo` (inline mode) gives a UAC-gated, output-capturing elevation.
+    # Without this note the model has no reason to know it may elevate; with
+    # it, the model elevates ONE command at a time and the user approves each
+    # UAC prompt at the machine.
+    if allow_elevation and sys.platform == "win32":
+        parts.append(
+            "# Elevated commands (Windows)\n"
+            "This machine permits PER-COMMAND elevation. When a task genuinely "
+            "needs Administrator rights (installing software, writing HKLM / "
+            "registry, managing services, firewall rules, protected system "
+            "files), run that ONE command elevated by wrapping it in PowerShell "
+            "under sudo:\n"
+            '  sudo powershell -NoProfile -Command "<your command>"\n'
+            'e.g. sudo powershell -NoProfile -Command "netsh advfirewall set '
+            'allprofiles state on". Always use this PowerShell-wrapped form: the '
+            "Bash tool runs through Git Bash, which mangles bare slash-flags "
+            "(e.g. /groups becomes a bogus path) and can shadow Windows commands "
+            "(whoami) with MSYS ones — the wrapper avoids both. Windows shows the "
+            "user a UAC prompt to approve at the machine; the command then runs "
+            "elevated and its output returns to you. Rules: elevate ONLY when a "
+            "command actually fails for lack of privilege or clearly requires "
+            "admin — never by default; elevate the single command that needs it, "
+            "not an interactive shell; never hide a destructive operation behind "
+            "it. If you see 'Sudo is disabled on this machine', tell the user to "
+            "enable it (Settings → System → For developers → Enable sudo → Inline)."
+        )
 
     # 0.3.0 Tier-0 #4: explain the per-session tool-result boundary so
     # the model recognises wrapped tool output as untrusted DATA, not

@@ -860,6 +860,7 @@ class AgentRuntime:
                 messages=msgs_to_send,
                 tools=tool_schemas,
                 num_ctx=self.cfg.context_window,
+                keep_alive=getattr(self.cfg, "ollama_keep_alive", None),
                 **policy_params,
             ):
                 if first and chunk.kind in ("content", "tool_call"):
@@ -1490,6 +1491,7 @@ class AgentRuntime:
                 tools=None,
                 max_tokens=target_tokens,
                 num_ctx=self.cfg.context_window,
+                keep_alive=getattr(self.cfg, "ollama_keep_alive", None),
             ):
                 if chunk.kind == "content":
                     payload = chunk.payload or ""

@@ -113,6 +113,12 @@ class Capabilities:
     # declared; consumed by T4-05 document_analyze for scanned
     # PDF pages.
     ocr: bool = False
+    # Voice design (Tier 1): text-to-speech. The TTS resolver
+    # (``athena.audio.tts.resolve.resolve_tts_backend``) routes synthesis
+    # to providers declaring this capability. Defaults False; the in-tree
+    # TTS backends declare it explicitly. Pair with ``is_local=True`` for
+    # on-device synthesis (the privacy win — text never leaves the host).
+    text_to_speech: bool = False
 
     def supports(self, capability: str) -> bool:
         """``True`` when the named field is truthy. Lets callers

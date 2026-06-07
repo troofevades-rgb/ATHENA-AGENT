@@ -34,6 +34,7 @@ capability and the tool can compose the two.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import wave
 from pathlib import Path
@@ -54,6 +55,40 @@ logger = logging.getLogger(__name__)
 _model_lock = threading.Lock()
 _model: Any = None
 _model_key: tuple[str, str, str] | None = None
+_cuda_dll_dirs_registered = False
+
+
+def _register_cuda_dll_dirs() -> None:
+    """On Windows, add the NVIDIA pip-wheel bin dirs to the DLL search path.
+
+    ``nvidia-cublas-cu12`` / ``nvidia-cudnn-cu12`` ship ``cublas64_12.dll`` /
+    ``cudnn_*.dll`` under ``site-packages/nvidia/*/bin``, which is NOT on
+    Windows' DLL search path — so CTranslate2 fails to load them at
+    inference time with "cublas64_12.dll is not found" *even though the GPU
+    is detected*. Registering the dirs via ``os.add_dll_directory`` fixes
+    GPU transcription with zero extra setup beyond ``pip install
+    nvidia-cublas-cu12 nvidia-cudnn-cu12``. No-op off Windows / when the
+    wheels aren't present. Idempotent."""
+    global _cuda_dll_dirs_registered
+    if _cuda_dll_dirs_registered or os.name != "nt":
+        _cuda_dll_dirs_registered = True
+        return
+    try:
+        import sysconfig
+
+        purelib = sysconfig.get_paths()["purelib"]
+        for sub in ("cublas", "cudnn"):
+            d = os.path.join(purelib, "nvidia", sub, "bin")
+            if os.path.isdir(d):
+                # add_dll_directory covers LoadLibraryEx(user-dirs); PATH
+                # covers plain LoadLibrary, which CTranslate2 uses to pull
+                # cuBLAS lazily at *inference* time. Need both.
+                os.add_dll_directory(d)  # type: ignore[attr-defined,unused-ignore]  # Windows-only
+                os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+                logger.debug("faster-whisper: registered CUDA DLL dir %s", d)
+    except Exception as e:  # noqa: BLE001 — best-effort; CUDA load may still work
+        logger.debug("faster-whisper: could not register CUDA DLL dirs: %s", e)
+    _cuda_dll_dirs_registered = True
 
 
 def _load_model(name: str, device: str, compute_type: str):
@@ -66,6 +101,8 @@ def _load_model(name: str, device: str, compute_type: str):
     with _model_lock:
         if _model is not None and _model_key == key:
             return _model
+        if device != "cpu":
+            _register_cuda_dll_dirs()  # so cublas/cudnn load on Windows GPU
         from faster_whisper import WhisperModel  # local import — lazy
 
         logger.info(
@@ -149,12 +186,22 @@ class FasterWhisperLocalBackend(Provider):
         )
 
         # faster-whisper's transcribe returns (segments_iter, info).
+        # Anti-hallucination guards (whisper otherwise emits phantom phrases
+        # like "Thank you for watching" on silence/non-speech): a single
+        # greedy pass (temperature=0, no fallback), don't carry context across
+        # clips, and keep the no-speech / low-logprob / repetition thresholds
+        # explicit so quiet or empty audio is rejected rather than confabulated.
         try:
             segments_iter, info = model.transcribe(
                 str(path),
                 language=language,
                 beam_size=5,
                 vad_filter=True,
+                temperature=0.0,
+                condition_on_previous_text=False,
+                no_speech_threshold=0.6,
+                log_prob_threshold=-1.0,
+                compression_ratio_threshold=2.4,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("faster-whisper transcribe failed for %s: %s", path, e)
