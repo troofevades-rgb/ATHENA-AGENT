@@ -66,7 +66,7 @@ def render_preview(cols: int, rows: int, out_path: Path) -> None:
         cfg = Config()
         banner = build_banner(
             model="troofevades-q35:athena",
-            cwd=Path("C:/Users/dev/projects/ocodev2"),
+            cwd=Path(__file__).resolve().parents[1],
             cfg=cfg,
         )
         _send(conn, banner)

@@ -73,7 +73,7 @@ def main() -> None:
         # 1. Cold-start banner.
         _send(conn, build_banner(
             model="troofevades-q35:athena",
-            cwd=Path("C:/Users/dev/projects/ocodev2"),
+            cwd=Path(__file__).resolve().parents[1],
             cfg=cfg,
         ))
         _send(conn, StatusUpdateEvent(
