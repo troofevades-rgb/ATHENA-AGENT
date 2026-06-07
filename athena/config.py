@@ -339,6 +339,16 @@ class Config:
     # alongside the numbered options.
     clarify_default_timeout_seconds: int = 300
     clarify_allow_freeform: bool = False
+    # Obsidian integration: the model-facing tools (obsidian_write /
+    # obsidian_read / obsidian_append / obsidian_search / obsidian_daily)
+    # operate directly on the vault as a plain folder of .md files — no
+    # external CLI or plugin required. The tools are only advertised to
+    # the model when obsidian_vault_path is set AND points at an existing
+    # directory (a check_fn gate), so they stay invisible until configured.
+    # Daily-note path is <vault>/<daily_folder>/<date>.md.
+    obsidian_vault_path: str | None = None
+    obsidian_daily_folder: str = ""  # subfolder for daily notes ("" = vault root)
+    obsidian_daily_date_format: str = "%Y-%m-%d"
     # T3-01: athena proxy — local OpenAI-compatible HTTP endpoint.
     # `proxy_default_provider` is the provider used when neither
     # X-Athena-Provider nor the model-name match resolves a provider.
