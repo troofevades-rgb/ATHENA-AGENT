@@ -602,3 +602,47 @@ async def test_stop_clears_platform_renderer(tmp_path: Path) -> None:
     a._client.close = AsyncMock()
     await a.stop()
     assert "discord" not in a.daemon.approvals.renderers
+
+
+# ---- approval lockdown (who may click Approve/Deny) ------------------
+
+
+def test_approval_authorized_ids_precedence(tmp_path: Path) -> None:
+    a = _adapter(tmp_path)
+    # Explicit approval_user_ids wins, and the owner is always included.
+    a._platform_config = lambda: {"approval_user_ids": ["111", "222"]}  # type: ignore[method-assign]
+    a._owner_id = "999"
+    assert a._approval_authorized_ids() == frozenset({"111", "222", "999"})
+    # Falls back to the inbound allowed_user_ids when approval_user_ids unset.
+    a._platform_config = lambda: {"allowed_user_ids": ["333"]}  # type: ignore[method-assign]
+    assert a._approval_authorized_ids() == frozenset({"333", "999"})
+    # No config + no owner → open (empty set → back-compat, render warns).
+    a._platform_config = lambda: {}  # type: ignore[method-assign]
+    a._owner_id = None
+    assert a._approval_authorized_ids() == frozenset()
+
+
+async def test_approval_view_locks_clicks_to_authorized() -> None:
+    class _Resp:
+        def __init__(self) -> None:
+            self.sent: list = []
+
+        async def send_message(self, *args, **kwargs) -> None:
+            self.sent.append((args, kwargs))
+
+    def _inter(uid: int):
+        return SimpleNamespace(user=SimpleNamespace(id=uid), response=_Resp())
+
+    view = _build_approval_view(
+        "r1", on_decision=lambda *a: None, timeout=1.0, authorized_ids=frozenset({"111"})
+    )
+    allowed = _inter(111)  # int id coerces to "111"
+    denied = _inter(999)
+    assert await view.interaction_check(allowed) is True
+    assert await view.interaction_check(denied) is False
+    assert denied.response.sent  # the disallowed clicker got the ephemeral refusal
+    assert not allowed.response.sent
+
+    # Empty authorized set → open (back-compat): anyone may click.
+    open_view = _build_approval_view("r2", on_decision=lambda *a: None, timeout=1.0)
+    assert await open_view.interaction_check(_inter(999)) is True

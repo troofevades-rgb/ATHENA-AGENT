@@ -69,6 +69,11 @@ def mcp_config_paths(workspace: Path) -> list[Path]:
 class Config:
     model: str = "troofevades-q35:athena"
     ollama_host: str = "http://127.0.0.1:11434"
+    # Ollama keep_alive: how long the model stays resident after a request.
+    # None lets Ollama use its default (5 min). The voice path overrides this
+    # to a longer window so the voice model isn't reloaded between spoken
+    # turns. Forwarded as a top-level field by OllamaProvider.stream_chat.
+    ollama_keep_alive: str | None = None
     # Per-request timeout (seconds) for the Ollama HTTP client. This is
     # the stall detector: httpx applies it as the max wait for the next
     # chunk, so a healthy token stream never trips it — only a wedged
@@ -116,6 +121,13 @@ class Config:
     # enabled_toolsets but kept for one transitional release; intersects with
     # enabled_toolsets when both are set.
     disabled_tools: list[str] = field(default_factory=list)
+    # Per-command elevation (Windows). When True, the system prompt tells the
+    # agent it may prefix a single admin-needing command with `sudo` (Windows
+    # 11 inline sudo) — each elevation pops a UAC prompt the user approves at
+    # the machine, and output is captured back. Requires Windows `sudo` to be
+    # enabled separately (Settings → System → For developers → Enable sudo →
+    # Inline). Default off (standard, non-elevated).
+    shell_allow_elevation: bool = False
     # Max bytes to include from a single file read
     max_file_read: int = 256_000
     # Max stdout bytes captured per bash run
@@ -673,6 +685,33 @@ class Config:
     audio_whisper_device: str = "auto"  # auto | cpu | cuda
     audio_whisper_compute_type: str = "auto"  # auto | int8 | float16 | float32
     audio_output_dir: str | None = None  # default <profile_dir>/audio
+    # Text-to-speech (Discord-voice design, Phase 1). ``tts_backend``
+    # pins a registered TTS backend by name (e.g. "tts_piper_local",
+    # "tts_stub"); "" lets the resolver pick the first available local
+    # backend. ``tts_voice`` is the backend-specific voice — for
+    # tts_piper_local it's the path to a Piper ``.onnx`` voice model.
+    # Both empty by default → TTS is "unavailable" until a voice is set,
+    # and the synthesis path degrades gracefully.
+    tts_backend: str = ""
+    tts_voice: str = ""
+    # Kokoro (tts_kokoro_local) — a far more natural neural voice, still
+    # on-device. Unlike Piper, the "voice" is a NAME, not a file path:
+    # af_heart, af_bella, am_michael, bf_emma, ... (af_/am_ = American
+    # female/male, bf_/bm_ = British). Model + voice-pack files default to
+    # ~/.athena/voices/{kokoro-v1.0.onnx,voices-v1.0.bin}; override only to
+    # relocate them. Backend stays "unavailable" until both files exist.
+    kokoro_voice: str = "af_heart"
+    kokoro_model_path: str | None = None
+    kokoro_voices_path: str | None = None
+    # Discord-voice: optional per-voice chat model override. Empty → voice
+    # turns use the main ``model``. Set to a fast *non-thinking* Ollama
+    # model (e.g. "troofevades:latest", "glm4:9b") to keep spoken replies
+    # snappy: a thinking model emits a <think> block before every answer,
+    # which is stripped from speech but still costs ~12-20s of generation.
+    # Same provider as ``model`` → the swap is just the model string
+    # (cf. athena/commands/model.py:_switch_model). The coding agent keeps
+    # using ``model`` unchanged.
+    voice_model: str = ""
     # T-MIG (hermes migration): tirith pre-Bash security scanner.
     # Wraps the external `tirith` binary (Linux / macOS) which
     # inspects shell commands for content-level threats

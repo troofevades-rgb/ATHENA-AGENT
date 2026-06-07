@@ -118,6 +118,28 @@ vision = [
     "Pillow>=10",
     "imagehash>=4.3",
 ]
+# Local text-to-speech (Discord-voice design, Phase 1). Optional: the
+# ``tts_piper_local`` backend reports unavailable without it, and the
+# synthesis path degrades gracefully. The ``tts_stub`` backend needs
+# nothing. Install with ``pip install -e ".[tts]"``.
+tts = [
+    "piper-tts>=1.2",
+]
+# Discord voice chat (Discord-voice design, Phases 3-4). Adds voice
+# transport + receive (mainline discord.py has no voice *receive*),
+# utterance segmentation, and local TTS. Optional: without it
+# ``/voice join`` reports unavailable and the text gateway is unaffected.
+gateway-voice = [
+    "discord.py[voice]>=2.4",
+    "discord-ext-voice-recv>=0.4",
+    # Prebuilt-wheel fork of webrtcvad (the original is a C extension that
+    # needs a compiler on Windows). Provides the same `import webrtcvad`.
+    # Optional anyway — the voice core falls back to a dependency-free
+    # energy-based VAD when it's absent.
+    "webrtcvad-wheels>=2.0",
+    "piper-tts>=1.2",        # local TTS (speak)
+    "faster-whisper>=1.0",   # local STT (listen) — the audio-transcription backend
+]
 # Heavy GPU-only deps for the closed training loop. Install with
 # ``pip install -e ".[train]"`` only on a workstation with CUDA.
 train = [
@@ -206,3 +228,21 @@ files = ["athena"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_defs = false
+
+# Optional, untyped third-party engines loaded lazily behind the
+# ``[tts]`` / ``[gateway-voice]`` extras. No type stubs ship with them;
+# the in-tree code guards every use with is_available()/try-except.
+[[tool.mypy.overrides]]
+module = [
+    "webrtcvad",
+    "piper",
+    "piper.*",
+    "discord.ext.voice_recv",
+    "discord.ext.voice_recv.*",
+    "davey",
+    "nacl",
+    "nacl.*",
+    "kokoro_onnx",
+    "numpy",
+]
+ignore_missing_imports = true
