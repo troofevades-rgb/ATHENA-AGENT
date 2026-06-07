@@ -110,7 +110,7 @@ class SlackAdapter(GatewayAdapter):
             self._render_approval,
         )
 
-        await self._socket.connect()  # type: ignore[no-untyped-call]  # FIXME: slack_sdk SocketModeClient.connect is untyped
+        await self._socket.connect()  # type: ignore[no-untyped-call]  # NOTE: slack_sdk SocketModeClient.connect is untyped
         # Socket Mode's connect() returns once connected; the listener
         # runs as long as the websocket stays open. Block here until
         # someone cancels us so the daemon's start-task semantics work.
@@ -122,7 +122,7 @@ class SlackAdapter(GatewayAdapter):
         self.daemon.approvals.register_platform_renderer(self.name, None)
         if self._socket is not None:
             try:
-                await self._socket.disconnect()  # type: ignore[no-untyped-call]  # FIXME: slack_sdk SocketModeClient.disconnect is untyped
+                await self._socket.disconnect()  # type: ignore[no-untyped-call]  # NOTE: slack_sdk SocketModeClient.disconnect is untyped
             except Exception:
                 logger.debug(
                     "[%s] socket.disconnect raised",

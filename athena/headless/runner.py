@@ -37,28 +37,6 @@ def _now_iso() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
-def _estimate_cost(stats: Any, model: str) -> float:
-    """Best-effort cost estimate via the existing ui pricing
-    table. Returns 0.0 when the model is unknown to the table —
-    the envelope still ships, the cost field is just zero."""
-    try:
-        # FIXME: athena.ui no longer exports estimated_cost_usd; the
-        # except branch below catches the ImportError so cost is 0.0.
-        from ..ui import (  # type: ignore[attr-defined]
-            estimated_cost_usd,
-        )
-
-        return float(
-            estimated_cost_usd(
-                model=model,
-                prompt_tokens=getattr(stats, "prompt_tokens", 0) or 0,
-                eval_tokens=getattr(stats, "eval_tokens", 0) or 0,
-            )
-        )
-    except Exception:  # noqa: BLE001
-        return 0.0
-
-
 def _tool_calls_summary(stats: Any) -> list[dict[str, Any]]:
     """[{name, count}] in descending-count order so the model /
     operator sees the busy tools first."""
@@ -255,7 +233,11 @@ def run_headless(
         session_id=getattr(agent, "session_id", None),
         tool_calls=_tool_calls_summary(stats),
         tokens=_tokens_dict(stats),
-        cost_est=_estimate_cost(stats, getattr(agent, "model", model or cfg.model)),
+        # Pricing table was removed in the TUI migration; local Ollama models
+        # are free and there's no per-token USD source for hosted ones here.
+        # Honest 0.0 rather than a silently-broken estimate. (Was: a dead
+        # import of ui.estimated_cost_usd that always fell through to 0.0.)
+        cost_est=0.0,
         assistant_text=getattr(agent, "_last_assistant_text", "") or "",
         error=error,
     )

@@ -81,9 +81,7 @@ def _make_default_dispatcher(daemon: GatewayDaemon) -> CommandDispatcher:
             )
         if verb == "status":
             try:
-                # FIXME: SessionRouter has no get_meta(); this AttributeError is
-                # swallowed below so status always reports "(no session metadata)".
-                meta = daemon.router.get_meta(session_id)  # type: ignore[attr-defined]
+                meta = daemon.router.get_meta(session_id)
             except Exception:
                 meta = None
             if meta is None:

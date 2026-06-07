@@ -268,6 +268,32 @@ class SessionStore:
             )
         return out
 
+    def get_session(self, session_id: str) -> SessionMeta | None:
+        """Fetch one session's metadata by id, or ``None`` if unknown."""
+        row = (
+            self._conn()
+            .execute(
+                "SELECT session_id, profile, model, provider, workspace, "
+                "parent_session_id, started_at, ended_at, tags FROM sessions "
+                "WHERE session_id = ?",
+                (session_id,),
+            )
+            .fetchone()
+        )
+        if row is None:
+            return None
+        return SessionMeta(
+            session_id=row[0],
+            profile=row[1],
+            model=row[2],
+            provider=row[3],
+            workspace=row[4],
+            parent_session_id=row[5],
+            started_at=_parse_iso(row[6]),
+            ended_at=_parse_iso(row[7]) if row[7] else None,
+            tags=json.loads(row[8] or "[]"),
+        )
+
     def load(self, session_id: str) -> Iterator[dict[str, Any]]:
         yield from jsonl.read_jsonl(self.sessions_dir / f"{session_id}.jsonl")
 

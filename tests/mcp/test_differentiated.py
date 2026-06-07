@@ -337,3 +337,54 @@ def test_invalid_arguments_surface_cleanly(empty_registry, tmp_path):
     )
     result = bundle.call("verified_write", {})  # no path, no content
     assert result.get("isError") is True
+
+
+# ---------------------------------------------------------------------------
+# recall — FTS5 session search (regression: imported the removed
+# athena.sessions.search and always failed "recall unavailable")
+# ---------------------------------------------------------------------------
+
+
+def test_recall_returns_matching_session_content(empty_registry, tmp_path, monkeypatch) -> None:
+
+    from athena.sessions.store import SessionMeta, SessionStore, new_session_id
+
+    pdir = tmp_path / "profiles" / "default"
+    pdir.mkdir(parents=True)
+    ws = str(tmp_path / "proj")
+    store = SessionStore(pdir)
+    sid = new_session_id()
+    store.open_session(SessionMeta(session_id=sid, profile="default", model="qwen", workspace=ws))
+    store.append_turn(sid, {"role": "user", "content": "find the needle here"})
+    store.close()
+
+    # _recall resolves the store via `from ..config import profile_dir`.
+    monkeypatch.setattr("athena.config.profile_dir", lambda profile="default": pdir)
+    bundle = build_differentiated_tools(
+        workspace=Path(ws),
+        cfg=_cfg(profile="default"),
+        checkpoint_manager=None,
+    )
+    res = bundle.call("recall", {"query": "needle"})
+    assert res.get("isError") is not True
+    text = " ".join(c["text"] for c in res["content"])
+    assert "needle" in text.lower()
+    assert sid[:8] in text
+
+
+def test_recall_no_matches_message(empty_registry, tmp_path, monkeypatch) -> None:
+
+    from athena.sessions.store import SessionStore
+
+    pdir = tmp_path / "profiles" / "default"
+    pdir.mkdir(parents=True)
+    SessionStore(pdir).close()  # empty store, no sessions
+    monkeypatch.setattr("athena.config.profile_dir", lambda profile="default": pdir)
+    bundle = build_differentiated_tools(
+        workspace=Path(str(tmp_path / "proj")),
+        cfg=_cfg(profile="default"),
+        checkpoint_manager=None,
+    )
+    res = bundle.call("recall", {"query": "nothingmatchesthisquery"})
+    assert res.get("isError") is not True
+    assert "no matches" in res["content"][0]["text"].lower()
