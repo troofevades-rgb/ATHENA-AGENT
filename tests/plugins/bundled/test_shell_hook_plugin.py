@@ -122,7 +122,7 @@ def test_malformed_settings_skipped(
 def test_pre_tool_call_allows_on_exit_zero(isolated_settings: Path) -> None:
     _write_settings(
         isolated_settings,
-        {"PreToolUse": [{"matcher": "", "command": "true"}]},
+        {"PreToolUse": [{"matcher": "", "command": "exit 0"}]},
     )
     plugin = ShellHookPlugin()
     plugin.on_session_start("s", "default")
@@ -134,7 +134,7 @@ def test_pre_tool_call_allows_on_exit_zero(isolated_settings: Path) -> None:
 def test_pre_tool_call_blocks_on_exit_one(isolated_settings: Path) -> None:
     _write_settings(
         isolated_settings,
-        {"PreToolUse": [{"matcher": "", "command": "false"}]},
+        {"PreToolUse": [{"matcher": "", "command": "exit 1"}]},
     )
     plugin = ShellHookPlugin()
     plugin.on_session_start("s", "default")
@@ -146,7 +146,7 @@ def test_pre_tool_call_matcher_filters(isolated_settings: Path) -> None:
     """A PreToolUse hook with matcher='Bash' fires only for Bash."""
     _write_settings(
         isolated_settings,
-        {"PreToolUse": [{"matcher": "Bash", "command": "false"}]},
+        {"PreToolUse": [{"matcher": "Bash", "command": "exit 1"}]},
     )
     plugin = ShellHookPlugin()
     plugin.on_session_start("s", "default")
@@ -162,7 +162,7 @@ def test_pre_tool_call_matcher_filters(isolated_settings: Path) -> None:
 def test_check_user_message_allows_on_exit_zero(isolated_settings: Path) -> None:
     _write_settings(
         isolated_settings,
-        {"UserPromptSubmit": [{"matcher": "", "command": "true"}]},
+        {"UserPromptSubmit": [{"matcher": "", "command": "exit 0"}]},
     )
     plugin = ShellHookPlugin()
     plugin.on_session_start("s", "default")
@@ -174,7 +174,7 @@ def test_check_user_message_allows_on_exit_zero(isolated_settings: Path) -> None
 def test_check_user_message_blocks_on_exit_one(isolated_settings: Path) -> None:
     _write_settings(
         isolated_settings,
-        {"UserPromptSubmit": [{"matcher": "", "command": "false"}]},
+        {"UserPromptSubmit": [{"matcher": "", "command": "exit 1"}]},
     )
     plugin = ShellHookPlugin()
     plugin.on_session_start("s", "default")
