@@ -303,29 +303,31 @@ class DifferentiatedTools:
     def _recall(self, query: str, limit: int = 20) -> dict[str, Any]:
         if not query:
             return _error("query required")
+        # FTS5 search over this profile's session history, scoped to the
+        # current workspace. (Was a stale import of the removed
+        # athena.sessions.search module, so recall always failed.)
         try:
-            # FIXME(broken feature): athena.sessions.search was removed; this
-            # import always fails so _recall degrades to "recall unavailable".
-            # Rewiring to the current search API is a behaviour fix tracked
-            # separately, out of scope for the mypy-baseline pass.
-            from ..sessions.search import search_sessions  # type: ignore[import-not-found]
+            from ..config import profile_dir
+            from ..sessions.store import SessionStore
         except Exception as e:  # noqa: BLE001
             return _error(f"recall unavailable: {e}")
         try:
-            results = search_sessions(query, limit=limit)
+            profile = getattr(self.cfg, "profile", "default") or "default"
+            workspace = str(self.workspace) if self.workspace else None
+            store = SessionStore(profile_dir(profile))
+            try:
+                hits = store.search(query, k=limit, workspace=workspace)
+            finally:
+                store.close()
         except Exception as e:  # noqa: BLE001
             return _error(f"recall failed: {e}")
-        if not results:
+        if not hits:
             return _ok(f"no matches for {query!r}")
         lines = []
-        for r in results:
-            # search_sessions returns dicts with at least session_id +
-            # excerpt + timestamp; render whatever's present.
-            sid = r.get("session_id") or r.get("session") or "?"
-            ts = r.get("timestamp") or r.get("ts") or ""
-            excerpt = r.get("excerpt") or r.get("snippet") or ""
-            lines.append(f"  [{ts}] {sid}: {excerpt}")
-        return _ok(f"{len(results)} match(es):\n" + "\n".join(lines))
+        for h in hits:
+            ts = h.started_at.isoformat(timespec="seconds") if h.started_at else ""
+            lines.append(f"  [{ts}] {h.session_id[:8]} ({h.role}): {h.snippet}")
+        return _ok(f"{len(hits)} match(es):\n" + "\n".join(lines))
 
 
 def build_differentiated_tools(

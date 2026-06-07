@@ -33,13 +33,10 @@ import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
 import discord
 import discord.opus
-
-if TYPE_CHECKING:
-    from discord.voice_client import VoiceClient
 
 log = logging.getLogger("athena.gateway.voice.hermes_recv")
 
@@ -99,7 +96,7 @@ class HermesVoiceReceiver:
 
     def __init__(
         self,
-        voice_client: VoiceClient,
+        voice_client: Any,
         *,
         silence_threshold_s: float = 0.7,
         min_speech_duration_s: float = 0.5,
@@ -121,7 +118,7 @@ class HermesVoiceReceiver:
         self._ssrc_to_user: dict[int, int] = {}
         self._buffers: dict[int, bytearray] = defaultdict(bytearray)
         self._last_packet_time: dict[int, float] = {}
-        self._decoders: dict[int, discord.opus.Decoder] = {}
+        self._decoders: dict[int, Any] = {}  # int -> discord.opus.Decoder
 
     # ---- lifecycle ----
 
@@ -296,16 +293,15 @@ class HermesVoiceReceiver:
                         return  # genuinely encrypted but we failed — drop
             else:
                 uid, plaintext = self._try_map_ssrc(ssrc, dec)
-                if not uid:
+                if not uid or plaintext is None:
                     return
-                # _try_map_ssrc returns a non-None plaintext whenever uid is truthy.
-                dec = cast(bytes, plaintext)
+                dec = plaintext
 
         # Opus decode → 48 kHz stereo PCM.
         try:
             if ssrc not in self._decoders:
-                self._decoders[ssrc] = discord.opus.Decoder()  # type: ignore[no-untyped-call]  # FIXME: discord.opus.Decoder.__init__ is unannotated upstream
-            pcm = self._decoders[ssrc].decode(dec, fec=False)
+                self._decoders[ssrc] = discord.opus.Decoder()  # type: ignore[no-untyped-call,unused-ignore]
+            pcm = self._decoders[ssrc].decode(dec)
             with self._lock:
                 self._buffers[ssrc].extend(pcm)
                 self._last_packet_time[ssrc] = time.monotonic()
@@ -334,7 +330,7 @@ class HermesVoiceReceiver:
         quiet for ``silence_threshold_s`` with at least ``min_speech_duration_s``
         of buffered audio. Call periodically from the event loop."""
         now = time.monotonic()
-        out = []
+        out: list[tuple[int, bytes]] = []
         with self._lock:
             for ssrc in list(self._buffers.keys()):
                 quiet = now - self._last_packet_time.get(ssrc, now)

@@ -280,10 +280,7 @@ class VerifiedExecution:
             except ImportError:
                 policy_exc = ()
             blocked = isinstance(e, policy_exc) if policy_exc else False
-            # NOTE: "blocked_by_policy" is not in the ``Outcome`` Literal
-            # (defined in verify/outcome.py); the cast preserves the
-            # runtime value the report path expects. See bugs_found.
-            outcome = cast(Outcome, "blocked_by_policy" if blocked else "failed_run")
+            outcome: Outcome = "blocked_by_policy" if blocked else "failed_run"
             stderr_msg = (
                 f"verify command blocked by policy: {e}"
                 if blocked
