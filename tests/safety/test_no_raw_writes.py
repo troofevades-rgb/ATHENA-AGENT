@@ -85,6 +85,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/skills/pin.py",  # invoked by skill_pin (foreground-only)
         "athena/skills/state_machine.py",  # skill state transitions
         "athena/tools/file_ops.py",  # foreground Read/Edit/Write tools
+        "athena/tools/obsidian.py",  # foreground Obsidian vault tools — confirmation-gated user-file writes scoped strictly to the vault (parallels file_ops.py)
         "athena/tools/tool_result_storage.py",  # content-addressed blob writes + append-only JSONL index (T2-06)
         "athena/tools/patch_apply.py",  # unified-diff write with per-file backup/restore (T2-07)
         "athena/commands/save.py",  # /save slash dumps the transcript to JSON (user-driven, not an agent mutation)

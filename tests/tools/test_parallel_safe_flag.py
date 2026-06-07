@@ -114,6 +114,9 @@ _EXPECTED_PARALLEL_SAFE: set[str] = {
     "audio_analyze",
     "document_analyze",
     "ocr",
+    # obsidian (read-only vault access; no shared-state mutation)
+    "obsidian_read",
+    "obsidian_search",
 }
 
 

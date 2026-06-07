@@ -68,6 +68,7 @@ from . import (
     file_ops,  # Read, Write, Edit, list_dir
     memory_query_tool,  # memory_query (user-model backend recall)
     memory_tools,  # write_memory, list_memories, delete_memory
+    obsidian,  # obsidian_write/read/append/search/daily (vault tools)
     patch_apply,  # patch_apply (T2-07)
     plan,  # ExitPlanMode, EnterPlanMode
     read_tool_result,  # read_tool_result (T2-06)
