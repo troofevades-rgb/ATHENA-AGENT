@@ -40,18 +40,37 @@ add manual approval gates (e.g., require a maintainer to click
 
 ## Cutting a release
 
-```bash
-# 1. Bump version + write CHANGELOG entry. Stage on a branch +
-#    PR if you want CI to validate the release commit before tag.
-$ vim pyproject.toml      # bump version field to 0.2.1
-$ vim CHANGELOG.md         # move Unreleased entries under ## 0.2.1
-$ git commit -am "release: 0.2.1"
-$ git push
+Use the helper — it bumps both version surfaces in lockstep (so the
+`version-sync` gate can't fail), promotes the CHANGELOG `[Unreleased]`
+block to a dated section, refuses to go backwards, and prints the exact
+commit + tag commands:
 
-# 2. Tag and push.
-$ git tag v0.2.1
-$ git push origin v0.2.1
+```bash
+$ python scripts/release.py 0.2.1            # preview first:
+$ python scripts/release.py 0.2.1 --dry-run  # shows the diffs, writes nothing
 ```
+
+Then commit (via PR — `master` is protected), and after it merges, tag:
+
+```bash
+$ git switch -c release/0.2.1 && git commit -am "release: 0.2.1"
+$ git push -u origin release/0.2.1 && gh pr create --base master --fill
+# ... after merge ...
+$ git switch master && git pull
+$ git tag v0.2.1 && git push origin v0.2.1
+```
+
+<details><summary>By hand (what the script does for you)</summary>
+
+```bash
+$ vim pyproject.toml      # bump [project] version
+$ vim athena/__init__.py  # bump __version__ to the SAME value (version-sync)
+$ vim CHANGELOG.md         # move Unreleased entries under ## [0.2.1] - <date>
+$ git commit -am "release: 0.2.1" && git push
+$ git tag v0.2.1 && git push origin v0.2.1
+```
+
+</details>
 
 The `v0.2.1` tag push fires the `publish` workflow. Because
 `0.2.1` is not a pre-release, the build artifact goes straight to
