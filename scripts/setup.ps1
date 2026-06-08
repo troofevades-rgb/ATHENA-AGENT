@@ -167,6 +167,20 @@ if (-not $ollama) {
     }
 }
 
+# --- JS runtime for the TUI --------------------------------------------------
+Step "JS runtime (TUI interface)"
+$node = (Get-Command node -ErrorAction SilentlyContinue)
+$bun = (Get-Command bun -ErrorAction SilentlyContinue)
+if ($node) {
+    Ok "node found ($($node.Source)) — the TUI will use it"
+} elseif ($bun) {
+    Ok "bun found ($($bun.Source)) — athena auto-uses it when node is absent"
+} else {
+    Warn "No JS runtime found. The interactive TUI needs Node.js or Bun."
+    Info "Install Node LTS from https://nodejs.org (simplest), or Bun from https://bun.sh."
+    Info "Headless mode (athena -p '...') works without one."
+}
+
 # --- health check ------------------------------------------------------------
 Step "Health check"
 & $pyExe -m athena doctor
