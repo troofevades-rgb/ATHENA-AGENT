@@ -172,6 +172,13 @@ def test_disabled_flag_no_records(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Generous timeout: each skill_view re-runs uncached discovery (a YAML
+# frontmatter parse per skill), so 1k iterations is heavy under coverage's
+# per-line tracing — it blows the 60s default on the `coverage` workflow
+# while passing fast on `tests` (no --cov). 180s keeps the high-volume
+# intent and still catches a genuine hang. Don't drop the iteration count;
+# the point is to stress the metrics append hot path at volume.
+@pytest.mark.timeout(180)
 def test_hook_handles_high_volume(tmp_path: Path, store: SkillMetricsStore) -> None:
     """Sanity: 1k record_view calls land cleanly. The hook is on the
     hot path; this isn't a strict perf test, just a "no crash, no
