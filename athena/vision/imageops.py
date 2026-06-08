@@ -56,9 +56,12 @@ try:
     import imagehash
     from PIL import Image, ImageChops
 except ImportError:  # optional [vision] extra (Pillow + imagehash) not installed
-    imagehash = None  # type: ignore[assignment]
-    Image = None  # type: ignore[assignment]
-    ImageChops = None  # type: ignore[assignment]
+    # `unused-ignore` keeps this green across mypy/Python versions: the
+    # `assignment` ignore is needed on 3.11 but the assignment isn't flagged
+    # on 3.12, where the ignore would otherwise be reported as unused.
+    imagehash = None  # type: ignore[assignment, unused-ignore]
+    Image = None  # type: ignore[assignment, unused-ignore]
+    ImageChops = None  # type: ignore[assignment, unused-ignore]
 
 # True only when the optional [vision] deps imported. The vision_analyze
 # tool checks this and returns a clean "install the extra" message rather
