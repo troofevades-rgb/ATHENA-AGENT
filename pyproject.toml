@@ -196,7 +196,6 @@ include = ["athena*"]
 [tool.setuptools.package-data]
 athena = [
     "_owl_art.txt",
-    "_owl_image.jpg",
     "_tui_bundle/main.js",
     # Bundled default skills, seeded into ~/.athena/skills on first run.
     "skills_default/**/*",

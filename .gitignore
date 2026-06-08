@@ -101,3 +101,5 @@ docs/user-driven-test-plan.md
 /RELEASE_v*.md
 # Internal release checklist — local-only working doc.
 docs/internal/release-process.md
+# Custom Ollama model definition — personal build artifact, local-only.
+/Modelfile.troofevades-q35-athena
