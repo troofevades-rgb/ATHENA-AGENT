@@ -397,21 +397,25 @@ def test_failing_supplier_does_not_break_hook(
 # ---------------------------------------------------------------------------
 
 
-def test_capture_crash_writes_with_note(tmp_path: Path) -> None:
+def test_capture_crash_writes_with_note(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The explicit API lets code catch an exception, log it with
-    a note describing the context, and continue."""
+    a note describing the context, and continue.
+
+    The crash dir is redirected to ``tmp_path`` so the test never
+    pollutes the operator's real ``~/.athena/crashes`` -- capture_crash
+    delegates to write_crash_record with no crash_dir, which resolves
+    the (monkeypatchable) ``_crash_dir()`` default.
+    """
+    monkeypatch.setattr(crash_log, "_crash_dir", lambda: tmp_path)
     try:
         raise ValueError("bad")
     except ValueError as e:
         path = capture_crash(e, note="TUI gateway disconnected; restarting", context=CrashContext())
-        # Override the target dir indirection by monkey-patching:
-        # easier to just call write_crash_record directly with the
-        # ctx + note. The capture_crash signature delegates to the
-        # writer; the note ends up on the context.
 
-    # The path may be None if the home dir isn't writable; the
-    # important pin is that the function doesn't raise.
-    assert path is None or path.exists()
+    assert path is not None and path.exists()
+    assert path.parent == tmp_path  # isolated dir, NOT the real home
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    assert rec["context"]["note"] == "TUI gateway disconnected; restarting"
 
 
 def test_capture_crash_note_lands_in_context(
