@@ -218,6 +218,16 @@ def main() -> int:
             "Run `athena profiles migrate` to retry.\n"
         )
 
+    # First-run: seed the bundled default skills into ~/.athena/skills so a
+    # fresh machine starts with a useful library instead of an empty dir.
+    # One-shot + per-skill (never overwrites edits); best-effort.
+    try:
+        from .skills.seed import seed_default_skills
+
+        seed_default_skills(Path.home() / ".athena" / "skills")
+    except Exception:  # noqa: BLE001
+        pass
+
     # Subcommands short-circuit the interactive parser. argv[1] is the verb.
     if len(sys.argv) >= 2 and sys.argv[1] in _SUBCOMMANDS:
         import importlib

@@ -184,6 +184,8 @@ athena = [
     "_owl_art.txt",
     "_owl_image.jpg",
     "_tui_bundle/main.js",
+    # Bundled default skills, seeded into ~/.athena/skills on first run.
+    "skills_default/**/*",
 ]
 
 [tool.pytest.ini_options]
@@ -200,6 +202,9 @@ timeout_method = "thread"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Bundled default-skill content (shipped as package_data) is DATA, not
+# athena source — don't lint/format the skill scripts it carries.
+extend-exclude = ["athena/skills_default"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
@@ -225,6 +230,8 @@ ignore = [
 python_version = "3.10"
 strict = true
 files = ["athena"]
+# Bundled default-skill scripts (package_data, not imported athena source).
+exclude = ['athena/skills_default/']
 
 [[tool.mypy.overrides]]
 module = "tests.*"
