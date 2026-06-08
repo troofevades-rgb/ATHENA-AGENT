@@ -154,7 +154,28 @@ def _json_invalid_envelope(
     ).to_json()
 
 
+def _force_utf8_streams() -> None:
+    """Reconfigure stdout/stderr to UTF-8.
+
+    On Windows the console defaults to a legacy code page (cp1252/cp437),
+    so any non-ASCII output athena prints itself — the owl banner, box-
+    drawing, em dashes, a model name with accents — raises
+    ``UnicodeEncodeError`` or renders as ``?``. Reconfiguring the Python
+    streams to UTF-8 fixes the encoding half (the terminal still needs a
+    UTF-8-capable font/profile for glyphs). No-op on already-UTF-8
+    platforms; best-effort and never fatal.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
+
+
 def main() -> int:
+    _force_utf8_streams()
     from .boot_trace import cp as _cp
 
     _cp("main_entry", argv=sys.argv[1:])
