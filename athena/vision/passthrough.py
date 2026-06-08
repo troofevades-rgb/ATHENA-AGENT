@@ -50,7 +50,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:  # optional [vision] extra (Pillow) not installed
+    Image = None  # type: ignore[assignment]
 
 Provider = Literal["anthropic", "openai", "ollama"]
 
