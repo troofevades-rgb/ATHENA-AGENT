@@ -94,3 +94,8 @@ athena/goal/LOOP_NOTES.md
 athena/providers/CAPABILITY_NOTES.md
 docs/manual-test-suite.md
 docs/user-driven-test-plan.md
+
+# Local-only: agent guidance + per-version release notes. Kept on disk
+# (Claude Code reads CLAUDE.md locally) but not shipped in the public repo.
+/CLAUDE.md
+/RELEASE_v*.md
