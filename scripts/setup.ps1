@@ -160,6 +160,16 @@ if (-not $ollama) {
     } else {
         Ok "Ollama daemon is up"
         if (-not $SkipModel) {
+            # VRAM advisory: a too-big model silently spills to CPU and crawls.
+            if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+                try {
+                    $vram = [int]((nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits) -split "`n")[0].Trim()
+                    Info "GPU VRAM: $vram MB"
+                    if ($Model -match '30b|32b|235b' -and $vram -lt 20000) {
+                        Warn "$Model is large for $vram MB VRAM -- it will spill to CPU. Consider qwen2.5-coder:7b (~8 GB) or :14b (12-16 GB)."
+                    }
+                } catch {}
+            }
             Info "Pulling model '$Model' (tool-capable). This can be several GB..."
             & ollama pull $Model
             if ($LASTEXITCODE -eq 0) { Ok "model '$Model' ready" } else { Warn "model pull failed; pick another with -Model" }
@@ -172,18 +182,45 @@ Step "JS runtime (TUI interface)"
 $node = (Get-Command node -ErrorAction SilentlyContinue)
 $bun = (Get-Command bun -ErrorAction SilentlyContinue)
 if ($node) {
-    Ok "node found ($($node.Source)) — the TUI will use it"
+    Ok "node found ($($node.Source)) -- the TUI will use it"
 } elseif ($bun) {
-    Ok "bun found ($($bun.Source)) — athena auto-uses it when node is absent"
+    Ok "bun found ($($bun.Source)) -- athena auto-uses it when node is absent"
 } else {
     Warn "No JS runtime found. The interactive TUI needs Node.js or Bun."
     Info "Install Node LTS from https://nodejs.org (simplest), or Bun from https://bun.sh."
     Info "Headless mode (athena -p '...') works without one."
 }
 
+# --- credentials template (~/.athena/.env) ----------------------------------
+Step "Credentials template"
+$envDest = Join-Path $env:USERPROFILE ".athena\.env"
+$envSrc = Join-Path $RepoRoot ".env.example"
+if (Test-Path $envDest) {
+    Ok "~/.athena/.env already present"
+} elseif (Test-Path $envSrc) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $envDest) | Out-Null
+    Copy-Item $envSrc $envDest
+    Ok "seeded ~/.athena/.env from .env.example -- edit it for hosted-provider keys (Ollama needs none)"
+} else {
+    Info "Hosted-provider keys go in ~/.athena/.env (or run 'athena providers add-key')."
+}
+
+# --- terminal rendering (owl / box-drawing) ---------------------------------
+Step "Terminal rendering"
+$cp = ((chcp) -replace '[^0-9]', '')
+if ($env:WT_SESSION -or $cp -eq '65001') {
+    Ok "UTF-8 console -- the owl + box-drawing will render"
+} else {
+    Warn "Console code page is $cp (not UTF-8) -- the owl/braille may render as '?'."
+    Info "Use Windows Terminal (Cascadia Mono font), or run 'chcp 65001' before launching athena."
+}
+
 # --- health check ------------------------------------------------------------
 Step "Health check"
 & $pyExe -m athena doctor
 Step "Done"
-Info "Run athena with:  python -m athena    (or just 'athena' in a new terminal)"
+Info "Run athena:  python -m athena   (or 'athena' in a new terminal)"
 if ($Venv) { Info "venv install: activate first with  .\.venv\Scripts\Activate.ps1" }
+Info "Inside athena, the input box talks to the AI (use /help for commands)."
+Info "Run 'athena <subcommand>' like 'athena doctor' from THIS shell, not the box."
+Info "For the best display (owl + colors), run athena inside Windows Terminal."
