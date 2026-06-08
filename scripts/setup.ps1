@@ -1,8 +1,15 @@
 <#
 .SYNOPSIS
-  One-shot setup for athena on Windows. Installs the package, wires PATH,
+  One-shot setup for athena on Windows. Installs the package with EVERY
+  optional feature (vision, browser, gateway, voice, tts, ...), wires PATH,
   checks Ollama, pulls a tool-capable model sized to your GPU, and runs the
   health check.
+
+  Each feature group is installed best-effort: a dep that can't build on
+  this machine (e.g. matrix end-to-end encryption needs libolm, which has no
+  Windows wheel) is reported and skipped, never aborting the rest. The GPU
+  training stack is installed only when a CUDA GPU is detected. Use -Minimal
+  for a base-only install, or -Extras "a,b" to pick specific groups.
 
 .DESCRIPTION
   Automates the setup steps (and guards the footguns) that bite a fresh
@@ -37,19 +44,33 @@
   Don't pull a model (you'll set one up yourself).
 
 .PARAMETER Extras
-  pip extras to install, e.g. "dev" or "vision,gateway". Default: none (base).
+  Install ONLY these pip extras (comma-separated), e.g. "vision,gateway".
+  Overrides the default full-feature install. Use this when you want a
+  specific subset rather than everything.
+
+.PARAMETER Minimal
+  Base install only -- skip all optional feature extras. Good for a headless
+  CLI box that just talks to Ollama.
+
+.PARAMETER Train
+  Force-install the GPU training stack ([train]) even if no CUDA GPU is
+  detected. By default [train] is installed only when nvidia-smi is present.
 
 .EXAMPLE
-  .\scripts\setup.ps1
+  .\scripts\setup.ps1                       # everything the machine supports
 .EXAMPLE
-  .\scripts\setup.ps1 -Venv -Model qwen2.5-coder:14b -Extras dev
+  .\scripts\setup.ps1 -Minimal              # base only
+.EXAMPLE
+  .\scripts\setup.ps1 -Venv -Model qwen2.5-coder:14b -Extras vision,gateway
 #>
 [CmdletBinding()]
 param(
     [string]$Model = "qwen2.5-coder:7b",
     [switch]$Venv,
     [switch]$SkipModel,
-    [string]$Extras = ""
+    [string]$Extras = "",
+    [switch]$Minimal,
+    [switch]$Train
 )
 
 $ErrorActionPreference = "Stop"
@@ -115,10 +136,72 @@ if ($Venv) {
 
 # --- install athena ----------------------------------------------------------
 Step "Installing athena (editable)"
-$target = if ($Extras) { ".[$Extras]" } else { "." }
-& $pyExe -m pip install -e $target
-if ($LASTEXITCODE -ne 0) { Fail "pip install failed (see above)."; exit 1 }
-Ok "installed athena ($target)"
+
+# Base install must succeed; every feature group layers on top of it.
+& $pyExe -m pip install -e "."
+if ($LASTEXITCODE -ne 0) { Fail "base pip install failed (see above)."; exit 1 }
+Ok "installed athena (base)"
+
+# Best-effort per-group install. pip is atomic per command, so bundling all
+# extras would let one Windows-hostile dep (e.g. libolm) sink the whole set.
+# Installing each group on its own means the rest still land, and we report
+# exactly what made it.
+$script:installedExtras = @()
+$script:failedExtras = @()
+function Install-Extra($name) {
+    Info "installing extra: $name"
+    & $pyExe -m pip install -e ".[$name]"
+    if ($LASTEXITCODE -eq 0) {
+        Ok "extra '$name' installed"
+        $script:installedExtras += $name
+    } else {
+        Warn "extra '$name' failed to install -- continuing (see the pip error above)"
+        $script:failedExtras += $name
+    }
+}
+
+if ($Minimal) {
+    Info "minimal install -- skipping all optional feature extras"
+} elseif ($Extras) {
+    Info "installing only the requested extras: $Extras"
+    foreach ($e in ($Extras -split ',')) {
+        $e = $e.Trim()
+        if ($e) { Install-Extra $e }
+    }
+} else {
+    # Full feature set, cheapest/safest first so early wins show immediately.
+    # 'matrix-e2e' needs libolm (no Windows wheel) and is expected to fail on a
+    # stock Windows box -- that's fine, the rest of 'gateway' no longer depends
+    # on it. 'train' is GPU-only and gated on CUDA below.
+    foreach ($e in @('dev','vision','proxy','observability','browser','tts','gateway','gateway-voice','matrix-e2e')) {
+        Install-Extra $e
+    }
+    $hasCuda = [bool](Get-Command nvidia-smi -ErrorAction SilentlyContinue)
+    if ($Train -or $hasCuda) {
+        if (-not $hasCuda) { Warn "-Train set but no nvidia-smi found; [train] needs CUDA and may fail to install." }
+        Install-Extra 'train'
+    } else {
+        Info "skipping [train] (no CUDA GPU detected). It's GPU-only; add it later with:"
+        Info "  $pyExe -m pip install -e `".[train]`""
+    }
+}
+
+# Post-install steps for extras that need a second action to actually work.
+if ($script:installedExtras -contains 'browser') {
+    Step "Browser engine (Playwright)"
+    Info "downloading Chromium for the browser tools (one-time, ~150 MB)..."
+    & $pyExe -m playwright install chromium
+    if ($LASTEXITCODE -eq 0) { Ok "Playwright Chromium ready" }
+    else { Warn "playwright download failed; run '$pyExe -m playwright install chromium' later" }
+}
+if (($script:installedExtras -contains 'gateway-voice') -and -not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+    Warn "voice features (faster-whisper) need ffmpeg on PATH, which wasn't found."
+    Info "Install it with 'winget install Gyan.FFmpeg' (then reopen the terminal)."
+}
+if ($script:failedExtras -contains 'matrix-e2e') {
+    Info "matrix-e2e (end-to-end encryption) needs libolm, which has no Windows wheel -- expected."
+    Info "It's optional: the Matrix gateway still works for unencrypted rooms without it."
+}
 
 # --- PATH: make the `athena` command available ------------------------------
 if (-not $Venv) {
@@ -213,6 +296,19 @@ if ($env:WT_SESSION -or $cp -eq '65001') {
 } else {
     Warn "Console code page is $cp (not UTF-8) -- the owl/braille may render as '?'."
     Info "Use Windows Terminal (Cascadia Mono font), or run 'chcp 65001' before launching athena."
+}
+
+# --- install summary ---------------------------------------------------------
+if (-not $Minimal) {
+    Step "Feature install summary"
+    if ($script:installedExtras.Count) { Ok ("installed: " + ($script:installedExtras -join ', ')) }
+    if ($script:failedExtras.Count) {
+        Warn ("skipped/failed: " + ($script:failedExtras -join ', '))
+        Info "Re-attempt one later with:  $pyExe -m pip install -e `".[<name>]`""
+    }
+    if (-not $script:installedExtras.Count -and -not $script:failedExtras.Count) {
+        Info "base install only"
+    }
 }
 
 # --- health check ------------------------------------------------------------

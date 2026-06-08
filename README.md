@@ -66,22 +66,35 @@ git clone https://github.com/troofevades-rgb/ATHENA-AGENT.git C:\projects\ATHENA
 cd ATHENA-AGENT
 ```
 
-**Automated setup (recommended)** — installs the package, wires PATH, checks
-Ollama, pulls a GPU-sized model, and runs the health check:
+**Automated setup (recommended)** — installs the package **with every optional
+feature**, wires PATH, checks Ollama, pulls a GPU-sized model, and runs the
+health check. Each feature group is installed best-effort (a dep that can't
+build on your machine is reported and skipped, never aborting the rest), and
+the GPU training stack is added only when a CUDA GPU is detected:
 
 ```powershell
-.\scripts\setup.ps1                       # Windows  (-Venv for an isolated install)
+.\scripts\setup.ps1                       # Windows: everything the machine supports
+.\scripts\setup.ps1 -Minimal              #   base only, or -Extras vision,gateway for a subset
 ```
 ```bash
-scripts/setup.sh                          # Linux / macOS
+scripts/setup.sh                          # Linux / macOS: everything the machine supports
+scripts/setup.sh --minimal                #   base only, or --extras "vision,gateway" for a subset
 ```
 
 **Manual:**
 
 ```bash
-pip install -e ".[dev]"                    # or just `pip install -e .` for base
+pip install -e ".[dev]"                    # base + dev tooling (or `pip install -e .` for bare base)
+# Add features as needed — vision, browser, gateway, tts, gateway-voice,
+# proxy, observability, matrix-e2e, train. Combine in one set:
+pip install -e ".[vision,browser,gateway,tts]"
 ollama pull qwen2.5-coder:7b               # tool-capable; size it to your GPU (see Requirements)
 ```
+
+> The setup scripts are the easy path: they install each feature group
+> separately so a single un-buildable dep (e.g. `matrix-e2e`, which needs
+> `libolm` and has no Windows wheel) doesn't block the rest, and they run the
+> Playwright browser download and flag missing system tools (`ffmpeg`) for you.
 
 The installed CLI is `athena` (verify: `athena --version`). If `athena` isn't
 found, the Python scripts dir isn't on your PATH — either open a new terminal

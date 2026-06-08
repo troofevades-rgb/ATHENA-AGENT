@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+- Setup scripts (`scripts/setup.ps1`, `scripts/setup.sh`) now install **every**
+  optional feature by default, best-effort per group — a dep that can't build on
+  the machine is reported and skipped instead of aborting the whole install.
+  The GPU `[train]` stack is installed only when a CUDA GPU is detected (force
+  with `-Train` / `--train`); `-Minimal` / `--minimal` does a base-only install;
+  `-Extras` / `--extras` still picks a specific subset. The scripts also run the
+  Playwright Chromium download and flag a missing `ffmpeg` for voice.
+- `[gateway]` extra no longer forces `matrix-nio[e2e]` (→ `python-olm`, a C
+  extension with no Windows wheel). Base `matrix-nio` is used; the Matrix adapter
+  already degrades gracefully without libolm. This lets `[gateway]` install
+  cleanly on Windows.
+
+### Added
+- `[matrix-e2e]` optional extra for Matrix end-to-end encryption
+  (`matrix-nio[e2e]`), split out of `[gateway]` for platforms where libolm is
+  buildable.
+
 ## [0.3.0] - 2026-06-05
 
 ### Fixed

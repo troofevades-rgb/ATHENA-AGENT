@@ -73,7 +73,12 @@ gateway = [
     "discord.py>=2.4",
     # Phase 11 additional platforms
     "python-socketio[asyncio_client]>=5.10",  # BlueBubbles bridge speaks socket.io v4
-    "matrix-nio[e2e]>=0.24",
+    # Base matrix-nio only. End-to-end encryption (matrix-nio[e2e] -> python-olm,
+    # a C extension with no Windows wheel) is split into the optional [matrix-e2e]
+    # extra: the Matrix adapter degrades gracefully without it (see
+    # gateway/platforms/matrix.py::_e2e_available), so forcing it here would only
+    # break the whole [gateway] install on Windows for no functional gain.
+    "matrix-nio>=0.24",
     "aioimaplib>=2.0.1",
     "aiosmtplib>=3.0",
     "beautifulsoup4>=4.12",
@@ -81,6 +86,15 @@ gateway = [
     # Socket Mode but list it explicitly so a future slack-sdk dep
     # change can't quietly remove it.
     "aiohttp>=3.9",
+]
+# Matrix end-to-end encryption (libolm via python-olm). Split out of
+# [gateway] because python-olm is a C extension with no prebuilt Windows
+# wheel — it needs libolm + a compiler. The Matrix adapter works without
+# it (E2EE rooms appear undecryptable; unencrypted rooms are unaffected),
+# so install this only where libolm is buildable (Linux/macOS, or Windows
+# with the toolchain). ``pip install -e ".[matrix-e2e]"``.
+matrix-e2e = [
+    "matrix-nio[e2e]>=0.24",
 ]
 # `athena proxy` — local OpenAI-compatible HTTP endpoint (T3-01).
 # Retargeted in T3-01R onto aiohttp (already pulled by the gateway
