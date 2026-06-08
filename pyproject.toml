@@ -188,6 +188,13 @@ athena = [
     "skills_default/**/*",
 ]
 
+[tool.coverage.run]
+# Bundled default-skill content (package_data, seeded to ~/.athena/skills
+# on first run) is DATA, not athena runtime source — its skill scripts
+# aren't exercised by tests and shouldn't count against the coverage gate
+# (consistent with the mypy/ruff excludes above).
+omit = ["athena/skills_default/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
