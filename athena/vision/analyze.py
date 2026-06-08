@@ -59,6 +59,7 @@ from typing import Any, Protocol, cast
 from ..config import load_config, profile_dir
 from .hashlog import HashLogger, audit_path, sha256_file
 from .imageops import (
+    _HAVE_IMAGE_DEPS,
     crop_region,
     error_level_analysis,
     extract_exif,
@@ -437,6 +438,16 @@ def _run(
         return json.dumps(
             {
                 "error": "vision_enabled=False; the operator has disabled vision_analyze",
+                "mode": mode,
+            }
+        )
+    if not _HAVE_IMAGE_DEPS:
+        return json.dumps(
+            {
+                "error": (
+                    "vision dependencies not installed; run "
+                    "`pip install athena-coder[vision]` (Pillow + imagehash)"
+                ),
                 "mode": mode,
             }
         )
