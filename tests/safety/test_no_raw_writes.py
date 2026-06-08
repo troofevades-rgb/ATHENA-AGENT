@@ -84,6 +84,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         "athena/skills/manager.py",  # the snapshot site
         "athena/skills/pin.py",  # invoked by skill_pin (foreground-only)
         "athena/skills/state_machine.py",  # skill state transitions
+        "athena/skills/seed.py",  # one-shot first-run default-skill seeding (copytree + sentinel; per-skill, never overwrites user edits)
         "athena/tools/file_ops.py",  # foreground Read/Edit/Write tools
         "athena/tools/obsidian.py",  # foreground Obsidian vault tools — confirmation-gated user-file writes scoped strictly to the vault (parallels file_ops.py)
         "athena/tools/tool_result_storage.py",  # content-addressed blob writes + append-only JSONL index (T2-06)
@@ -217,6 +218,11 @@ _PATTERNS = [
 def _iter_python_files(root: Path):
     for p in root.rglob("*.py"):
         if "__pycache__" in p.parts:
+            continue
+        # Bundled default-skill content (shipped as package_data, seeded to
+        # ~/.athena/skills on first run) is DATA, not athena source — its
+        # skill scripts aren't subject to the snapshot/audit write rule.
+        if "skills_default" in p.parts:
             continue
         if p.name == "__init__.py":
             continue
