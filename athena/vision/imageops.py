@@ -52,8 +52,19 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
-import imagehash
-from PIL import Image, ImageChops
+try:
+    import imagehash
+    from PIL import Image, ImageChops
+except ImportError:  # optional [vision] extra (Pillow + imagehash) not installed
+    imagehash = None  # type: ignore[assignment]
+    Image = None  # type: ignore[assignment, misc]
+    ImageChops = None  # type: ignore[assignment, misc]
+
+# True only when the optional [vision] deps imported. The vision_analyze
+# tool checks this and returns a clean "install the extra" message rather
+# than crashing; importing this module never requires the deps, so a base
+# / headless install launches fine (athena/tools/__init__ imports it).
+_HAVE_IMAGE_DEPS = imagehash is not None
 
 # Cap on input dimensions to refuse decompression-bomb shaped
 # inputs. Pillow has its own DECOMPRESSION_BOMB warning around
@@ -377,11 +388,14 @@ def histogram(path: Path | str, *, bins: int = 16) -> dict[str, Any]:
 # ---------------------------------------------------------------
 
 
-_HASH_ALGOS: dict[str, Callable[..., Any]] = {
-    "phash": imagehash.phash,
-    "dhash": imagehash.dhash,
-    "ahash": imagehash.average_hash,
-    "whash": imagehash.whash,
+# Maps the public algorithm name to the imagehash function attribute.
+# Strings (not the functions) so this module imports without the optional
+# imagehash dep present; resolved via getattr at call time.
+_HASH_ALGOS: dict[str, str] = {
+    "phash": "phash",
+    "dhash": "dhash",
+    "ahash": "average_hash",
+    "whash": "whash",
 }
 
 
@@ -396,7 +410,7 @@ def perceptual_hash(
     """
     if algorithm not in _HASH_ALGOS:
         raise ValueError(f"unknown algorithm {algorithm!r}; choose from {sorted(_HASH_ALGOS)}")
-    fn = _HASH_ALGOS[algorithm]
+    fn = getattr(imagehash, _HASH_ALGOS[algorithm])
     img = _open_safely(path)
     h = fn(img, hash_size=hash_size)
     return {
