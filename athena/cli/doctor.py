@@ -541,21 +541,171 @@ def _check_godmode_gate() -> CheckResult:
 # ── Orchestrator ────────────────────────────────────────────────────
 
 
+# ── Section: python (interpreter + version sanity) ──────────────────
+#
+# These cover the most common cross-machine setup traps: a second
+# Python on PATH shadowing the install (pip vs python interpreter
+# mismatch -> "No module named rich"), and 3.13+ where optional-extra
+# wheels (Pillow/imagehash/faster-whisper) may not exist yet.
+
+
+def _check_python_runtime() -> CheckResult:
+    import os as _os
+
+    info = sys.version_info
+    ver = f"{info.major}.{info.minor}.{info.micro}"
+    in_venv = bool(_os.environ.get("VIRTUAL_ENV")) or (
+        getattr(sys, "base_prefix", sys.prefix) != sys.prefix
+    )
+    notes: list[str] = []
+    severity: Severity = "ok"
+    if info < (3, 10):
+        severity = "fail"
+        notes.append("athena needs Python 3.10+")
+    elif info >= (3, 13):
+        severity = "warn"
+        notes.append(
+            "3.13+ may lack prebuilt wheels for optional extras (vision/voice); 3.11/3.12 is safest"
+        )
+    if not in_venv:
+        severity = "warn" if severity == "ok" else severity
+        notes.append(
+            "not in a venv — another Python on PATH can shadow this install (the 'No module named rich' trap)"
+        )
+    detail = f"Python {ver} at {sys.executable}"
+    if notes:
+        detail += " — " + "; ".join(notes)
+    return CheckResult(
+        section="python",
+        name="python.runtime",
+        label="Python runtime",
+        severity=severity,
+        detail=detail,
+    )
+
+
+def _norm_model(m: str) -> str:
+    """Ollama treats ``foo`` and ``foo:latest`` as the same tag."""
+    return m if ":" in m else f"{m}:latest"
+
+
+def _check_configured_model_pulled() -> CheckResult:
+    """The model in config.toml must actually be present in Ollama —
+    catches the 'model not pulled' / custom-model-from-another-machine
+    case where athena starts but can't run a turn."""
+    import urllib.error
+    import urllib.request
+
+    from ..config import load_config
+
+    cfg = load_config()
+    want = str(getattr(cfg, "model", "") or "")
+    host = str(getattr(cfg, "ollama_host", "") or "http://127.0.0.1:11434").rstrip("/")
+    if not want:
+        return CheckResult(
+            section="ollama",
+            name="ollama.model",
+            label="Configured model pulled",
+            severity="skip",
+            detail="no model configured",
+        )
+    try:
+        with urllib.request.urlopen(f"{host}/api/tags", timeout=3) as resp:  # noqa: S310
+            data = json.loads(resp.read().decode("utf-8"))
+        available = [str(m.get("name", "")) for m in data.get("models", [])]
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return CheckResult(
+            section="ollama",
+            name="ollama.model",
+            label="Configured model pulled",
+            severity="skip",
+            detail="daemon unreachable (see the Ollama check above)",
+        )
+    if any(_norm_model(a) == _norm_model(want) for a in available):
+        return CheckResult(
+            section="ollama",
+            name="ollama.model",
+            label="Configured model pulled",
+            severity="ok",
+            detail=f"{want!r} present",
+        )
+    have = ", ".join(available[:4]) or "none"
+    return CheckResult(
+        section="ollama",
+        name="ollama.model",
+        label="Configured model pulled",
+        severity="warn",
+        detail=(
+            f"{want!r} not pulled. Pull it (`ollama pull {want}`) or switch via `/model`. "
+            f"Available: {have}"
+        ),
+    )
+
+
+def _check_console_encoding() -> CheckResult:
+    """On Windows, a legacy console code page (cp437/cp1252) can't
+    render the owl / box-drawing / braille — they show as '?'.
+    Checks the real console output code page (not athena's
+    reconfigured Python stream, which is forced to UTF-8 at startup)."""
+    import os as _os
+
+    if sys.platform != "win32":
+        return CheckResult(
+            section="tui",
+            name="tui.encoding",
+            label="Console encoding",
+            severity="skip",
+            detail="non-Windows (UTF-8)",
+        )
+    cp: int | None = None
+    try:
+        import ctypes
+
+        windll = getattr(ctypes, "windll", None)
+        if windll is not None:
+            cp = int(windll.kernel32.GetConsoleOutputCP())
+    except Exception:  # noqa: BLE001
+        cp = None
+    in_wt = bool(_os.environ.get("WT_SESSION"))
+    if cp == 65001 or in_wt:
+        where = " (Windows Terminal)" if in_wt else ""
+        return CheckResult(
+            section="tui",
+            name="tui.encoding",
+            label="Console encoding",
+            severity="ok",
+            detail=f"code page {cp}{where}",
+        )
+    return CheckResult(
+        section="tui",
+        name="tui.encoding",
+        label="Console encoding",
+        severity="warn",
+        detail=(
+            f"console code page {cp} (not UTF-8/65001) — the owl/braille may render as '?'. "
+            "Use Windows Terminal (Cascadia Mono), or run `chcp 65001` first."
+        ),
+    )
+
+
 def run_all_checks(skip_network: bool = False) -> list[CheckResult]:
     """Run every check and return the result list. Each check is
     safe-wrapped so an unexpected exception becomes a fail row
     rather than crashing the doctor."""
     checks: list[tuple[str, Callable[[], CheckResult]]] = [
+        ("Python runtime", _check_python_runtime),
         ("Config parses", _check_config_loads),
         ("Config file present", _check_config_path_exists),
         ("Deprecated config keys", _check_deprecated_config_keys),
         ("Credential pool", _check_credentials_pool),
         ("~/.athena/.env", _check_dotenv_present),
         ("Ollama daemon reachable", _check_ollama_daemon),
+        ("Configured model pulled", _check_configured_model_pulled),
         ("OpenRouter auth", lambda: _check_openrouter_auth(skip_network)),
         ("~/.athena writable", _check_athena_home_writable),
         ("node on PATH", _check_node_on_path),
         ("Ink TUI bundle", _check_tui_bundle),
+        ("Console encoding", _check_console_encoding),
         ("Event log errors (24h)", _check_recent_event_log_errors),
         ("Recent crashes (7d)", _check_recent_crashes),
         ("/godmode gate", _check_godmode_gate),

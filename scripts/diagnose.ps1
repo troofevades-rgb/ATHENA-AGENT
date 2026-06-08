@@ -61,7 +61,9 @@ H "Terminal / encoding (owl rendering)"
 "Windows Terminal: $([bool]$env:WT_SESSION)"
 chcp
 "OutputEncoding: $([Console]::OutputEncoding.WebName)"
-python -c "print('braille glyph test ->', '⡀⢀⣿⢷')" 2>&1
-Write-Host "(if the braille line shows '?' or boxes IN your terminal but pastes correctly elsewhere, it's a FONT issue -> use Windows Terminal + Cascadia Mono)" -ForegroundColor DarkGray
+# Braille built from code points (no literal non-ASCII in this .ps1, so
+# PowerShell 5.1 -- which reads scripts as ANSI -- parses it cleanly).
+python -c "print('braille glyph test ->', ''.join(chr(c) for c in (0x2840,0x2880,0x28ff,0x28b7)))" 2>&1
+Write-Host "(if the braille shows as '?'/boxes in YOUR terminal but pastes correctly elsewhere, it's a font/encoding issue -> use Windows Terminal + Cascadia Mono)" -ForegroundColor DarkGray
 
 Write-Host "`n===== END =====" -ForegroundColor Green
