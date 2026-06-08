@@ -30,7 +30,7 @@ Run on your own Ollama models by default, hosted providers when you want them.
 
 ---
 
-athena gives you a full agentic coding loop in your terminal — native tool calling, file edits, shell, search, plan mode — **without sending your code anywhere**. It talks to a local [Ollama](https://ollama.com) daemon by default; point it at a hosted model only when you choose to.
+Athena gives you a full agentic coding loop in your terminal — native tool calling, file edits, shell, search, plan mode — **without sending your code anywhere**. It talks to a local [Ollama](https://ollama.com) daemon by default; point it at a hosted model only when you choose to.
 
 > **Status — Beta.** The default Ollama path is production-ready for single-user development on Linux/macOS. Hosted providers, the multi-user gateway, and the GPU training loop are functional and actively hardening.
 
