@@ -154,6 +154,14 @@ case " ${FAILED_EXTRAS[*]-} " in
   *" matrix-e2e "*)
     cyan "matrix-e2e (E2E encryption) needs libolm -- optional; the Matrix gateway still works for unencrypted rooms." ;;
 esac
+case " ${INSTALLED_EXTRAS[*]-} " in
+  *" tts "*|*" gateway-voice "*)
+    cyan "Text-to-speech needs a voice model: download a Piper .onnx voice and set cfg.tts_voice (see docs/reference/system-dependencies.md)." ;;
+esac
+case " ${INSTALLED_EXTRAS[*]-} " in
+  *" train "*)
+    cyan "Training also needs a CUDA-built torch, unsloth (git), and llama.cpp -- not pip extras (see docs/reference/system-dependencies.md)." ;;
+esac
 
 # --- verify (the import that used to crash on a base install) ---------------
 step "Verifying athena imports"
@@ -192,5 +200,7 @@ fi
 step "Health check"
 "$PY" -m athena doctor || true
 step "Done"
+cyan "Some features need external tools / model files / credentials pip can't install."
+cyan "Full map (per-OS commands, what breaks without each): docs/reference/system-dependencies.md"
 cyan "Run athena:  python -m athena"
 [ "$USE_VENV" -eq 1 ] && cyan "venv: activate first with  source .venv/bin/activate"

@@ -23,6 +23,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `[matrix-e2e]` optional extra for Matrix end-to-end encryption
   (`matrix-nio[e2e]`), split out of `[gateway]` for platforms where libolm is
   buildable.
+- `docs/reference/system-dependencies.md` — a complete map of every external
+  dependency and post-install step pip can't provide (Ollama + model, Node/Bun,
+  ffmpeg, Chromium, Tesseract, libolm, Piper/Kokoro voices, the CUDA/torch/
+  unsloth/llama.cpp training stack, gateway credentials, ripgrep, bubblewrap,
+  tirith, Codex CLI, LSP servers), with per-OS install commands and what breaks
+  without each. Linked from the README; the setup scripts point to it and now
+  also advise on voice-model and training-stack steps after install.
 
 ## [0.3.0] - 2026-06-05
 

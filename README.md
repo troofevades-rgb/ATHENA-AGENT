@@ -122,6 +122,26 @@ after install, or just run **`python -m athena`**, which always works.
   registry; `ollama push`/`pull` them between machines or copy `~/.ollama/models`.
 - Optional: **`ripgrep`** (`rg`) on `PATH` for faster search; falls back to Python.
 
+### System dependencies beyond pip
+
+`pip` installs athena's Python packages — but several features rely on external
+tools, model files, or credentials that pip can't provide. The common ones:
+
+| Feature | Needs (beyond `pip install`) |
+|---------|------------------------------|
+| Interactive TUI | **Node.js** or Bun on `PATH` |
+| Browser tools (`[browser]`) | `python -m playwright install chromium` |
+| Video / voice (`[vision]`, `[gateway-voice]`) | **ffmpeg** binary |
+| OCR | Tesseract binary + `pip install pytesseract` |
+| Matrix E2E (`[matrix-e2e]`) | **libolm** (no Windows wheel) |
+| Text-to-speech (`[tts]`) | a Piper `.onnx` voice (manual download) |
+| Training (`[train]`) | NVIDIA CUDA + torch + unsloth + llama.cpp |
+| Hosted providers / gateways | API keys / platform tokens |
+
+The setup scripts handle several of these automatically (Chromium download, ffmpeg
+check, CUDA-gated training). For the complete map — per-OS install commands and
+what breaks without each — see **[docs/reference/system-dependencies.md](docs/reference/system-dependencies.md)**.
+
 ## Configuration
 
 `~/.athena/config.toml`:

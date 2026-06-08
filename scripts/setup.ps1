@@ -202,6 +202,14 @@ if ($script:failedExtras -contains 'matrix-e2e') {
     Info "matrix-e2e (end-to-end encryption) needs libolm, which has no Windows wheel -- expected."
     Info "It's optional: the Matrix gateway still works for unencrypted rooms without it."
 }
+if (($script:installedExtras -contains 'tts') -or ($script:installedExtras -contains 'gateway-voice')) {
+    Info "Text-to-speech needs a voice model file -- download a Piper .onnx voice and set cfg.tts_voice."
+    Info "See docs/reference/system-dependencies.md (Voice & text-to-speech)."
+}
+if ($script:installedExtras -contains 'train') {
+    Info "The training loop also needs a CUDA-built torch, unsloth (from git), and llama.cpp --"
+    Info "these are NOT pip extras. See docs/reference/system-dependencies.md (Model training loop)."
+}
 
 # --- PATH: make the `athena` command available ------------------------------
 if (-not $Venv) {
@@ -315,6 +323,8 @@ if (-not $Minimal) {
 Step "Health check"
 & $pyExe -m athena doctor
 Step "Done"
+Info "Some features need external tools / model files / credentials pip can't install."
+Info "Full map (per-OS commands, what breaks without each): docs/reference/system-dependencies.md"
 Info "Run athena:  python -m athena   (or 'athena' in a new terminal)"
 if ($Venv) { Info "venv install: activate first with  .\.venv\Scripts\Activate.ps1" }
 Info "Inside athena, the input box talks to the AI (use /help for commands)."
