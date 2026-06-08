@@ -212,8 +212,14 @@ def run_interactive_repl(agent: Agent, cfg: Any, workspace: Path) -> int:
         gateway = TuiGateway()
         gateway.start()
     except FileNotFoundError as e:
+        # Two causes land here: the bundle is missing, or the JS runtime
+        # (node/bun) that runs it isn't installed/on PATH. Name both.
         sys.stderr.write(f"athena: {e}\n")
-        sys.stderr.write("  Build the bundle with: cd ui-tui && bun run build\n")
+        sys.stderr.write(
+            "  - missing bundle?  build it: cd ui-tui && bun run build\n"
+            "  - missing runtime? install Node.js (https://nodejs.org) or Bun,\n"
+            "    or set ATHENA_NODE_BIN to the runtime's full path.\n"
+        )
         return 2
     except RuntimeError as e:
         sys.stderr.write(f"athena: TUI did not start — {e}\n")
