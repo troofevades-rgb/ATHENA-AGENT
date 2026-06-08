@@ -44,6 +44,7 @@ import logging
 import os
 import queue
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -216,6 +217,30 @@ def _locate_bundle() -> Path:
         f"  {wheel_path}\n"
         f"  {dev_path}\n"
         "Build it with: cd ui-tui && bun run build"
+    )
+
+
+def resolve_js_runtime(explicit: str | None = None) -> str:
+    """Resolve the JS runtime used to run the Ink bundle.
+
+    Order of preference:
+      1. an explicit ``node_bin`` argument,
+      2. the ``ATHENA_NODE_BIN`` env var,
+      3. ``node`` on PATH,
+      4. ``bun`` on PATH (drop-in: ``bun main.js`` runs the bundle),
+      5. the literal ``"node"`` — so a missing-runtime spawn still raises a
+         clear FileNotFoundError instead of silently doing nothing.
+
+    Returns an absolute path when found (3/4) so the spawn doesn't depend on
+    the child process inheriting a PATH that includes the runtime — a common
+    Windows failure where ``bun`` is installed but not on the parent's PATH.
+    """
+    return (
+        explicit
+        or os.environ.get("ATHENA_NODE_BIN")
+        or shutil.which("node")
+        or shutil.which("bun")
+        or "node"
     )
 
 
@@ -565,7 +590,7 @@ class TuiGateway:
         that case stdio is redirected to DEVNULL and Ink runs
         in non-interactive mode."""
         self._bundle = bundle_path or _locate_bundle()
-        self._node = node_bin or os.environ.get("ATHENA_NODE_BIN", "node")
+        self._node = resolve_js_runtime(node_bin)
         self._proc: subprocess.Popen[bytes] | None = None
         self._cmd_queue: queue.Queue[Command | None] = queue.Queue()
         self._reader_thread: threading.Thread | None = None
