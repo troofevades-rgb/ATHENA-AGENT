@@ -53,7 +53,7 @@ from typing import Any, Literal
 try:
     from PIL import Image
 except ImportError:  # optional [vision] extra (Pillow) not installed
-    Image = None  # type: ignore[assignment]
+    Image = None  # type: ignore[assignment, unused-ignore]
 
 Provider = Literal["anthropic", "openai", "ollama"]
 
