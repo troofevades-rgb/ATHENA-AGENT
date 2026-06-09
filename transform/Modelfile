@@ -1,6 +1,6 @@
 # Custom Ollama model for forensic acoustic analysis + investigative work.
 # Build:  ollama create troofevades -f Modelfile
-# Use:    ollama run troofevades   (or set in ~/.ocode/config.toml)
+# Use:    ollama run troofevades   (or set in ~/.athena/config.toml)
 #
 # BASE: Qwen2.5-Coder-14B-Instruct-abliterated (Q4_K_M).
 # Pull once:  ollama pull hf.co/bartowski/Qwen2.5-Coder-14B-Instruct-abliterated-GGUF:Q4_K_M
@@ -11,7 +11,7 @@
 # variant) tend to emit tool calls as fenced/bare JSON in content rather
 # than wrapping them in <tool_call>...</tool_call> tags as the chat template
 # instructs. Ollama's tool-call parser only recognizes the tagged form, so
-# `message.tool_calls` will usually be null. ocode handles this in
+# `message.tool_calls` will usually be null. athena handles this in
 # `agent._extract_text_tool_calls`, which recovers calls from content via
 # regex; no action needed at the Modelfile level. Reinforcing the format
 # in SYSTEM has been tested and does not reliably fix it (the model invents

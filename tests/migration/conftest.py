@@ -46,7 +46,7 @@ def hermes_source(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def ocode_dest(tmp_path: Path) -> Path:
+def athena_dest(tmp_path: Path) -> Path:
     dst = tmp_path / "athena-home"
     dst.mkdir()
     return dst

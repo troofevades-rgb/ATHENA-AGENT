@@ -61,7 +61,7 @@ def test_append_creates_parents(tmp_path: Path) -> None:
 def test_fsync_env_path_does_not_corrupt(tmp_path: Path, monkeypatch) -> None:
     """Just exercise the fsync branch — we can't easily assert fsync happened,
     but we can confirm the data round-trips with the flag on."""
-    monkeypatch.setenv("OCODE_SESSIONS_FSYNC", "1")
+    monkeypatch.setenv("ATHENA_SESSIONS_FSYNC", "1")
     path = tmp_path / "f.jsonl"
     append_jsonl(path, {"a": 1})
     [row] = list(read_jsonl(path))

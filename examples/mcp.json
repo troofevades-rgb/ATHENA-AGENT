@@ -1,5 +1,5 @@
 {
-  "_comment": "Drop this at ~/.ocode/mcp.json or <project>/mcp.json. Comment fields are ignored.",
+  "_comment": "Drop this at ~/.athena/mcp.json or <project>/mcp.json. Comment fields are ignored.",
   "mcpServers": {
     "filesystem": {
       "_comment": "Anthropic's reference filesystem server. Pulls from npm.",
@@ -18,10 +18,10 @@
       "args": ["mcp-server-sqlite", "--db-path", "./data.db"],
       "disabled": true
     },
-    "ocode-demo": {
-      "_comment": "Tiny demo server bundled with ocode — verifies the integration end-to-end.",
+    "athena-demo": {
+      "_comment": "Tiny demo server bundled with athena — verifies the integration end-to-end.",
       "command": "python",
-      "args": ["-m", "ocode.mcp.demo_server"],
+      "args": ["-m", "athena.mcp.demo_server"],
       "disabled": false
     },
     "fetch": {

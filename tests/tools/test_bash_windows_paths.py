@@ -133,5 +133,5 @@ def test_bash_description_warns_about_backslashes():
 def test_exact_regression_from_transcript(on_windows):
     """The literal command from the user's transcript — verify it
     would now reach python with a runnable path."""
-    out = _normalize_windows_paths(r"python C:\Users\dev\projects\ocodev2\hello_world.py")
-    assert out == "python C:/Users/dev/projects/ocodev2/hello_world.py"
+    out = _normalize_windows_paths(r"python C:\Users\dev\projects\myproject\hello_world.py")
+    assert out == "python C:/Users/dev/projects/myproject/hello_world.py"
