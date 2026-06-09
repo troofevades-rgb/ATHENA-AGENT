@@ -49,7 +49,7 @@ def _build_hermes_db(db_path: Path, rows: list[dict]) -> None:
 
 
 def test_exports_sqlite_to_markdown_files(
-    hermes_source: Path, ocode_dest: Path, migration_report
+    hermes_source: Path, athena_dest: Path, migration_report
 ) -> None:
     _build_hermes_db(
         hermes_source / "memory.db",
@@ -63,9 +63,9 @@ def test_exports_sqlite_to_markdown_files(
             {"name": "merge freeze", "type": "project", "body": "merge freeze starts 2026-03-05"},
         ],
     )
-    export_memory(hermes_source, ocode_dest, report=migration_report)
+    export_memory(hermes_source, athena_dest, report=migration_report)
 
-    mem_dir = ocode_dest / "profiles" / "default" / "memory"
+    mem_dir = athena_dest / "profiles" / "default" / "memory"
     files = sorted(p.name for p in mem_dir.glob("*.md"))
     assert "user_role.md" in files
     assert "merge_freeze.md" in files
@@ -82,7 +82,7 @@ def test_exports_sqlite_to_markdown_files(
     assert fm["description"] == "data scientist"
 
 
-def test_rebuilds_memory_md_index(hermes_source: Path, ocode_dest: Path, migration_report) -> None:
+def test_rebuilds_memory_md_index(hermes_source: Path, athena_dest: Path, migration_report) -> None:
     _build_hermes_db(
         hermes_source / "memory.db",
         [
@@ -90,8 +90,8 @@ def test_rebuilds_memory_md_index(hermes_source: Path, ocode_dest: Path, migrati
             {"name": "beta", "body": "y"},
         ],
     )
-    export_memory(hermes_source, ocode_dest, report=migration_report)
-    index = (ocode_dest / "profiles" / "default" / "memory" / "MEMORY.md").read_text(
+    export_memory(hermes_source, athena_dest, report=migration_report)
+    index = (athena_dest / "profiles" / "default" / "memory" / "MEMORY.md").read_text(
         encoding="utf-8"
     )
     assert "alpha" in index
@@ -99,7 +99,7 @@ def test_rebuilds_memory_md_index(hermes_source: Path, ocode_dest: Path, migrati
 
 
 def test_preserves_created_at_and_last_used_at(
-    hermes_source: Path, ocode_dest: Path, migration_report
+    hermes_source: Path, athena_dest: Path, migration_report
 ) -> None:
     created = datetime(2024, 6, 1, tzinfo=timezone.utc).isoformat()
     last = datetime(2026, 2, 14, tzinfo=timezone.utc).isoformat()
@@ -109,8 +109,8 @@ def test_preserves_created_at_and_last_used_at(
             {"name": "preserved", "body": "x", "created_at": created, "last_used_at": last},
         ],
     )
-    export_memory(hermes_source, ocode_dest, report=migration_report)
-    text = (ocode_dest / "profiles" / "default" / "memory" / "preserved.md").read_text(
+    export_memory(hermes_source, athena_dest, report=migration_report)
+    text = (athena_dest / "profiles" / "default" / "memory" / "preserved.md").read_text(
         encoding="utf-8"
     )
     assert created in text
@@ -118,16 +118,16 @@ def test_preserves_created_at_and_last_used_at(
 
 
 def test_warns_on_unknown_memory_provider(
-    hermes_source: Path, ocode_dest: Path, migration_report
+    hermes_source: Path, athena_dest: Path, migration_report
 ) -> None:
     (hermes_source / "memory_provider").write_text("byterover\n", encoding="utf-8")
-    export_memory(hermes_source, ocode_dest, report=migration_report)
+    export_memory(hermes_source, athena_dest, report=migration_report)
     warnings = migration_report.entries.get("memory_warning", [])
     assert any("byterover" in w.get("provider", "") for w in warnings)
     assert migration_report.count("imported_memory") == 0
 
 
-def test_warns_when_no_memory_db(hermes_source: Path, ocode_dest: Path, migration_report) -> None:
-    export_memory(hermes_source, ocode_dest, report=migration_report)
+def test_warns_when_no_memory_db(hermes_source: Path, athena_dest: Path, migration_report) -> None:
+    export_memory(hermes_source, athena_dest, report=migration_report)
     warnings = migration_report.entries.get("memory_warning", [])
     assert any(w.get("reason") == "no_db" for w in warnings)

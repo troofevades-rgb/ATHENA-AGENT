@@ -18,9 +18,6 @@ dist/
 coverage.xml
 htmlcov/
 
-# ocode runtime data
-.ocode/
-
 # Editor / OS
 .vscode/
 .idea/

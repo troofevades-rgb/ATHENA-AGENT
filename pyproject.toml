@@ -1,9 +1,9 @@
 [project]
 # Distribution name on PyPI ("pip install athena-coder"). The Python
-# import name stays `athena` and the installed shims are still
-# `athena` / `ocode` — distribution and import names are allowed to
-# differ (cf. `pip install pyyaml` → `import yaml`). `athena` and
-# `athena-agent` were both occupied by unrelated projects.
+# import name and the installed CLI are both `athena` — distribution
+# and import names are allowed to differ (cf. `pip install pyyaml` →
+# `import yaml`). `athena` and `athena-agent` were both occupied by
+# unrelated projects.
 name = "athena-coder"
 version = "0.3.0"
 description = "Self-improving terminal-first AI agent with closed training loop"

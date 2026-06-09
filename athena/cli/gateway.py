@@ -236,6 +236,40 @@ def _instantiate_adapter(
     raise ValueError(f"unknown platform: {name!r}")
 
 
+def _ensure_working_dns_resolver() -> None:
+    """aiohttp defaults to the aiodns/c-ares ``AsyncResolver`` whenever
+    aiodns is importable. On some Windows hosts c-ares can't read the
+    system DNS configuration, so every lookup fails with "Could not
+    contact DNS servers" even though the OS resolver works fine — which
+    leaves every adapter unable to connect. When we detect that, fall
+    back to aiohttp's ``ThreadedResolver`` (which goes through
+    ``socket.getaddrinfo``). No-op when aiodns resolves correctly, so
+    healthy hosts keep the faster async resolver."""
+    import aiohttp.connector
+    import aiohttp.resolver
+
+    if aiohttp.resolver.DefaultResolver is not aiohttp.resolver.AsyncResolver:
+        return  # aiodns absent or already overridden — nothing to do
+
+    async def _probe() -> None:
+        resolver = aiohttp.resolver.AsyncResolver()
+        try:
+            await resolver.resolve("discord.com", 443)
+        finally:
+            await resolver.close()
+
+    try:
+        asyncio.run(_probe())
+    except Exception as exc:
+        logger.warning(
+            "aiodns resolver unusable (%s); falling back to ThreadedResolver", exc
+        )
+        aiohttp.resolver.DefaultResolver = aiohttp.resolver.ThreadedResolver
+        # connector binds its own ``DefaultResolver`` name at import, so the
+        # default-connector path (discord.py, aiogram) needs it patched too.
+        aiohttp.connector.DefaultResolver = aiohttp.resolver.ThreadedResolver  # type: ignore[attr-defined]
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     cfg = load_config()
     if args.profile:
@@ -245,6 +279,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    _ensure_working_dns_resolver()
     daemon = GatewayDaemon(cfg)
     registered = _build_adapters(daemon, cfg)
     if not registered:

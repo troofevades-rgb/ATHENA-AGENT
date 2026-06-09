@@ -19,7 +19,7 @@ def _write_session(hermes_source: Path, name: str, lines: list[dict]) -> Path:
     return p
 
 
-def test_translates_jsonl_schema(hermes_source: Path, ocode_dest: Path, migration_report) -> None:
+def test_translates_jsonl_schema(hermes_source: Path, athena_dest: Path, migration_report) -> None:
     _write_session(
         hermes_source,
         "sess1",
@@ -29,9 +29,9 @@ def test_translates_jsonl_schema(hermes_source: Path, ocode_dest: Path, migratio
             {"role": "assistant", "content": "hi there"},
         ],
     )
-    import_sessions(hermes_source, ocode_dest, report=migration_report)
+    import_sessions(hermes_source, athena_dest, report=migration_report)
 
-    out = ocode_dest / "profiles" / "default" / "sessions" / "sess1.jsonl"
+    out = athena_dest / "profiles" / "default" / "sessions" / "sess1.jsonl"
     assert out.exists()
     body_lines = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
     assert body_lines == [
@@ -41,7 +41,7 @@ def test_translates_jsonl_schema(hermes_source: Path, ocode_dest: Path, migratio
 
 
 def test_extracts_metadata_to_meta_json(
-    hermes_source: Path, ocode_dest: Path, migration_report
+    hermes_source: Path, athena_dest: Path, migration_report
 ) -> None:
     _write_session(
         hermes_source,
@@ -51,9 +51,9 @@ def test_extracts_metadata_to_meta_json(
             {"role": "user", "content": "go"},
         ],
     )
-    import_sessions(hermes_source, ocode_dest, report=migration_report)
+    import_sessions(hermes_source, athena_dest, report=migration_report)
     meta = json.loads(
-        (ocode_dest / "profiles" / "default" / "sessions" / "with-meta.meta.json").read_text(
+        (athena_dest / "profiles" / "default" / "sessions" / "with-meta.meta.json").read_text(
             encoding="utf-8"
         )
     )
@@ -63,11 +63,11 @@ def test_extracts_metadata_to_meta_json(
     assert meta["session_id"] == "with-meta"
 
 
-def test_preserves_message_order(hermes_source: Path, ocode_dest: Path, migration_report) -> None:
+def test_preserves_message_order(hermes_source: Path, athena_dest: Path, migration_report) -> None:
     msgs = [{"role": "user", "content": str(i)} for i in range(20)]
     _write_session(hermes_source, "ordered", msgs)
-    import_sessions(hermes_source, ocode_dest, report=migration_report)
-    out = (ocode_dest / "profiles" / "default" / "sessions" / "ordered.jsonl").read_text(
+    import_sessions(hermes_source, athena_dest, report=migration_report)
+    out = (athena_dest / "profiles" / "default" / "sessions" / "ordered.jsonl").read_text(
         encoding="utf-8"
     )
     parsed = [json.loads(line) for line in out.splitlines()]
@@ -75,7 +75,7 @@ def test_preserves_message_order(hermes_source: Path, ocode_dest: Path, migratio
 
 
 def test_fallback_meta_when_no_header(
-    hermes_source: Path, ocode_dest: Path, migration_report
+    hermes_source: Path, athena_dest: Path, migration_report
 ) -> None:
     _write_session(
         hermes_source,
@@ -84,9 +84,9 @@ def test_fallback_meta_when_no_header(
             {"role": "user", "content": "hello"},
         ],
     )
-    import_sessions(hermes_source, ocode_dest, report=migration_report)
+    import_sessions(hermes_source, athena_dest, report=migration_report)
     meta = json.loads(
-        (ocode_dest / "profiles" / "default" / "sessions" / "no-header.meta.json").read_text(
+        (athena_dest / "profiles" / "default" / "sessions" / "no-header.meta.json").read_text(
             encoding="utf-8"
         )
     )
@@ -95,8 +95,8 @@ def test_fallback_meta_when_no_header(
 
 
 def test_warns_when_no_sessions_dir(
-    hermes_source: Path, ocode_dest: Path, migration_report
+    hermes_source: Path, athena_dest: Path, migration_report
 ) -> None:
-    import_sessions(hermes_source, ocode_dest, report=migration_report)
+    import_sessions(hermes_source, athena_dest, report=migration_report)
     warnings = migration_report.entries.get("sessions_warning", [])
     assert any(w.get("reason") == "no_sessions_dir" for w in warnings)
