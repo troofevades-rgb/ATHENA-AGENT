@@ -64,7 +64,9 @@ def test_auto_when_aiodns_absent_is_noop(monkeypatch):
     # aiodns not installed -> default is already ThreadedResolver
     monkeypatch.setattr(aiohttp.resolver, "DefaultResolver", _Threaded)
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(net, "_aiodns_can_resolve", lambda: pytest.fail("probed when aiodns absent"))
+    monkeypatch.setattr(
+        net, "_aiodns_can_resolve", lambda: pytest.fail("probed when aiodns absent")
+    )
     net.ensure_working_dns_resolver("auto")
     assert aiohttp.resolver.DefaultResolver is _Threaded
 
