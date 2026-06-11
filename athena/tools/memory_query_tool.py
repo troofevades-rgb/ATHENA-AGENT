@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import file_ops
 from .registry import tool
@@ -18,9 +18,18 @@ if TYPE_CHECKING:
     from ..agent.core import Agent
 
 
-def _build_llm_call(agent: Agent) -> Callable[[str, str], Awaitable[str]]:
-    """Wrap the agent's sync streaming provider as an async
-    ``(system, user) -> str`` callable for the user-model backend."""
+def _build_llm_call(
+    agent: Agent, *, provider: Any = None
+) -> Callable[[str, str], Awaitable[str]]:
+    """Wrap a sync streaming provider as an async ``(system, user) ->
+    str`` callable for the user-model backend.
+
+    ``provider`` defaults to ``agent.provider`` (the mid-session compact
+    path, where it's alive). Session-end ingestion passes an independent
+    auxiliary provider, because ``Agent.close()`` tears the agent's own
+    provider down right after firing the fire-and-forget ingest worker.
+    """
+    prov = provider if provider is not None else agent.provider
 
     extract_model = (
         agent.cfg.user_model.extract_model if agent.cfg.user_model.extract_model else agent.model
@@ -34,7 +43,7 @@ def _build_llm_call(agent: Agent) -> Callable[[str, str], Awaitable[str]]:
 
         def _sync_stream() -> str:
             chunks: list[str] = []
-            for chunk in agent.provider.stream_chat(
+            for chunk in prov.stream_chat(
                 model=extract_model,
                 messages=messages,
                 tools=None,

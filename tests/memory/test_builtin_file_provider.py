@@ -184,6 +184,27 @@ def test_delete_by_filename_without_md_suffix(provider):
     assert provider.delete_entry("default", "note") is True
 
 
+def test_filename_resolution_is_deterministic_under_collision(provider):
+    """When one entry's FILENAME equals a DIFFERENT entry's frontmatter
+    name, resolution must prefer the filename match — a plain OR +
+    fetchone() could delete the wrong file."""
+    # Entry A: filename "alpha.md", name "alpha".
+    _write_one(provider, "default", "alpha", filename="alpha.md")
+    # Entry B: name "alpha.md" (collides with A's filename), filename "beta.md".
+    _write_one(provider, "default", "alpha.md", filename="beta.md")
+
+    # read_entry("alpha.md") must resolve to the FILENAME match (entry A),
+    # not entry B whose name happens to be "alpha.md".
+    got = provider.read_entry("default", "alpha.md")
+    assert got is not None
+    assert got.path is not None and got.path.name == "alpha.md"
+
+    # delete_entry("alpha.md") must remove entry A's file, leaving B.
+    assert provider.delete_entry("default", "alpha.md") is True
+    assert not (provider._memory_dir("default") / "alpha.md").exists()
+    assert (provider._memory_dir("default") / "beta.md").exists()
+
+
 def test_delete_entry_refreshes_index(provider):
     _write_one(provider, "default", "keep", description="keep me")
     _write_one(provider, "default", "drop", description="drop me")

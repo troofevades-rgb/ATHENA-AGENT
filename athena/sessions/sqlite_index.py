@@ -173,14 +173,18 @@ def fts5_search(
 
     try:
         return _run(query)
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as e:
+        if not _is_fts5_syntax_error(e):
+            raise  # infrastructure error (no such table, disk I/O, …) — surface it
         # Raw query isn't valid FTS5 syntax — retry as literal terms.
         safe = _to_fts5_match(query)
         if not safe:
             return []
         try:
             return _run(safe)
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as e2:
+            if not _is_fts5_syntax_error(e2):
+                raise
             return []
 
 
@@ -198,6 +202,25 @@ def reset(db: sqlite3.Connection) -> None:
 
 
 # -- internal helpers ----------------------------------------------------
+
+# Substrings that mark an ``OperationalError`` as an FTS5 query-SYNTAX
+# problem (bad user input) rather than an infrastructure failure
+# (missing table, corrupt/locked db, disk I/O). Only the former should
+# be swallowed + retried; the latter must propagate so the caller can
+# react (e.g. prompt `athena reindex`) instead of silently returning [].
+_FTS5_SYNTAX_MARKERS = (
+    "fts5",
+    "syntax error",
+    "no such column",  # FTS5 column-filter syntax, e.g. `badcol:foo`
+    "unterminated string",
+    "malformed match",
+    "unknown special query",
+)
+
+
+def _is_fts5_syntax_error(exc: sqlite3.OperationalError) -> bool:
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _FTS5_SYNTAX_MARKERS)
 
 
 def _to_fts5_match(query: str) -> str:

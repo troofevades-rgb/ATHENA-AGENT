@@ -76,6 +76,43 @@ def test_fires_on_session_end_when_enabled():
     assert _wait_for_threads_named("athena-user-model-ingest")
 
 
+def test_session_end_uses_independent_provider(monkeypatch):
+    """Regression: session-end ingest fires from inside Agent.close(),
+    which tears down the agent's provider moments later. The worker must
+    build (and close) an INDEPENDENT auxiliary provider instead of
+    reusing the agent's — otherwise the extraction LLM call races the
+    close and almost always fails."""
+    import athena.agent.auxiliary_client as aux_mod
+    import athena.user_model as um_mod
+
+    aux_provider = MagicMock()
+    built = {"n": 0}
+
+    def _fake_build(_agent):
+        built["n"] += 1
+        return aux_provider
+
+    monkeypatch.setattr(aux_mod, "build_auxiliary_client", _fake_build)
+
+    fake_backend = MagicMock()
+
+    async def _ingest(*_a, **_k):
+        return None
+
+    fake_backend.ingest_session = _ingest
+    monkeypatch.setattr(um_mod, "get_user_model_backend", lambda *_a, **_k: fake_backend)
+
+    cfg = Config(user_model=UserModelConfig(backend="markdown", ingest_on_session_end=True))
+    agent = _make_agent(cfg)
+    assert (
+        maybe_fire_ingest(agent, [{"role": "user", "content": "x"}], trigger="session_end") is True
+    )
+    assert _wait_for_threads_named("athena-user-model-ingest")
+    # Built exactly one independent provider, and closed it afterwards.
+    assert built["n"] == 1
+    aux_provider.close.assert_called_once()
+
+
 def test_no_fire_on_empty_transcript():
     cfg = Config(user_model=UserModelConfig(backend="markdown", ingest_on_session_end=True))
     agent = _make_agent(cfg)

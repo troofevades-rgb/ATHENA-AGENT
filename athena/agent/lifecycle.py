@@ -1082,8 +1082,12 @@ class AgentLifecycle:
             # previously-unwired cfg.user_model.ingest_on_session_end).
             # parent_session_id is None ⇒ a top-level session, not a
             # fork/sub-agent — forks close on the parent's (foreground)
-            # thread, so an origin check wouldn't exclude them. Fire-and-
-            # forget on a daemon thread; gated internally on the backend.
+            # thread, so an origin check wouldn't exclude them. This DOES
+            # also fire for top-level cron/gateway sessions; acceptable
+            # because the default markdown backend is local + the extract
+            # is fire-and-forget on a daemon thread (gated on the backend
+            # being configured). Set ingest_on_session_end=False to opt
+            # out.
             if self.parent_session_id is None:
                 try:
                     from ..user_model.ingest import maybe_fire_ingest

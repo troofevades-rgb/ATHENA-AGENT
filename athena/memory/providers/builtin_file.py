@@ -344,10 +344,15 @@ class BuiltinFileProvider(MemoryProvider):
         self._reconcile_from_disk(profile, workspace=workspace)
         fname = ident if ident.endswith(".md") else f"{ident}.md"
         with closing(self._connect(profile, workspace=workspace)) as conn, conn:
+            # Filename first (deterministic), then frontmatter name — see
+            # delete_entry for the collision rationale.
             row = conn.execute(
-                "SELECT * FROM memory_entries WHERE filename = ? OR name = ?",
-                (fname, ident),
+                "SELECT * FROM memory_entries WHERE filename = ?", (fname,)
             ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    "SELECT * FROM memory_entries WHERE name = ?", (ident,)
+                ).fetchone()
             if row is None:
                 return None
             conn.execute(
@@ -373,10 +378,17 @@ class BuiltinFileProvider(MemoryProvider):
         self._reconcile_from_disk(profile, workspace=workspace)
         fname = ident if ident.endswith(".md") else f"{ident}.md"
         with closing(self._connect(profile, workspace=workspace)) as conn, conn:
+            # Filename FIRST (deterministic), then frontmatter name — a
+            # plain ``OR`` + fetchone() would pick an arbitrary row when a
+            # filename collides with a DIFFERENT entry's name, risking
+            # deleting the wrong file.
             row = conn.execute(
-                "SELECT filename FROM memory_entries WHERE filename = ? OR name = ?",
-                (fname, ident),
+                "SELECT filename FROM memory_entries WHERE filename = ?", (fname,)
             ).fetchone()
+            if row is None:
+                row = conn.execute(
+                    "SELECT filename FROM memory_entries WHERE name = ?", (ident,)
+                ).fetchone()
             if row is None:
                 return False
             resolved = row["filename"]

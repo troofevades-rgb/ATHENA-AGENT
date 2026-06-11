@@ -7,6 +7,7 @@ collector.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import pytest
@@ -14,12 +15,22 @@ import pytest
 from athena.plugins.bundled.observability.plugin import (
     _HAVE_OTEL,
     ObservabilityPlugin,
+    _reset_process_setup_for_tests,
 )
 
 pytestmark = pytest.mark.skipif(
     not _HAVE_OTEL,
     reason="opentelemetry SDK not installed",
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_process_setup():
+    """Setup is now process-once (module-level cache). Reset it around
+    every test so ordering doesn't leak shared providers/instruments."""
+    _reset_process_setup_for_tests()
+    yield
+    _reset_process_setup_for_tests()
 
 
 def _plugin(config: dict[str, Any] | None = None) -> ObservabilityPlugin:
@@ -43,6 +54,37 @@ def test_install_is_idempotent() -> None:
     first_tracer = p._tracer
     p.on_install()  # second call must not raise
     assert p._tracer is first_tracer
+
+
+def test_two_instances_share_one_provider_no_thread_leak() -> None:
+    """Regression: plugins are per-Agent, so the gateway makes a new
+    ObservabilityPlugin per session. The SECOND-and-later instances must
+    adopt the process-global provider/instruments built by the first —
+    not construct their own (which leaks an OTel BatchSpanProcessor
+    daemon thread per session). Pin: same tracer/meter handles, and no
+    extra span-processor thread on the second setup."""
+
+    def _span_threads() -> int:
+        return sum(
+            1
+            for t in threading.enumerate()
+            if "SpanProcessor" in t.name or "OtelBatchSpanProcessor" in t.name
+        )
+
+    p1 = ObservabilityPlugin({})
+    p1._ensure_setup()
+    threads_after_first = _span_threads()
+
+    p2 = ObservabilityPlugin({})
+    p2._ensure_setup()
+    threads_after_second = _span_threads()
+
+    # Same shared handles — second instance adopted, didn't rebuild.
+    assert p2._tracer is p1._tracer
+    assert p2._meter is p1._meter
+    assert p2._counters is p1._counters
+    # No new span-processor thread spawned by the second instance.
+    assert threads_after_second == threads_after_first
 
 
 def test_session_start_sets_up_without_on_install() -> None:

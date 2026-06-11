@@ -59,19 +59,40 @@ def maybe_fire_ingest(
             from . import get_user_model_backend
         except ImportError:
             return
+        # Build an INDEPENDENT provider for the extraction LLM call. The
+        # session_end trigger fires from inside Agent.close(), which
+        # tears down the agent's own provider moments later — reusing it
+        # would race the close and the call would hit a dead client. An
+        # auxiliary provider (same shape, own connection pool) survives
+        # the agent's teardown. Falls back to the agent's provider if the
+        # aux build fails (e.g. compact mid-session, where it's alive).
+        aux_provider: Any = None
         try:
-            backend = get_user_model_backend(
-                cfg,
-                llm_call=_build_llm_call(agent),
-                workspace=file_ops._WORKSPACE,
-            )
-        except (ValueError, NotImplementedError):
-            return
-        session_id = getattr(agent, "session_id", None) or uuid.uuid4().hex
+            from ..agent.auxiliary_client import build_auxiliary_client
+
+            aux_provider = build_auxiliary_client(agent)
+        except Exception:  # noqa: BLE001
+            aux_provider = None
         try:
-            asyncio.run(backend.ingest_session(transcript, session_id=session_id))
-        except Exception:  # noqa: BLE001 — fire-and-forget
-            logger.debug("user-model %s ingest failed", trigger, exc_info=True)
+            try:
+                backend = get_user_model_backend(
+                    cfg,
+                    llm_call=_build_llm_call(agent, provider=aux_provider),
+                    workspace=file_ops._WORKSPACE,
+                )
+            except (ValueError, NotImplementedError):
+                return
+            session_id = getattr(agent, "session_id", None) or uuid.uuid4().hex
+            try:
+                asyncio.run(backend.ingest_session(transcript, session_id=session_id))
+            except Exception:  # noqa: BLE001 — fire-and-forget
+                logger.debug("user-model %s ingest failed", trigger, exc_info=True)
+        finally:
+            if aux_provider is not None:
+                try:
+                    aux_provider.close()
+                except Exception:  # noqa: BLE001
+                    pass
 
     threading.Thread(
         target=_worker,

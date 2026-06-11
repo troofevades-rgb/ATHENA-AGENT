@@ -128,6 +128,17 @@ def test_empty_or_whitespace_query_returns_empty(db: sqlite3.Connection) -> None
     assert idx.fts5_search(db, "   ") == []
 
 
+def test_infrastructure_error_propagates_not_masked() -> None:
+    """Regression: the syntax-error fallback must NOT swallow genuine
+    infrastructure failures (missing FTS table, disk I/O). A search
+    against a DB with no turns_fts table must RAISE, not silently return
+    [] — otherwise a corrupt/missing index reads as 'no results' forever
+    with no signal to reindex."""
+    con = sqlite3.connect(":memory:")  # no init_schema → no turns_fts table
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        idx.fts5_search(con, "anything")
+
+
 def test_valid_fts5_phrase_syntax_still_honored(db: sqlite3.Connection) -> None:
     """A valid quoted phrase is run as-is (true adjacency), not flattened
     to an AND of terms — power-user syntax is preserved when it parses."""

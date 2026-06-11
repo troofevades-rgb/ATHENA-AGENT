@@ -75,6 +75,34 @@ except ImportError:  # pragma: no cover
     _HAVE_OTEL = False
 
 
+# PROCESS-level setup state. OTel's TracerProvider/MeterProvider are
+# process globals (``set_tracer_provider`` ignores all but the first
+# call), and each ``TracerProvider`` spins up a ``BatchSpanProcessor``
+# daemon thread. Plugin instances are per-AGENT (Agent.__init__ loads
+# its own plugins), so the gateway makes a new instance per session —
+# without a process guard, every session would build a fresh provider
+# and leak a thread. Build the providers + instruments ONCE here; every
+# instance adopts the shared handles.
+_PROCESS_LOCK = threading.Lock()
+_PROCESS_SETUP: dict[str, Any] = {
+    "done": False,
+    "tracer": None,
+    "meter": None,
+    "counters": {},
+    "histograms": {},
+    "log_handler": None,
+}
+
+
+def _reset_process_setup_for_tests() -> None:
+    """Test-only: clear the process-once cache so each test can drive a
+    fresh setup. NOT used in production."""
+    with _PROCESS_LOCK:
+        _PROCESS_SETUP.update(
+            done=False, tracer=None, meter=None, counters={}, histograms={}, log_handler=None
+        )
+
+
 class ObservabilityPlugin(Plugin):
     """Bundled observability plugin. Lazy on OTel imports."""
 
@@ -122,20 +150,42 @@ class ObservabilityPlugin(Plugin):
         self._ensure_setup()
 
     def _ensure_setup(self) -> None:
-        """Idempotent per-process initialization of logging + OTel
-        tracer/meter/instruments. Cheap no-op after the first call."""
+        """Bind this instance to the process-wide observability setup,
+        building it on the first call in the process. Subsequent plugin
+        instances (one per Agent) adopt the shared providers/instruments
+        instead of constructing their own — which would leak an OTel
+        BatchSpanProcessor thread per session and silently shadow the
+        first instance's exporter config."""
         if self._installed:
             return
-        self._setup_logging()
-        if _HAVE_OTEL:
-            self._setup_tracing()
-            self._setup_metrics()
-            self._build_instruments()
-        else:
-            logger.warning(
-                "OpenTelemetry SDK not installed; spans/metrics disabled. "
-                'Install with: pip install -e ".[observability]"'
-            )
+        with _PROCESS_LOCK:
+            if not _PROCESS_SETUP["done"]:
+                self._setup_logging()
+                if _HAVE_OTEL:
+                    self._setup_tracing()
+                    self._setup_metrics()
+                    self._build_instruments()
+                else:
+                    logger.warning(
+                        "OpenTelemetry SDK not installed; spans/metrics disabled. "
+                        'Install with: pip install -e ".[observability]"'
+                    )
+                _PROCESS_SETUP.update(
+                    done=True,
+                    tracer=self._tracer,
+                    meter=self._meter,
+                    counters=self._counters,
+                    histograms=self._histograms,
+                    log_handler=self._log_handler,
+                )
+            else:
+                # Adopt the process-global handles built by the first
+                # instance — no new provider, no new thread.
+                self._tracer = _PROCESS_SETUP["tracer"]
+                self._meter = _PROCESS_SETUP["meter"]
+                self._counters = _PROCESS_SETUP["counters"]
+                self._histograms = _PROCESS_SETUP["histograms"]
+                self._log_handler = _PROCESS_SETUP["log_handler"]
         self._installed = True
 
     def _setup_logging(self) -> None:
