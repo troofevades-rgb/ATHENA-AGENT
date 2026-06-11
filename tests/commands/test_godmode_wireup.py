@@ -421,6 +421,38 @@ def test_save_then_load_roundtrips_strategy(
     assert active["strategy"] == "refusal_inversion"
 
 
+def test_save_then_load_default_strategy_roundtrips(
+    _gate_open: None,
+    _agent: SimpleNamespace,
+    _captured_ui: dict[str, list[str]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: `apply` with no arg resolves to the 'default'
+    strategy, which is NOT a key in TEMPLATES. save→load used to reject
+    it ('no longer exists in TEMPLATES'), breaking the round-trip for the
+    default. _apply_strategy handles 'default', so load must too."""
+    import athena.commands.godmode as gm
+
+    monkeypatch.setattr(gm, "CONFIG_DIR", tmp_path / "configs")
+
+    gm.cmd_godmode(_agent, "apply")  # no arg → 'default'
+    assert getattr(_agent, "_active_godmode", {}).get("strategy") == "default"
+    gm.cmd_godmode(_agent, "save defcfg")
+    assert (tmp_path / "configs" / "defcfg.json").exists()
+
+    gm.cmd_godmode(_agent, "clear")
+    assert getattr(_agent, "_active_godmode", None) is None
+
+    _captured_ui["error"].clear()
+    gm.cmd_godmode(_agent, "load defcfg")
+    # No "no longer exists" error, and the default strategy is re-applied.
+    assert not any("no longer exists" in m.lower() for m in _captured_ui["error"])
+    active = getattr(_agent, "_active_godmode", None)
+    assert active is not None
+    assert active["strategy"] == "default"
+
+
 def test_load_missing_file_errors(
     _gate_open: None,
     _agent: SimpleNamespace,

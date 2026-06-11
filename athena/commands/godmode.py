@@ -434,10 +434,9 @@ def _save_config(agent: Any, name: str) -> None:
         "applied_at": active["applied_at"],
         "saved_at": _now_iso(),
     }
-    config_file.write_text(
-        json.dumps(payload, indent=2),
-        encoding="utf-8",
-    )
+    from ..safety.secure_files import atomic_write_text
+
+    atomic_write_text(config_file, json.dumps(payload, indent=2))
     ui.info(f"Config saved to: {config_file}")
 
 
@@ -459,10 +458,15 @@ def _load_config(agent: Any, name: str) -> None:
     if not isinstance(strategy, str) or not strategy:
         ui.error(f"config {config_file} has no usable 'strategy' field.")
         return
-    if strategy not in TEMPLATES:
+    # "default" is a valid strategy that _apply_strategy resolves to the
+    # canonical GODMODE_SYSTEM_PROMPT, but it's NOT a key in TEMPLATES
+    # (which is built from the named STRATEGIES). Without this carve-out,
+    # saving the default strategy then loading it errored ("no longer
+    # exists") — the save→load round-trip was broken for the default.
+    if strategy != "default" and strategy not in TEMPLATES:
         ui.error(
             f"saved strategy {strategy!r} no longer exists in TEMPLATES. "
-            f"Available: {', '.join(TEMPLATES.keys())}"
+            f"Available: {', '.join(['default', *TEMPLATES.keys()])}"
         )
         return
     ui.info(f"Loaded config {name!r}: applying strategy {strategy!r}")
