@@ -364,27 +364,37 @@ async def _stream_response(
                 scope.add_tokens(in_=p_in, out=p_out, cache=p_cache)
 
             try:
-                # Drain the entire provider iterator + translation in
-                # a single thread call. Provider stream_chat may do
-                # HTTP I/O on each ``next()``; consolidating into one
-                # thread avoids the cross-thread generator-state
-                # hazard of calling ``next(gen)`` from different
-                # threads. The translated SSE strings then write out
-                # the loop side one at a time, preserving the
-                # protocol-level "chunked" feel for clients.
-                def _collect() -> list[str]:
-                    chunks_iter: Iterator[StreamChunk] = provider.stream_chat(**stream_kwargs)
-                    return list(
-                        stream_chunks_to_openai_sse(
-                            chunks_iter,
-                            model=resolved_model,
-                            request_id=request_id,
-                            on_usage=_on_usage,
-                        )
-                    )
+                # Stream each SSE chunk to the client AS IT LANDS rather
+                # than draining the whole generation first (which made
+                # stream=true a lie — clients saw nothing until the
+                # response was complete). The provider's stream_chat may
+                # do blocking HTTP I/O on each ``next()``, so each step
+                # runs in a worker thread; we AWAIT each before pulling
+                # the next, so the generator is only ever touched by one
+                # thread at a time (no concurrent-access hazard) and the
+                # event loop is never blocked.
+                chunks_iter: Iterator[StreamChunk] = provider.stream_chat(**stream_kwargs)
+                sse_iter = stream_chunks_to_openai_sse(
+                    chunks_iter,
+                    model=resolved_model,
+                    request_id=request_id,
+                    on_usage=_on_usage,
+                )
 
-                sse_chunks = await asyncio.to_thread(_collect)
-                for sse_str in sse_chunks:
+                _SENTINEL = object()
+
+                def _next_sse() -> Any:
+                    # StopIteration can't cross the thread/async boundary
+                    # cleanly, so convert it to a sentinel here.
+                    try:
+                        return next(sse_iter)
+                    except StopIteration:
+                        return _SENTINEL
+
+                while True:
+                    sse_str = await asyncio.to_thread(_next_sse)
+                    if sse_str is _SENTINEL:
+                        break
                     await resp.write(sse_str.encode("utf-8"))
             except Exception as e:  # noqa: BLE001
                 logger.exception("proxy stream error")

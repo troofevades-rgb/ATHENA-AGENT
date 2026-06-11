@@ -227,6 +227,65 @@ def test_chat_completions_streams_openai_sse(tmp_path) -> None:
     asyncio.run(_run_client(app, run))
 
 
+def test_streaming_delivers_chunks_before_generation_completes(tmp_path) -> None:
+    """Regression: the proxy drained the ENTIRE provider stream into a
+    list before writing the first SSE byte, so clients saw nothing until
+    generation finished (stream=true was a lie). Prove early chunks
+    arrive while later ones are still pending: the provider blocks after
+    the first content chunk; the client must receive that chunk WITHOUT
+    the gate being released."""
+    import threading
+
+    gate = threading.Event()
+
+    @dataclass
+    class _GatedProvider(StubProvider):
+        def stream_chat(self, **kwargs: Any) -> Iterator[StreamChunk]:  # type: ignore[override]
+            self.last_call_kwargs = kwargs
+            yield StreamChunk(kind="content", payload="early")
+            # Block until the test confirms it already saw "early".
+            # If the server buffered the whole stream first, the client
+            # would never receive "early" and the read below times out.
+            gate.wait(timeout=5.0)
+            yield StreamChunk(kind="content", payload="late")
+            yield StreamChunk(kind="end", payload={"reason": "stop"})
+
+    cfg = _make_cfg(tmp_path)
+    pool = StubPool(providers_with_creds=["anthropic"])
+    provider = _GatedProvider(name="anthropic")
+    app = _build_app(cfg, pool, {"anthropic": provider})
+
+    async def run(client: TestClient) -> None:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "claude-sonnet-4-6",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": True,
+            },
+        )
+        assert resp.status == 200
+        # Read incrementally until "early" appears — must happen BEFORE
+        # we release the gate. A buffered server would hang here.
+        buf = b""
+        try:
+            while b"early" not in buf:
+                buf += await asyncio.wait_for(resp.content.readany(), timeout=3.0)
+        except asyncio.TimeoutError:  # pragma: no cover - failure path
+            raise AssertionError(
+                "first chunk did not arrive before generation completed "
+                "— the proxy is buffering, not streaming"
+            )
+        assert b"early" in buf
+        assert b"late" not in buf  # the gated chunk hasn't been produced yet
+        # Release the rest and drain.
+        gate.set()
+        rest = (await resp.read()).decode("utf-8")
+        assert "late" in rest
+
+    asyncio.run(_run_client(app, run))
+
+
 def test_streaming_tool_call_emits_tool_calls_delta(tmp_path) -> None:
     cfg = _make_cfg(tmp_path)
     pool = StubPool(providers_with_creds=["anthropic"])
