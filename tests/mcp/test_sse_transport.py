@@ -540,6 +540,22 @@ async def test_ensure_token_valid_token_used_directly(monkeypatch) -> None:
 # ---- request id allocation ----------------------------------------
 
 
+async def test_request_waits_for_endpoint_then_times_out() -> None:
+    """Regression: _async_request used to sleep a fixed 50ms then POST
+    even if the endpoint wasn't ready — so during a reconnect (which
+    clears _endpoint_ready) a request could fire at the STALE endpoint.
+    It must now actually wait for the endpoint, and time out cleanly if
+    it never becomes ready (rather than posting blindly)."""
+    import threading as _threading
+
+    t = SSETransport.__new__(SSETransport)
+    t.name = "x"
+    t.open_timeout = 0.1
+    t._endpoint_ready = _threading.Event()  # never set → never ready
+    with pytest.raises(SSEError, match="endpoint not ready"):
+        await t._async_request("tools/list", None)
+
+
 async def test_request_after_close_raises(stub_server: _StubSSEServer) -> None:
     """A closed transport must refuse new requests cleanly."""
     stub_server.push_endpoint()

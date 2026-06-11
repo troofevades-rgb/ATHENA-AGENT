@@ -461,11 +461,23 @@ class SSETransport:
         method: str,
         params: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        # Wait for the endpoint event (or its default fallback) to
-        # be ready before posting. ``_open`` already does this, but a
-        # reconnect can clear the readiness — be defensive.
+        # Wait for the endpoint event (or its default fallback) to be
+        # ready before posting. A reconnect clears _endpoint_ready (see
+        # _listen) precisely to stop us POSTing to the PRIOR connection's
+        # stale session URL — so actually WAIT for it (polling the
+        # threading.Event, set from the listener thread) instead of a
+        # single fixed 50ms sleep that would let the POST fire at a stale
+        # endpoint the moment it elapsed. Same deadline-poll shape as
+        # _open; await sleep yields so the loop isn't blocked.
         if not self._endpoint_ready.is_set():
-            await asyncio.sleep(0.05)
+            deadline = asyncio.get_event_loop().time() + self.open_timeout
+            while not self._endpoint_ready.is_set():
+                if asyncio.get_event_loop().time() > deadline:
+                    raise SSEError(
+                        f"[{self.name}] endpoint not ready for {method!r} "
+                        f"after {self.open_timeout}s (reconnect stalled?)"
+                    )
+                await asyncio.sleep(0.02)
 
         assert self._client is not None, "request issued before client init"
         self._id_counter += 1
