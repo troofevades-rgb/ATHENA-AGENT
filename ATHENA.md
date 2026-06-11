@@ -108,7 +108,6 @@
                          (Phase 9): anthropic_xml, openai_function,
                          openai_tools, ollama_native, qwen_xml_leakage,
                          harmony, code_fenced_json, json_block, fallback
-- athena/ollama_client.py  back-compat shim re-exporting OllamaProvider
 - athena/plugins/         agentskills.io-style plugin format (Phase 5)
   - base.py              `Plugin` ABC with lifecycle hooks (install / session
                          start+end / pre+post tool call / user+assistant message)
@@ -293,8 +292,8 @@ touch them. The rest of the tree, for completeness (every top-level
 
 Top-level modules: `provenance.py`, `config.py` / `config_sections.py` /
 `config_deprecations.py`, `env.py`, `net.py`, `text_utils.py`, `ui.py`,
-`ollama_client.py` (back-compat shim), and the observability rails
-`boot_trace.py` / `crash_log.py` / `event_log.py` / `interrupt_hooks.py`.
+and the observability rails `boot_trace.py` / `crash_log.py` /
+`event_log.py` / `interrupt_hooks.py`.
 
 ## Conventions
 - New built-in tools register via `@tool(name=…, toolset=…, …)` in `athena/tools/`
