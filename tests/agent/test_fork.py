@@ -231,6 +231,43 @@ def test_fork_extracts_structured_actions() -> None:
     assert actions[1] == ForkAction(action="patched", target="memory", name="note-1", detail=None)
 
 
+def test_fork_aligns_tool_result_nonce_with_pinned_prompt(
+    parent_agent: Agent, monkeypatch
+) -> None:
+    """Security regression: fork() pins the PARENT's system prompt (for
+    prefix-cache warmth), and that prompt names the parent's tool-result
+    nonce in its prompt-injection containment contract. The child must
+    therefore wrap its tool results with the SAME nonce — otherwise the
+    [TOOL_RESULT.<nonce>] markers the model is told to trust never
+    appear, weakening containment where the auto-approving Agent-tool
+    sub-agent runs."""
+    import athena.agent.core as core_mod
+
+    captured: dict[str, Agent] = {}
+    real_agent = core_mod.Agent
+
+    class _CapturingAgent(real_agent):  # type: ignore[valid-type,misc]
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            captured["child"] = self
+
+    monkeypatch.setattr(core_mod, "Agent", _CapturingAgent)
+
+    # The parent has a system prompt + nonce (built in Agent.__init__).
+    assert parent_agent.messages[0]["role"] == "system"
+    parent_nonce = parent_agent._tool_result_nonce
+    assert parent_nonce
+
+    parent_agent.fork(enabled_toolsets=["core"], system_addendum="")
+
+    child = captured["child"]
+    # Child uses the parent's prompt AND the parent's nonce — aligned,
+    # so the wrapped markers match the containment contract in the prompt.
+    assert child._tool_result_nonce == parent_nonce
+    # And the pinned prompt is in fact the parent's.
+    assert child.messages[0]["content"] == parent_agent.messages[0]["content"]
+
+
 def test_fork_does_not_share_provider_client(parent_agent: Agent) -> None:
     """With ``auxiliary_client=True`` (the default), the fork's provider
     is a *distinct* instance from the parent's — separate httpx client,

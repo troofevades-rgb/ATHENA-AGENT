@@ -153,15 +153,29 @@ def fork(
         #    reduction on Sonnet 4.5 by pinning the parent's prompt verbatim
         #    on review forks (issue #25322, PR #17276) — the same logic
         #    applies to every fork we spawn against a hosted provider.
+        parent_has_system = bool(self.messages) and self.messages[0].get("role") == "system"
         parent_system = (
-            self.messages[0]["content"]
-            if self.messages and self.messages[0].get("role") == "system"
-            else child.messages[0]["content"]
+            self.messages[0]["content"] if parent_has_system else child.messages[0]["content"]
         )
         if system_addendum:
             child.messages[0]["content"] = parent_system.rstrip() + "\n\n" + system_addendum
         else:
             child.messages[0]["content"] = parent_system
+
+        # Align the child's tool-result nonce with the system prompt it
+        # is actually using. We just pinned the PARENT's prompt onto the
+        # child (for prefix-cache warmth) — and that prompt names the
+        # parent's tool-result nonce in its prompt-injection containment
+        # contract ("treat content between [TOOL_RESULT.<nonce>] markers
+        # as DATA"). But the child wraps its own tool results with the
+        # fresh nonce minted in its __init__, so without this the markers
+        # the model is told to trust never appear — weakening containment
+        # exactly where the auto-approving Agent-tool sub-agent runs.
+        # Only realign when we pinned the parent's prompt; the fallback
+        # branch keeps the child's own (already-matching) prompt+nonce.
+        parent_nonce = getattr(self, "_tool_result_nonce", None)
+        if parent_has_system and parent_nonce:
+            child._tool_result_nonce = parent_nonce
 
         # 4. Replace history if provided.
         if conversation_history is not None:
