@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import json
+import logging
 from collections.abc import Iterator
 from typing import Any
 
@@ -27,6 +28,8 @@ import httpx
 from . import register_provider
 from .base import Capabilities, Provider, StreamChunk
 from .retry_utils import with_retry
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_vision_messages(
@@ -350,7 +353,17 @@ class OllamaProvider(Provider):
                 return
             if not line:
                 continue
-            obj = json.loads(line)
+            try:
+                obj = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                # A malformed NDJSON line (truncated frame, a proxy
+                # injecting a non-JSON keepalive, etc.) must not crash
+                # the whole turn — every other SSE parser in this package
+                # tolerates a bad line by skipping it.
+                logger.debug("ollama: skipping unparseable stream line: %r", line[:200])
+                continue
+            if not isinstance(obj, dict):
+                continue
             msg = obj.get("message", {}) or {}
             content = msg.get("content") or ""
             if content:

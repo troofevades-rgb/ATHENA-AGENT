@@ -53,6 +53,32 @@ def test_stream_chat_yields_content_chunks(provider: OllamaProvider):
     assert "".join(contents) == "Hello world."
 
 
+def test_stream_chat_skips_malformed_ndjson_line(provider: OllamaProvider):
+    """Regression: a malformed NDJSON line (truncated frame, proxy
+    keepalive, etc.) used to raise json.JSONDecodeError out of the
+    generator and crash the whole turn. It must now be skipped, and the
+    surrounding valid frames still parse."""
+    body = (
+        json.dumps({"message": {"content": "Hello "}, "done": False}).encode("utf-8")
+        + b"\n"
+        + b"this is not json{{{\n"  # malformed line in the middle
+        + json.dumps({"message": {"content": "world."}, "done": False}).encode("utf-8")
+        + b"\n"
+        + json.dumps(
+            {"message": {"content": ""}, "done": True, "prompt_eval_count": 1, "eval_count": 2}
+        ).encode("utf-8")
+        + b"\n"
+    )
+    with respx.mock(assert_all_called=False) as m:
+        m.post("http://test-host.invalid:11434/api/chat").mock(
+            return_value=httpx.Response(200, content=body)
+        )
+        chunks = list(provider.stream_chat(model="qwen", messages=[]))
+    contents = [c.payload for c in chunks if c.kind == "content"]
+    assert "".join(contents) == "Hello world."
+    assert chunks[-1].kind == "end"
+
+
 def test_stream_chat_yields_usage_with_ollama_extras(provider: OllamaProvider):
     sample = _ndjson(
         {"message": {"role": "assistant", "content": "hi"}, "done": False},
