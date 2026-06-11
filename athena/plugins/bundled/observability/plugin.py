@@ -111,8 +111,19 @@ class ObservabilityPlugin(Plugin):
     # ---- install / activation ----
 
     def on_install(self) -> None:
-        """One-time setup. Idempotent — re-running just replaces
-        previous instances."""
+        """First-install hook. Setup is per-PROCESS, not once-ever, so
+        the real work lives in :meth:`_ensure_setup` (also called from
+        ``on_session_start``). The loader fires ``on_install`` only once
+        per plugin name across the machine's lifetime — relying on it
+        for tracer/meter/log setup meant the plugin emitted nothing from
+        the SECOND session onward (every hook short-circuited on
+        ``_tracer is None``). Now setup runs on the first session of
+        every process."""
+        self._ensure_setup()
+
+    def _ensure_setup(self) -> None:
+        """Idempotent per-process initialization of logging + OTel
+        tracer/meter/instruments. Cheap no-op after the first call."""
         if self._installed:
             return
         self._setup_logging()
@@ -261,6 +272,10 @@ class ObservabilityPlugin(Plugin):
     # ---- session lifecycle ----
 
     def on_session_start(self, session_id: str, profile: str) -> None:
+        # Per-process lazy setup: the loader calls on_install only once
+        # per name EVER, so a second-or-later process would otherwise
+        # have no tracer/meter at all.
+        self._ensure_setup()
         if self._tracer is None or not session_id:
             return
         try:

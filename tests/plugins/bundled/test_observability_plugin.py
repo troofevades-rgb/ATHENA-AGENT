@@ -45,6 +45,20 @@ def test_install_is_idempotent() -> None:
     assert p._tracer is first_tracer
 
 
+def test_session_start_sets_up_without_on_install() -> None:
+    """Regression: the loader fires on_install only once per plugin name
+    EVER, so in the 2nd+ process on_install is never called. A fresh
+    instance (no on_install) must still set up its tracer/meter on the
+    first session and record the session span — otherwise every hook
+    silently no-ops from session 2 onward."""
+    p = ObservabilityPlugin({})  # NB: no on_install(), like a 2nd process
+    assert p._tracer is None and not p._installed
+    p.on_session_start("sess-fresh", "default")
+    assert p._tracer is not None
+    assert p._meter is not None
+    assert "sess-fresh" in p._session_spans
+
+
 def test_install_creates_all_metric_instruments() -> None:
     p = _plugin()
     from athena.plugins.bundled.observability.metrics import (
@@ -263,6 +277,9 @@ def test_session_span_attributes_on_close() -> None:
 
     plugin = ObservabilityPlugin({})
     plugin._tracer = provider.get_tracer("athena")
+    # Injecting a tracer == setup already done; mark it so on_session_start's
+    # lazy _ensure_setup() doesn't replace it with a console-exporter tracer.
+    plugin._installed = True
 
     plugin.on_session_start("sess-attrs", "work")
     plugin.on_session_end("sess-attrs", completed=True, interrupted=False)
