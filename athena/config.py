@@ -67,7 +67,14 @@ def mcp_config_paths(workspace: Path) -> list[Path]:
 
 @dataclass
 class Config:
-    model: str = "troofevades-q35:athena"
+    # Default to a public, tool-capable Ollama model that the README
+    # quickstart actually pulls, so a fresh `pip install athena-coder`
+    # works out of the box. (The previous default — a maintainer's
+    # personal `ollama create` tag — isn't on the public registry, so
+    # new installs started pointing at a model that couldn't be pulled.)
+    # Override in ~/.athena/config.toml; `athena model switch` rewrites
+    # it after the training loop registers a custom tag.
+    model: str = "qwen2.5-coder:14b"
     ollama_host: str = "http://127.0.0.1:11434"
     # aiohttp DNS resolver mode for the gateway / proxy / webhooks. "auto"
     # (default) probes aiodns on Windows and falls back to the OS resolver
