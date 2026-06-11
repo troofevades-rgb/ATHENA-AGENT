@@ -43,8 +43,7 @@ def cmd_memory(agent: Any, arg: str = "") -> str:
         if not rest:
             ui.error("usage: /memory show <filename>")
             return ""
-        name = rest[:-3] if rest.endswith(".md") else rest
-        shown = read_entry(_profile(agent), name, workspace=agent.workspace)
+        shown = read_entry(_profile(agent), rest, workspace=agent.workspace)
         if not shown:
             ui.error(f"not found: {rest}")
             return ""
@@ -60,8 +59,7 @@ def cmd_memory(agent: Any, arg: str = "") -> str:
         if not rest:
             ui.error("usage: /memory delete <filename>")
             return ""
-        name = rest[:-3] if rest.endswith(".md") else rest
-        if delete_entry(_profile(agent), name, workspace=agent.workspace):
+        if delete_entry(_profile(agent), rest, workspace=agent.workspace):
             ui.info(f"deleted {rest}")
         else:
             ui.error(f"not found: {rest}")

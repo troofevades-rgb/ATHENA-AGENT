@@ -122,10 +122,11 @@ def list_memories() -> str:
     },
 )
 def delete_memory(filename: str) -> str:
-    name = filename[:-3] if filename.endswith(".md") else filename
+    # Pass the filename through as-is; the provider resolves by filename
+    # (the stable id) or frontmatter name and normalizes a missing .md.
     deleted = delete_entry(
         _active_profile(),
-        name,
+        filename,
         workspace=file_ops._WORKSPACE,
     )
     if deleted:

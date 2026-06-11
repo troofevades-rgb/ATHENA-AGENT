@@ -332,34 +332,55 @@ class BuiltinFileProvider(MemoryProvider):
         return [self._row_to_entry(r, d) for r in rows]
 
     def read_entry(
-        self, profile: str, name: str, *, workspace: Path | None = None
+        self, profile: str, ident: str, *, workspace: Path | None = None
     ) -> MemoryEntry | None:
+        """Read an entry by filename (preferred) or frontmatter name —
+        same resolution as :meth:`delete_entry`, so ``/memory show
+        <filename>`` works even when the filename differs from the
+        frontmatter name."""
         d = self._memory_dir(profile, workspace=workspace)
         if not d.exists():
             return None
         self._reconcile_from_disk(profile, workspace=workspace)
+        fname = ident if ident.endswith(".md") else f"{ident}.md"
         with closing(self._connect(profile, workspace=workspace)) as conn, conn:
-            row = conn.execute("SELECT * FROM memory_entries WHERE name = ?", (name,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM memory_entries WHERE filename = ? OR name = ?",
+                (fname, ident),
+            ).fetchone()
             if row is None:
                 return None
             conn.execute(
-                "UPDATE memory_entries SET use_count = use_count + 1 WHERE name = ?",
-                (name,),
+                "UPDATE memory_entries SET use_count = use_count + 1 WHERE filename = ?",
+                (row["filename"],),
             )
         return self._row_to_entry(row, d)
 
-    def delete_entry(self, profile: str, name: str, *, workspace: Path | None = None) -> bool:
+    def delete_entry(self, profile: str, ident: str, *, workspace: Path | None = None) -> bool:
+        """Delete a memory entry by its FILENAME (the stable id shown by
+        ``list``/``show``) or, as a fallback, its frontmatter ``name``.
+
+        The ``delete_memory`` tool and ``/memory delete`` pass a
+        filename; the entry's ``name`` is a separate frontmatter field,
+        so matching on ``name`` alone silently missed the normal case
+        (e.g. filename ``user_role.md`` + name ``User role``). Resolve on
+        filename first (normalizing a missing ``.md``), then ``name``,
+        and delete the resolved row by its filename.
+        """
         d = self._memory_dir(profile, workspace=workspace)
         if not d.exists():
             return False
         self._reconcile_from_disk(profile, workspace=workspace)
+        fname = ident if ident.endswith(".md") else f"{ident}.md"
         with closing(self._connect(profile, workspace=workspace)) as conn, conn:
             row = conn.execute(
-                "SELECT filename FROM memory_entries WHERE name = ?", (name,)
+                "SELECT filename FROM memory_entries WHERE filename = ? OR name = ?",
+                (fname, ident),
             ).fetchone()
             if row is None:
                 return False
-            target = d / row["filename"]
+            resolved = row["filename"]
+            target = d / resolved
             if target.exists():
                 from ...safety.mutation import snapshot_and_record
 
@@ -369,7 +390,7 @@ class BuiltinFileProvider(MemoryProvider):
                 ) as ctx:
                     target.unlink()
                     ctx.record(target)
-            conn.execute("DELETE FROM memory_entries WHERE name = ?", (name,))
+            conn.execute("DELETE FROM memory_entries WHERE filename = ?", (resolved,))
         self._refresh_markdown_index(profile, workspace=workspace)
         return True
 

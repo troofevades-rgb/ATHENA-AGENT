@@ -86,14 +86,16 @@ class MemoryProvider(ABC):
 
     @abstractmethod
     def read_entry(
-        self, profile: str, name: str, *, workspace: Path | None = None
+        self, profile: str, ident: str, *, workspace: Path | None = None
     ) -> MemoryEntry | None:
-        """Return the entry whose ``name`` matches, or ``None``.
+        """Return the entry matching ``ident`` (filename preferred, then
+        frontmatter name), or ``None``.
         ``workspace`` -- see :meth:`load_index`."""
 
     @abstractmethod
-    def delete_entry(self, profile: str, name: str, *, workspace: Path | None = None) -> bool:
-        """Remove an entry. Returns ``True`` if the entry existed.
+    def delete_entry(self, profile: str, ident: str, *, workspace: Path | None = None) -> bool:
+        """Remove an entry identified by filename (preferred) or
+        frontmatter name. Returns ``True`` if the entry existed.
         ``workspace`` -- see :meth:`load_index`."""
 
     @abstractmethod

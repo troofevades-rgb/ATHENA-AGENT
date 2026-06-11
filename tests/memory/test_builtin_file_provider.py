@@ -161,6 +161,29 @@ def test_delete_entry_returns_false_when_missing(provider):
     assert provider.delete_entry("default", "never_existed") is False
 
 
+def test_delete_and_read_by_filename_when_name_differs(provider):
+    """Regression: write_entry stores filename and frontmatter name as
+    SEPARATE fields. delete/read used to query WHERE name = ?, so the
+    tool (which passes a filename) silently missed the normal case where
+    the filename differs from the display name. Both must now resolve by
+    filename."""
+    # name (display) differs from filename stem.
+    _write_one(provider, "default", "User role", filename="user_role.md")
+    # Read by filename (with and without .md) works.
+    assert provider.read_entry("default", "user_role.md") is not None
+    assert provider.read_entry("default", "user_role") is not None
+    # Read by the frontmatter name still works (back-compat).
+    assert provider.read_entry("default", "User role") is not None
+    # Delete by filename — the bug: this used to return False.
+    assert provider.delete_entry("default", "user_role.md") is True
+    assert not (provider._memory_dir("default") / "user_role.md").exists()
+
+
+def test_delete_by_filename_without_md_suffix(provider):
+    _write_one(provider, "default", "A note", filename="note.md")
+    assert provider.delete_entry("default", "note") is True
+
+
 def test_delete_entry_refreshes_index(provider):
     _write_one(provider, "default", "keep", description="keep me")
     _write_one(provider, "default", "drop", description="drop me")
