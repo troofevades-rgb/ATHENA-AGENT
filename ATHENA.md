@@ -247,6 +247,55 @@
                           invariant, and progressive disclosure into the
                           single string seeded as messages[0].
 
+### Remaining subpackages (one-line map)
+
+The packages above get detailed treatment because changes routinely
+touch them. The rest of the tree, for completeness (every top-level
+`athena/<pkg>/` must appear here — see the "Don't" rule in CLAUDE.md):
+
+- athena/recall/          semantic recall — past turns + memory embedded
+                          into a local vector index, auto-injected when
+                          `recall_auto` is on (doc_id = `<session>#<turn>`)
+- athena/user_model/      auto-extracted observations about the user,
+                          written as profile-scoped markdown facts
+- athena/cache/           cross-session prompt caching (T5-06)
+- athena/proxy/           `athena proxy` — local OpenAI-compatible HTTP
+                          endpoint that fronts the provider abstraction
+- athena/sandbox/         optional bwrap sandbox for the Bash tool; the
+                          shell_policy denylist remains the floor when off
+- athena/verify/          verified-execution loop (run → observe → repair)
+- athena/lsp/             LSP diagnostics surface, used by verify-on-write
+- athena/eval/            eval battery (agent task suites + scoring)
+- athena/jailbreak/       godmode strategy + race source-of-truth (gated by
+                          `ATHENA_ALLOW_GODMODE`; see `/godmode`)
+- athena/headless/        headless one-shot run primitive (`athena -p`)
+- athena/batch/           batch runner over many prompts (`athena batch`)
+- athena/delegate/        delegation to external coding CLIs (codex, etc.)
+- athena/tasks/           auto-kanban task store + board projection (`/board`)
+- athena/tui_gateway/     Python↔Ink-TUI bridge: spawns the bundled JS,
+                          speaks the JSON-RPC protocol over a per-launch
+                          token-authenticated socket (UDS on POSIX, TCP on
+                          Windows); schema in `tui_gateway/schema/`
+- athena/update/          self-update (detect install method → git/pip path)
+- athena/social/          social provider integration (X/Twitter search)
+- athena/media/           media broker shared by the perception stack
+- athena/vision/          image analysis (tiled passthrough to the provider)
+- athena/ocr/             OCR — text from images / scanned pages
+- athena/audio/           audio analysis + transcription (faster-whisper);
+                          TTS backends live under `audio/tts/`
+- athena/video/           video analysis (frame sampling → vision)
+- athena/document/        document parsing (pdf/docx extractors)
+- athena/browser/         persistent-CDP browser automation (Playwright)
+- athena/computer/        computer use — desktop screenshot + control,
+                          opt-in with tiered approval
+- athena/skills_default/  skills that ship in the wheel, seeded on first run
+                          (excluded from lint/mypy/coverage by design)
+
+Top-level modules: `provenance.py`, `config.py` / `config_sections.py` /
+`config_deprecations.py`, `env.py`, `net.py`, `text_utils.py`, `ui.py`,
+`ollama_client.py` (back-compat shim), and the observability rails
+`boot_trace.py` / `crash_log.py` / `event_log.py` / `interrupt_hooks.py`.
+
 ## Conventions
 - New built-in tools register via `@tool(name=…, toolset=…, …)` in `athena/tools/`
 - Toolsets group tools by capability surface. `enabled_toolsets` scopes which
@@ -335,6 +384,21 @@
 - `athena board [--goal <id>] [--profile NAME] [--static]` — render the
   kanban for a workspace; `--static` forces plain text even when
   textual TUI is available
+- `athena doctor [--no-network] [--json]` — health check (config, creds,
+  ollama, providers, tui); each `[FAIL]` line names the fix
+- `athena proxy` — run the local OpenAI-compatible HTTP endpoint
+- `athena batch …` — run many prompts headlessly (serial or `--parallel`)
+- `athena eval …` — run the eval battery
+- `athena recall {backfill,…}` — manage the semantic-recall vector index
+- `athena delegate …` — hand a task to an external coding CLI
+- `athena verify …` — verified-execution loop entry point
+- `athena audit …` — read the mutation audit log
+- `athena cache …` / `athena cleanup-blobs` — prompt-cache + blob upkeep
+- `athena checkpoint …` / `athena rollback …` — conversation checkpoints
+- `athena theme [NAME]` — switch the TUI palette (one-shot config mutator)
+- `athena image-demo` / `athena wordmark` — rendering demos
+
+(Full subcommand list: every module in `athena/cli/` registers one.)
 
 ## Slash commands
 
