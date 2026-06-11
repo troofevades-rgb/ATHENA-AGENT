@@ -57,6 +57,39 @@ def test_stream_chat_chunks_text_and_usage(provider):
     assert chunks[-1].payload["reason"] == "STOP"
 
 
+def test_stream_recovers_after_interrupt_close(provider):
+    """Regression: the interrupt path calls provider.close() to unblock
+    a socket-blocked stream on ESC. GoogleProvider must rebuild its
+    client on the next request — otherwise one ESC permanently breaks
+    the provider (closed client) until a model switch."""
+    sample = _sse(
+        {"candidates": [{"content": {"parts": [{"text": "again"}], "role": "model"}}]},
+        {
+            "candidates": [
+                {"content": {"parts": [{"text": "!"}], "role": "model"}, "finishReason": "STOP"}
+            ],
+            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+        },
+    )
+    # Simulate the interrupt: close the client out from under the provider.
+    provider.close()
+    assert provider._client.is_closed
+    with respx.mock() as m:
+        m.post("https://gemini.test/v1beta/models/gemini-1.5-pro:streamGenerateContent").mock(
+            return_value=httpx.Response(200, content=sample)
+        )
+        chunks = list(
+            provider.stream_chat(
+                model="gemini-1.5-pro",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        )
+    # The provider rebuilt its client and the stream worked.
+    assert not provider._client.is_closed
+    contents = [c.payload for c in chunks if c.kind == "content"]
+    assert "".join(contents) == "again!"
+
+
 def test_function_calls_parsed_as_tool_call_chunks(provider):
     sample = _sse(
         {

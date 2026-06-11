@@ -82,14 +82,8 @@ class GoogleProvider(Provider):
     ):
         super().__init__(api_key=api_key, **kwargs)
         self.base_url = base_url.rstrip("/")
-        self._client = httpx.Client(
-            base_url=self.base_url,
-            headers={
-                "x-goog-api-key": api_key,
-                "content-type": "application/json",
-            },
-            timeout=timeout,
-        )
+        self._timeout = timeout
+        self._client = self._new_client()
         # Pool reference for 429-driven rotation. ``stream_chat``
         # below wraps the request-open step in ``with_retry`` with
         # :meth:`_rotate_credential` as the rotate hook so 429s on a
@@ -99,6 +93,25 @@ class GoogleProvider(Provider):
         # cross-provider behaviour is uniform.
         self._retry_max: int = 5
         self._retry_backoff_s: float = 30.0
+
+    def _new_client(self) -> httpx.Client:
+        return httpx.Client(
+            base_url=self.base_url,
+            headers={
+                "x-goog-api-key": self.api_key or "",
+                "content-type": "application/json",
+            },
+            timeout=self._timeout,
+        )
+
+    def _ensure_open_client(self) -> None:
+        """Rebuild the httpx client if it was closed. The interrupt path
+        (Agent's cancel hook) calls ``close()`` to unblock a
+        socket-blocked stream on ESC; without rebuilding, one ESC during
+        a Gemini stream would permanently break this provider (every
+        later request hits a closed client) until a model switch."""
+        if self._client.is_closed:
+            self._client = self._new_client()
 
     def _rotate_credential(self) -> bool:
         """Mark the current key as 429'd, swap to the next from the
@@ -133,6 +146,7 @@ class GoogleProvider(Provider):
         max_tokens: int | None = None,
         **kwargs: Any,
     ) -> Iterator[StreamChunk]:
+        self._ensure_open_client()
         system_text, contents = self._convert_messages(messages)
         payload: dict[str, Any] = {
             "contents": contents,
@@ -213,6 +227,7 @@ class GoogleProvider(Provider):
         We strip the ``models/`` prefix so the returned strings are the
         same form callers pass to ``stream_chat``.
         """
+        self._ensure_open_client()
         r = self._client.get("/models", params={"pageSize": 1000})
         _raise_with_body(r)
         data = r.json() or {}
