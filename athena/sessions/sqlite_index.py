@@ -138,19 +138,25 @@ def fts5_search(
     """Return ``(session_id, turn_index, role, content, tool_name,
     timestamp, started_at, workspace, score)`` rows ordered by BM25 rank.
 
-    Wraps ``query`` for the FTS5 ``MATCH`` clause — callers pass the user-
-    facing keyword string and we apply FTS5 quoting where needed.
+    The raw ``query`` is tried against ``MATCH`` first, so valid FTS5
+    syntax (phrases, ``AND``/``OR``, column filters) still works for
+    power users. When the raw query is not valid FTS5 — ``don't``,
+    ``C:\\projects``, ``foo-bar``, unbalanced quotes, a bare ``OR`` —
+    SQLite raises ``OperationalError``; we retry once with each term
+    quoted as a literal phrase (see :func:`_to_fts5_match`) so a keyword
+    search never crashes ``athena sessions search``. An input with no
+    usable terms returns no rows.
     """
     bm25_alias = "bm25(turns_fts)"
     where: list[str] = ["turns_fts MATCH ?", "turns.rowid = turns_fts.rowid"]
-    params: list[Any] = [query]
+    extra_params: list[Any] = []
 
     if workspace is not None:
         where.append("sessions.workspace = ?")
-        params.append(workspace)
+        extra_params.append(workspace)
     if since is not None:
         where.append("sessions.started_at >= ?")
-        params.append(_iso(since))
+        extra_params.append(_iso(since))
 
     sql = (
         "SELECT turns.session_id, turns.turn_index, turns.role, turns.content, "
@@ -161,8 +167,21 @@ def fts5_search(
         f"WHERE {' AND '.join(where)} "
         "ORDER BY score ASC LIMIT ?"
     )
-    params.append(k)
-    return db.execute(sql, params).fetchall()
+
+    def _run(match_expr: str) -> list[tuple[Any, ...]]:
+        return db.execute(sql, [match_expr, *extra_params, k]).fetchall()
+
+    try:
+        return _run(query)
+    except sqlite3.OperationalError:
+        # Raw query isn't valid FTS5 syntax — retry as literal terms.
+        safe = _to_fts5_match(query)
+        if not safe:
+            return []
+        try:
+            return _run(safe)
+        except sqlite3.OperationalError:
+            return []
 
 
 def reset(db: sqlite3.Connection) -> None:
@@ -179,6 +198,26 @@ def reset(db: sqlite3.Connection) -> None:
 
 
 # -- internal helpers ----------------------------------------------------
+
+
+def _to_fts5_match(query: str) -> str:
+    """Turn a user keyword string into a SAFE FTS5 ``MATCH`` expression.
+
+    The raw user string can't go to ``MATCH`` directly: FTS5 treats
+    ``"`` ``:`` ``-`` ``(`` ``*`` ``AND``/``OR``/``NEAR`` etc. as query
+    syntax, so ``don't``, ``C:\\projects``, ``foo-bar`` and unbalanced
+    quotes all raise ``sqlite3.OperationalError`` — which surfaced as a
+    raw traceback from ``athena sessions search``.
+
+    Each whitespace-delimited token becomes a quoted FTS5 phrase (with
+    internal ``"`` doubled per FTS5 escaping), joined by spaces — i.e.
+    an implicit AND of literal terms, which is the right default for a
+    keyword search. Returns ``""`` when nothing usable remains so the
+    caller can short-circuit to "no results" instead of erroring.
+    """
+    tokens = query.split()
+    phrases = [f'"{tok.replace(chr(34), chr(34) * 2)}"' for tok in tokens if tok]
+    return " ".join(phrases)
 
 
 def _iso(value: Any) -> str | None:

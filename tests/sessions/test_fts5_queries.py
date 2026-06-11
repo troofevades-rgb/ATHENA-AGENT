@@ -87,3 +87,50 @@ def test_top_k_ordering(db: sqlite3.Connection) -> None:
     # have score <= all subsequent rows.
     scores = [row[-1] for row in several]
     assert scores == sorted(scores)
+
+
+# ---- crash-safety: raw user input that isn't valid FTS5 syntax --------
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "don't",  # apostrophe
+        "C:\\projects\\athena",  # backslashes + colon (column-filter char)
+        "foo-bar",  # hyphen (NOT operator)
+        'unbalanced "quote',  # unbalanced double quote
+        "fox OR",  # trailing bare operator
+        "(unclosed",  # unbalanced paren
+        "NEAR",  # bare operator keyword
+        "*",  # bare wildcard
+        ": column",  # leading colon
+    ],
+)
+def test_special_chars_dont_crash(db: sqlite3.Connection, query: str) -> None:
+    """Regression: these raised sqlite3.OperationalError from MATCH,
+    surfacing as a raw traceback from `athena sessions search`. They
+    must now return a (possibly empty) result list, never raise."""
+    hits = idx.fts5_search(db, query)
+    assert isinstance(hits, list)
+
+
+def test_apostrophe_term_still_matches_content(db: sqlite3.Connection) -> None:
+    """`don't` should find content containing it once sanitized to a
+    literal term (the apostrophe is a tokenizer separator → matches
+    `don` `t`)."""
+    idx.insert_turn(db, "s-foo", 2, "user", "please don't delete that", None, "2026-03-01T00:00:02Z")
+    hits = idx.fts5_search(db, "don't")
+    assert any(row[0] == "s-foo" for row in hits)
+
+
+def test_empty_or_whitespace_query_returns_empty(db: sqlite3.Connection) -> None:
+    assert idx.fts5_search(db, "") == []
+    assert idx.fts5_search(db, "   ") == []
+
+
+def test_valid_fts5_phrase_syntax_still_honored(db: sqlite3.Connection) -> None:
+    """A valid quoted phrase is run as-is (true adjacency), not flattened
+    to an AND of terms — power-user syntax is preserved when it parses."""
+    # "brown fox" is adjacent in s-foo only.
+    hits = idx.fts5_search(db, '"brown fox"')
+    assert {row[0] for row in hits} == {"s-foo"}
