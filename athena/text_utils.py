@@ -119,32 +119,52 @@ def detect_narrated_intent(text: str) -> bool:
 # models frequently surface-pattern a perfectly legitimate dev task into
 # one of these; pairing a match with a zero-tool-call turn lets the agent
 # loop offer ONE reframing re-prompt (see runtime.py) before giving up.
+#
+# HIGH-PRECISION by design: a false negative (a missed refusal) just
+# means no nudge; a false positive accuses the model of refusing when it
+# was doing legitimate scoped work ("I won't write that migration since
+# the schema didn't change") and wastes a round-trip. So refusal verbs
+# are limited to help/assist/comply/do-that ANCHORED to the request
+# object — generic dev verbs (write/create/generate/provide/support/
+# continue/change) are NOT refusal signals on their own. The apostrophe
+# class is permissive (curly ’ is normalised in detect_false_refusal).
 _REFUSAL = re.compile(
-    r"\b("
-    r"i (?:can'?t|cannot|won'?t|will not|am not able to|'?m not able to|"
-    r"am unable to|'?m unable to) (?:be able to )?"
-    r"(?:help|assist|provide|create|write|generate|continue|comply|"
-    r"do that|do this|fulfil?l|support|engage)"
-    r"|i (?:must|have to|will|need to) (?:decline|refuse|respectfully decline)"
-    r"|i'?m not (?:comfortable|willing|able to help)"
-    r"|i (?:do not|don'?t) feel comfortable"
-    r"|(?:goes |that )?against (?:my |the )?(?:guidelines|policy|policies|"
-    r"principles|programming|values)"
-    r"|(?:i'?m |i am )?(?:sorry|afraid)[^.!?\n]{0,40}"
-    r"(?:can'?t|cannot|won'?t|unable|not able|must decline)"
-    r"|as an ai[^.!?\n]{0,60}(?:can'?t|cannot|won'?t|unable|not able)"
+    r"("
+    # Refusal of the REQUEST itself: help/assist anchored to that/this/
+    # your request/it, or comply / do that. "I can't help with that",
+    # "I won't be able to help with this request", "I cannot comply".
+    r"\bi (?:can't|cannot|won't|will not|am not able to|'m not able to|"
+    r"am unable to|'m unable to) (?:be able to )?"
+    r"(?:(?:help|assist) (?:you )?(?:with )?(?:that\b|this\b|your request|"
+    r"the request|it\b|here\b)|comply\b|do (?:that|this)\b)"
+    r"|\b(?:provide|offer) (?:any )?assistance with\b"
+    # Explicit decline / discomfort.
+    r"|\bi (?:must|have to|need to|will) (?:respectfully )?(?:decline|refuse)\b"
+    r"|\bi'm not (?:comfortable|willing)\b"
+    r"|\bi (?:do not|don't) feel comfortable\b"
+    # Policy / ethics cue.
+    r"|against (?:my |the )?(?:guidelines|policy|policies|principles|"
+    r"programming|values)\b"
+    # "as an AI … can't/cannot/won't/unable"
+    r"|\bas an ai\b[^.!?\n]{0,60}\b(?:can't|cannot|won't|unable|not able)\b"
+    # Apologetic refusal: "I'm sorry/afraid … can't/cannot/won't/decline".
+    # The capability-exclude below stops "I'm afraid I can't find X" here.
+    r"|\b(?:i'm |i am )?(?:sorry|afraid)\b[^.!?\n]{0,40}"
+    r"\b(?:can't|cannot|won't|decline|unable|not able)\b"
     r")",
     re.IGNORECASE,
 )
 # Task-CAPABILITY limitations, NOT policy refusals — the model is willing
 # but blocked by a concrete fact ("I can't find the file"). Never treat
-# these as refusals: nudging here would just loop on a real blocker.
+# these as refusals: nudging here would just loop on a real blocker. Also
+# catches the idiom "can't help but/feeling".
 _REFUSAL_EXCLUDE = re.compile(
-    r"can'?t find|couldn'?t find|can'?t locate|couldn'?t locate|"
-    r"can'?t access|don'?t have access|can'?t reach|can'?t connect|"
-    r"can'?t reproduce|can'?t determine|can'?t see|can'?t read|"
+    r"can't find|couldn't find|can't locate|couldn't locate|"
+    r"can't access|don't have access|can't reach|can't connect|"
+    r"can't reproduce|can't determine|can't see|can't read|"
     r"unable to find|unable to locate|unable to access|unable to read|"
-    r"can'?t open|no such file|does not exist|doesn'?t exist",
+    r"can't open|no such file|does not exist|doesn't exist|"
+    r"can't help but|can't help feeling|cannot help but",
     re.IGNORECASE,
 )
 
@@ -158,14 +178,21 @@ def detect_false_refusal(text: str) -> bool:
     action. This drives a single, bounded reframing re-prompt for the
     common small/local-model failure of spuriously refusing legitimate
     development work; it is NOT a judgment that the request is safe, and
-    the model can still decline after the nudge. Conservative: if any
-    task-capability phrase is present we do NOT treat it as a refusal, so
-    real blockers ("can't find X") never trigger a nudge loop.
+    the model can still decline after the nudge. Conservative: a real
+    task blocker ("can't find X") or the idiom "can't help but" never
+    triggers it, and a reply that ends on a question to the user (not a
+    refusal) is skipped.
     """
     if not text:
         return False
-    t = text.strip()
+    # Normalise curly quotes so smart-apostrophe output (which many
+    # models emit) doesn't slip every contraction past the patterns.
+    t = text.strip().replace("’", "'").replace("‘", "'")
     if not t:
+        return False
+    # A reply that ends on a question is addressed to the user, not a
+    # refusal ("I can't tell which file — which one did you mean?").
+    if t.rstrip().endswith("?"):
         return False
     if _REFUSAL_EXCLUDE.search(t):
         return False

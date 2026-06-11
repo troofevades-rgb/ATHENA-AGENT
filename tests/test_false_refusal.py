@@ -24,6 +24,11 @@ from athena.text_utils import detect_false_refusal
         "I'm afraid I can't continue with this task.",
         "Sorry, I cannot generate that for you.",
         "I do not feel comfortable helping with this.",
+        # Curly/smart apostrophe (U+2019) — many models emit it; must
+        # not slip past the contraction patterns.
+        "I can’t help with that.",
+        "I’m not comfortable assisting with this.",
+        "I’m sorry, but I can’t do that.",
     ],
 )
 def test_flags_policy_refusal(text: str) -> None:
@@ -46,6 +51,19 @@ def test_flags_policy_refusal(text: str) -> None:
         # Normal helpful prose that isn't a refusal.
         "Here's the fix; I updated the message handler.",
         "The off-by-one is on line 42.",
+        # Scoped dev decisions / caveats — NOT policy refusals. These are
+        # the false positives the high-precision patterns must avoid.
+        "I won't write a migration since the schema didn't change.",
+        "I can't provide an exact benchmark, but it should be ~2x faster.",
+        "I am not able to provide a 100% accurate estimate.",
+        "I won't change the public API without asking you first.",
+        "I won't support IE11 here; it's out of scope.",
+        "I won't continue down this path; it would break the tests.",
+        "I can't write that test until we know the expected output.",
+        # "can't help but" idiom — not a refusal.
+        "I can't help but notice this design is fragile.",
+        # A clarifying question to the user is not a refusal.
+        "I can't tell which file you mean — which one did you want?",
     ],
 )
 def test_does_not_flag(text: str) -> None:
