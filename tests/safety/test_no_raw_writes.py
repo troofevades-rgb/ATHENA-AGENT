@@ -75,6 +75,7 @@ ALLOWLIST: frozenset[str] = frozenset(
         # window.
         "athena/profiles/migration.py",
         "athena/safety/audit.py",  # the audit log itself
+        "athena/safety/secure_files.py",  # THE atomic-write primitives (secure_write_text / atomic_write_text); tmp write + os.replace is the pattern this guard exists to encourage
         "athena/safety/snapshots.py",  # the snapshot store itself
         "athena/sessions/jsonl.py",  # session transcript append
         "athena/sessions/reindex.py",  # session index rebuild

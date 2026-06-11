@@ -79,6 +79,24 @@ def test_stream_chat_skips_malformed_ndjson_line(provider: OllamaProvider):
     assert chunks[-1].kind == "end"
 
 
+def test_stream_chat_surfaces_in_band_error_frame(provider: OllamaProvider):
+    """An in-band {"error": ...} frame (CUDA OOM, model-runner crash)
+    inside a 200 stream must surface as a provider error, not be
+    silently swallowed into a blank turn."""
+    body = (
+        json.dumps({"message": {"content": "partial"}, "done": False}).encode("utf-8")
+        + b"\n"
+        + json.dumps({"error": "CUDA out of memory"}).encode("utf-8")
+        + b"\n"
+    )
+    with respx.mock(assert_all_called=False) as m:
+        m.post("http://test-host.invalid:11434/api/chat").mock(
+            return_value=httpx.Response(200, content=body)
+        )
+        with pytest.raises(RuntimeError, match="CUDA out of memory"):
+            list(provider.stream_chat(model="qwen", messages=[]))
+
+
 def test_stream_chat_yields_usage_with_ollama_extras(provider: OllamaProvider):
     sample = _ndjson(
         {"message": {"role": "assistant", "content": "hi"}, "done": False},

@@ -359,11 +359,21 @@ class OllamaProvider(Provider):
                 # A malformed NDJSON line (truncated frame, a proxy
                 # injecting a non-JSON keepalive, etc.) must not crash
                 # the whole turn — every other SSE parser in this package
-                # tolerates a bad line by skipping it.
-                logger.debug("ollama: skipping unparseable stream line: %r", line[:200])
+                # tolerates a bad line by skipping it. Logged at WARNING
+                # (not debug) so a dropped frame is visible without
+                # enabling debug logging.
+                logger.warning("ollama: skipping unparseable stream line: %r", line[:200])
                 continue
             if not isinstance(obj, dict):
                 continue
+            # In-band error frame: Ollama can emit {"error": "..."} inside
+            # a 200 stream (CUDA OOM, model-runner crash, …). Surface it
+            # as a provider error so the turn shows the failure instead of
+            # returning a silent blank — the consumer's except path turns
+            # this into a visible "provider error: …" + a recorded stat.
+            err = obj.get("error")
+            if isinstance(err, str) and err.strip():
+                raise RuntimeError(f"ollama stream error: {err.strip()}")
             msg = obj.get("message", {}) or {}
             content = msg.get("content") or ""
             if content:
