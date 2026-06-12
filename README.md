@@ -160,6 +160,7 @@ context_window = 32768
 # Reliability for small / local models
 narrate_reprompt_attempts = 1     # re-prompt N times when the model narrates without calling a tool (0 disables)
 refusal_reprompt_attempts = 1     # re-prompt N times when the model spuriously refuses a legitimate task on your own project (0 disables)
+max_no_progress_rounds = 6        # halt after N tool rounds in a row that learn nothing new (e.g. repeated empty searches); 0 disables
 routing_enabled = false           # opt-in: escalate to a stronger model when the local one gets stuck
 routing_escalation_model = ""     # e.g. "anthropic/claude-sonnet-4-5"; required when routing_enabled
 recall_auto = false               # opt-in: inject relevant past turns / memory into context each turn
@@ -251,7 +252,7 @@ Everything below runs **locally by default** — your own Ollama models, on-disk
 - Re-prompts when the model narrates an action without calling a tool
 - Reframes a spurious refusal — a small model that pattern-matches a legitimate task on your own project into "I can't help with that" gets one truthful nudge to reconsider before the refusal is surfaced (`refusal_reprompt_attempts`)
 - Repairs malformed tool calls (suggests the right tool / argument names)
-- Circuit breakers for stuck loops and consecutive provider errors
+- Circuit breakers for stuck loops and consecutive provider errors — including a no-progress breaker that halts a model thrashing on a tool that keeps returning nothing new (e.g. the same search 600 times), even when it varies the arguments each call (`max_no_progress_rounds`)
 - Semantic recall — past turns + memory embedded into a local vector index and auto-injected (`recall_auto`)
 
 **Multimodal & rich tools**

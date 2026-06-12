@@ -31,6 +31,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   without each. Linked from the README; the setup scripts point to it and now
   also advise on voice-model and training-stack steps after install.
 
+### Fixed
+- Agent loop: a no-progress circuit breaker (`max_no_progress_rounds`, default
+  6) now halts a model that keeps calling a tool without learning anything new —
+  e.g. re-issuing a web search hundreds of times while every result is
+  `(no results)`. The existing identical-tool-call breaker only caught an
+  *exactly* repeated call, so a model that micro-varied its query each round
+  slipped past it and the THRASH advisory fired forever without ever stopping
+  the turn (dogfood: 600+ WebSearch calls in one run, no final answer). The new
+  breaker is result-shaped — it counts consecutive rounds whose every result is
+  empty, a THRASH warning, or a duplicate of data already seen this turn, and
+  resets the moment genuinely new information appears, so real iterative work is
+  unaffected. It trips under the `circuit_breaker:` prefix, so a stalled
+  autonomous `/goal` pauses instead of grinding to the token cap.
+
 ## [0.3.0] - 2026-06-05
 
 ### Fixed

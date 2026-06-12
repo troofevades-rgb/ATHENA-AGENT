@@ -208,13 +208,31 @@ class Config:
     #     calls (different args OR different tool) reset the
     #     counter, so a legitimate iterative pass (e.g. Read on
     #     three files with different paths) is unaffected.
+    #   * ``max_no_progress_rounds`` -- the args-shaped breaker above
+    #     is defeated by trivial argument variation: a model that
+    #     tweaks a WebSearch query every round (while every search
+    #     returns "(no results)") never repeats an EXACT call, so it
+    #     can thrash for hundreds of rounds. This breaker is
+    #     result-shaped instead -- it counts CONSECUTIVE rounds that
+    #     surfaced no NEW, substantive tool result (every result was
+    #     empty, a THRASH short-circuit warning, or a duplicate of
+    #     data already seen this turn) and halts after N. A round that
+    #     produces genuinely new information resets it, so real
+    #     iterative work (each Read/search returning new content) is
+    #     unaffected. Dogfood case: 600+ WebSearch calls with the
+    #     THRASH advisory firing but never halting.
     #
-    # Set either to 0 to disable that breaker individually.
-    # ``_fire_stop`` records ``circuit_breaker:provider_errors`` or
-    # ``circuit_breaker:identical_tool_calls`` as the stop reason
-    # so /status and the on-disk snapshot surface the trip.
+    # Set any to 0 to disable that breaker individually.
+    # ``_fire_stop`` records ``circuit_breaker:provider_errors``,
+    # ``circuit_breaker:identical_tool_calls``, or
+    # ``circuit_breaker:no_progress`` as the stop reason so /status
+    # and the on-disk snapshot surface the trip. The no_progress trip
+    # also uses the ``circuit_breaker:`` prefix the goal loop pauses
+    # on, so a stalled autonomous goal stops re-injecting instead of
+    # grinding to the token cap.
     max_consecutive_provider_errors: int = 3
     max_identical_tool_calls: int = 3
+    max_no_progress_rounds: int = 6
     # Seconds to wait for each MCP server's startup handshake before
     # giving up and proceeding WITHOUT it. A non-responsive server must
     # never brick the whole CLI launch (it used to: the connect was

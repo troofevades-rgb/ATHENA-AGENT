@@ -405,6 +405,24 @@ class AgentRuntime:
         last_tool_signature: tuple[tuple[str, str], ...] | None = None
         identical_tool_count = 0
         max_identical = max(0, int(getattr(self.cfg, "max_identical_tool_calls", 0) or 0))
+        # No-progress circuit breaker. The identical-tool-call breaker
+        # above only catches an EXACTLY repeated (ordered) tool-call list;
+        # a model that micro-varies its arguments -- e.g. tweaking a
+        # WebSearch query every round while every search returns
+        # "(no results)" -- slips past it and can thrash for hundreds of
+        # calls (a real dogfood failure: 600+ WebSearch calls, the THRASH
+        # advisory firing but never halting). This breaker is result-shaped
+        # instead of args-shaped: it counts CONSECUTIVE rounds that
+        # surfaced no NEW, substantive tool result (every result empty, a
+        # THRASH short-circuit warning, or a duplicate of something already
+        # seen this turn). A round with genuinely new information resets it,
+        # so real iterative work is unaffected. Bounded by
+        # cfg.max_no_progress_rounds (0 disables); fires under the
+        # circuit_breaker: prefix so the goal loop pauses instead of
+        # re-injecting another synthetic turn into the same stall.
+        seen_result_hashes: set[str] = set()
+        no_progress_rounds = 0
+        max_no_progress = max(0, int(getattr(self.cfg, "max_no_progress_rounds", 0) or 0))
         # Count tool calls across the whole turn so the narrate-without-act
         # guard (below) can tell "described a next step but never acted"
         # from a normal closing summary after real work.
@@ -706,6 +724,33 @@ class AgentRuntime:
             # Dispatch completed without interrupt — count this round's
             # calls toward the turn total (consumed by the guard above).
             turn_tool_calls += len(tool_calls)
+
+            # No-progress circuit breaker (see counter init above).
+            # Evaluate the results this round just produced; a stalled
+            # model that keeps calling tools but learns nothing new gets
+            # halted here instead of thrashing to the step / token cap.
+            if max_no_progress:
+                progress = self._classify_round_progress(asst_idx, seen_result_hashes)
+                if progress == "progress":
+                    no_progress_rounds = 0
+                elif progress == "stall":
+                    no_progress_rounds += 1
+                    if no_progress_rounds >= max_no_progress:
+                        if self._maybe_escalate_model(
+                            f"no new tool-result information for "
+                            f"{no_progress_rounds} rounds"
+                        ):
+                            no_progress_rounds = 0
+                        else:
+                            ui.error(
+                                f"circuit breaker tripped: {no_progress_rounds} "
+                                "tool rounds in a row produced no new information "
+                                f"(cfg.max_no_progress_rounds={max_no_progress}). "
+                                "The model is thrashing — halting the turn."
+                            )
+                            self._fire_stop("circuit_breaker:no_progress")
+                            return
+                # "neutral" (only empty results) leaves the counter as-is.
 
         ui.warn(f"reached step limit ({max_steps}); stopping for safety.")
         self._fire_stop("step_limit")
@@ -1436,6 +1481,69 @@ class AgentRuntime:
             except OSError:
                 pass
         ui.show_diff(path, old, new)
+
+    def _unwrap_tool_result(self, content: str) -> str:
+        """Strip the per-session ``[TOOL_RESULT.<nonce>]`` wrapper that
+        :meth:`_record_tool_result` adds, returning the raw tool output.
+        No-op when the wrapper isn't present (stub agents / forks built
+        via ``__new__`` carry no nonce)."""
+        nonce = getattr(self, "_tool_result_nonce", None)
+        if not nonce:
+            return content
+        prefix = f"[TOOL_RESULT.{nonce}]\n"
+        suffix = f"\n[/TOOL_RESULT.{nonce}]"
+        if content.startswith(prefix) and content.endswith(suffix):
+            return content[len(prefix) : len(content) - len(suffix)]
+        return content
+
+    def _classify_round_progress(self, asst_idx: int, seen_result_hashes: set[str]) -> str:
+        """Classify the tool round whose messages follow ``asst_idx`` for
+        the no-progress breaker, updating ``seen_result_hashes`` in place
+        with each new substantive result's hash. Returns one of:
+
+          ``"progress"`` — at least one NEW, substantive result appeared
+              (the turn is advancing); the caller resets the breaker.
+          ``"stall"``    — no new result AND the round showed REPETITION:
+              a non-empty result that duplicates one already seen this
+              turn, or a THRASH short-circuit warning (the tool never
+              ran). The model is re-treading ground; the caller
+              increments the breaker.
+          ``"neutral"``  — neither. The only results were empty (e.g. a
+              successful side-effecting Bash with no stdout): uninformative
+              but not evidence of a loop, so the breaker is left unchanged.
+
+        Distinguishing ``stall`` from ``neutral`` keeps a sequence of
+        empty-output commands from being mistaken for a thrash loop, while
+        still catching the real failure: repeated "(no results)" searches
+        or ignored THRASH advisories.
+        """
+        import hashlib
+
+        saw_progress = False
+        saw_stall = False
+        for m in self.messages[asst_idx + 1 :]:
+            if m.get("role") != "tool":
+                continue
+            content = m.get("content")
+            body = self._unwrap_tool_result(content if isinstance(content, str) else str(content))
+            body = body.strip()
+            if not body:
+                continue
+            if body.startswith("THRASH WARNING:"):
+                saw_stall = True
+                continue
+            h = hashlib.sha1(body.encode("utf-8")).hexdigest()
+            if h in seen_result_hashes:
+                saw_stall = True
+                continue
+            # Record every new substantive result (not just the first) so
+            # a later round that re-emits one of them is still seen as a
+            # duplicate.
+            seen_result_hashes.add(h)
+            saw_progress = True
+        if saw_progress:
+            return "progress"
+        return "stall" if saw_stall else "neutral"
 
     def _record_tool_result(self, call: dict[str, Any], name: str, result: str) -> None:
         # 0.3.0 hardening tier 0 #4: wrap the tool result with the
